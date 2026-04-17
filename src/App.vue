@@ -1,9 +1,9 @@
 <template>
-  <nav>
-    <router-link to="/">Home</router-link> |
-    <router-link to="/about">About</router-link>
-  </nav>
-  <router-view />
+  <router-view v-slot="{ Component, route }">
+    <transition name="page" mode="out-in">
+      <component :is="Component" :key="route.fullPath" />
+    </transition>
+  </router-view>
 </template>
 
 <style lang="scss">
@@ -15,16 +15,18 @@
   color: #2c3e50;
 }
 
-nav {
-  padding: 30px;
+.page-enter-active,
+.page-leave-active {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
 
-  a {
-    font-weight: bold;
-    color: #2c3e50;
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+}
 
-    &.router-link-exact-active {
-      color: #42b983;
-    }
-  }
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(-10px);
 }
 </style>
