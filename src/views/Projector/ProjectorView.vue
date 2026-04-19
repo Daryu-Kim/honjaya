@@ -118,16 +118,18 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   collection,
-  doc,
   onSnapshot,
   orderBy,
   query,
-  updateDoc,
   where,
   limit,
-  serverTimestamp,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import {
+  completeYoutubeRequest,
+  normalizeYoutubeQueueState,
+  startNextQueuedYoutubeRequest,
+} from "@/lib/youtubeQueue";
 
 const youtubeRequestList = ref([]);
 const chatMessageList = ref([]);
@@ -243,14 +245,15 @@ function subscribeYoutubeRequests() {
         ...docSnap.data(),
       }));
 
-      currentVideoRequest.value =
+      const playing =
         youtubeRequestList.value.find((item) => item.status === "PLAYING") ||
         null;
 
+      currentVideoRequest.value = playing;
       isLoadingYoutubeRequests.value = false;
 
-      if (!currentVideoRequest.value) {
-        await tryStartNextQueuedVideo();
+      if (!playing) {
+        await ensureCurrentPlayableVideo();
         return;
       }
 
@@ -261,6 +264,21 @@ function subscribeYoutubeRequests() {
       isLoadingYoutubeRequests.value = false;
     }
   );
+}
+
+async function ensureCurrentPlayableVideo() {
+  try {
+    const normalized = await normalizeYoutubeQueueState();
+
+    if (normalized) {
+      currentVideoRequest.value = normalized;
+      return;
+    }
+
+    currentVideoRequest.value = null;
+  } catch (error) {
+    console.error("현재 재생 영상 보정 실패:", error);
+  }
 }
 
 function subscribeMessages() {
@@ -309,61 +327,31 @@ function subscribeNotices() {
   );
 }
 
-async function tryStartNextQueuedVideo() {
-  if (isAdvancingVideo.value) return null;
+async function advanceToNextVideo() {
+  if (isAdvancingVideo.value) return;
   isAdvancingVideo.value = true;
 
   try {
-    const queued = youtubeRequestList.value
-      .filter((item) => item.status === "QUEUED")
-      .sort((a, b) => {
-        const aTime =
-          typeof a.createdAt?.toDate === "function"
-            ? a.createdAt.toDate().getTime()
-            : 0;
-        const bTime =
-          typeof b.createdAt?.toDate === "function"
-            ? b.createdAt.toDate().getTime()
-            : 0;
-        return aTime - bTime;
-      });
+    const current = currentVideoRequest.value;
 
-    const next = queued[0];
-    if (!next) return null;
+    if (current?.id) {
+      await completeYoutubeRequest(current.id);
+    }
 
-    await updateDoc(doc(db, "youtubeRequests", next.id), {
-      status: "PLAYING",
-      updatedAt: serverTimestamp(),
-    });
-
-    return next;
-  } catch (error) {
-    console.error("다음 영상 시작 실패:", error);
-    return null;
-  } finally {
-    isAdvancingVideo.value = false;
-  }
-}
-
-async function markCurrentVideoDoneAndAdvance() {
-  const current = currentVideoRequest.value;
-  if (!current || isAdvancingVideo.value) return;
-
-  isAdvancingVideo.value = true;
-
-  try {
-    await updateDoc(doc(db, "youtubeRequests", current.id), {
-      status: "DONE",
-      endedAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-
+    const next = await startNextQueuedYoutubeRequest();
     currentLoadedVideoId.value = "";
-    currentVideoRequest.value = null;
 
-    await tryStartNextQueuedVideo();
+    if (next) {
+      currentVideoRequest.value = next;
+      await ensurePlayerForCurrentVideo();
+    } else {
+      currentVideoRequest.value = null;
+      if (player.value?.stopVideo) {
+        player.value.stopVideo();
+      }
+    }
   } catch (error) {
-    console.error("현재 영상 종료 처리 실패:", error);
+    console.error("다음 영상 전환 실패:", error);
   } finally {
     isAdvancingVideo.value = false;
   }
@@ -424,7 +412,7 @@ async function ensurePlayerForCurrentVideo() {
         },
         onStateChange: async (event) => {
           if (event.data === window.YT.PlayerState.ENDED) {
-            await markCurrentVideoDoneAndAdvance();
+            await advanceToNextVideo();
           }
         },
       },
@@ -448,10 +436,11 @@ watch(
 );
 
 onMounted(async () => {
+  await loadYouTubeIframeApi();
+  await ensureCurrentPlayableVideo();
   subscribeYoutubeRequests();
   subscribeMessages();
   subscribeNotices();
-  await loadYouTubeIframeApi();
 });
 
 onUnmounted(() => {

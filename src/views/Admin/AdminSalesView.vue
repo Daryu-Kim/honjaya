@@ -498,9 +498,8 @@ onUnmounted(() => {
 
 <style scoped lang="scss">
 .admin-sales-view {
-  min-height: 100vh;
+  min-height: 100%;
   padding: 24px;
-  background: #0f172a;
   color: #fff;
 }
 

@@ -13,23 +13,37 @@ function normalizeNumber(value) {
   return Number(value || 0);
 }
 
-function sortByCreatedAtAsc(list) {
-  return [...list].sort((a, b) => {
-    const aTime =
-      typeof a.createdAt?.toDate === "function"
-        ? a.createdAt.toDate().getTime()
-        : 0;
-    const bTime =
-      typeof b.createdAt?.toDate === "function"
-        ? b.createdAt.toDate().getTime()
-        : 0;
+function convertCreatedAtToTime(value) {
+  if (!value) return 0;
 
-    return aTime - bTime;
+  if (typeof value?.toDate === "function") {
+    return value.toDate().getTime();
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+}
+
+function sortOrdersByCreatedAtAsc(orderList) {
+  return [...orderList].sort((a, b) => {
+    return (
+      convertCreatedAtToTime(a.createdAt) - convertCreatedAtToTime(b.createdAt)
+    );
   });
 }
 
 function isCountableOrder(order) {
-  return String(order.status || "") !== "CANCELLED";
+  return String(order?.status || "") !== "CANCELLED";
+}
+
+function calculateOrderAmount(order) {
+  if (Array.isArray(order?.items) && order.items.length > 0) {
+    return order.items.reduce((acc, item) => {
+      return acc + normalizeNumber(item.totalPrice);
+    }, 0);
+  }
+
+  return normalizeNumber(order?.totalPrice);
 }
 
 function flattenPreviewItemsFromOrders(orderList) {
@@ -51,6 +65,7 @@ function flattenPreviewItemsFromOrders(orderList) {
 
 function buildLatestOrderItemsPreview(orderList) {
   const flattened = flattenPreviewItemsFromOrders(orderList);
+
   return flattened.slice(-5).reverse();
 }
 
@@ -79,17 +94,18 @@ export async function recalculateOrderSheetTotals(orderSheetId) {
   );
 
   const snapshot = await getDocs(ordersQuery);
+
   const allOrders = snapshot.docs.map((docSnap) => ({
     id: docSnap.id,
     ...docSnap.data(),
   }));
 
-  const validOrders = sortByCreatedAtAsc(allOrders).filter(isCountableOrder);
+  const validOrders =
+    sortOrdersByCreatedAtAsc(allOrders).filter(isCountableOrder);
 
-  const totalAmount = validOrders.reduce(
-    (acc, order) => acc + normalizeNumber(order.totalPrice),
-    0
-  );
+  const totalAmount = validOrders.reduce((acc, order) => {
+    return acc + calculateOrderAmount(order);
+  }, 0);
 
   const latestOrderItemsPreview = buildLatestOrderItemsPreview(validOrders);
   const latestOrderSummaryText = buildLatestOrderSummaryText(validOrders);

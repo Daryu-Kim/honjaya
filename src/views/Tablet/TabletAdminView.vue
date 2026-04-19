@@ -560,8 +560,22 @@
             <button type="button" @click="openManualAddModal(selectedTable)">
               상품 임의 추가
             </button>
-            <button type="button" @click="openTablePaymentModal(selectedTable)">
+
+            <button
+              v-if="selectedTable.paymentStatus !== 'COMPLETED'"
+              type="button"
+              @click="openTablePaymentModal(selectedTable)"
+            >
               결제 처리
+            </button>
+
+            <button
+              v-else
+              type="button"
+              class="secondary-action"
+              @click="finalizeTableCleanup(selectedTable)"
+            >
+              테이블 정리 완료
             </button>
           </div>
         </div>
@@ -988,8 +1002,12 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { createSystemChatMessage } from "@/lib/chat";
-import { completeOrderSheetPayment } from "@/lib/orderSheet";
+import {
+  completeOrderSheetPayment,
+  finalizeOrderSheetCleanup,
+} from "@/lib/orderSheet";
 import { recalculateOrderSheetTotals } from "@/lib/orderSheetTotals";
+import { forcePlayYoutubeRequest } from "@/lib/youtubeQueue";
 
 const activeTab = ref("tables");
 const adminMessageText = ref("");
@@ -1076,7 +1094,28 @@ const currentDateText = computed(() => {
 });
 
 const tableLayoutList = computed(() => {
-  return [...orderSheetList.value]
+  const latestMap = new Map();
+
+  [...orderSheetList.value]
+    .sort((a, b) => {
+      const aTime =
+        typeof a.updatedAt?.toDate === "function"
+          ? a.updatedAt.toDate().getTime()
+          : 0;
+      const bTime =
+        typeof b.updatedAt?.toDate === "function"
+          ? b.updatedAt.toDate().getTime()
+          : 0;
+      return bTime - aTime;
+    })
+    .forEach((item) => {
+      const key = String(item.tableNumber || "");
+      if (!latestMap.has(key)) {
+        latestMap.set(key, item);
+      }
+    });
+
+  return [...latestMap.values()]
     .sort((a, b) => Number(a.tableNumber || 0) - Number(b.tableNumber || 0))
     .map((item) => ({
       ...item,
@@ -1968,10 +2007,7 @@ async function sendAdminMessage() {
 
 async function markYoutubeAsPlaying(request) {
   try {
-    await updateDoc(doc(db, "youtubeRequests", request.id), {
-      status: "PLAYING",
-      updatedAt: serverTimestamp(),
-    });
+    await forcePlayYoutubeRequest(request.id);
 
     await createSystemChatMessage({
       orderSheetId: request.orderSheetId,
@@ -2005,6 +2041,35 @@ async function cancelYoutubeRequest(request) {
   } catch (error) {
     console.error("영상 취소 처리 실패:", error);
     alert("영상 취소 처리 중 문제가 발생했어요.");
+  }
+}
+
+async function finalizeTableCleanup(table) {
+  const confirmed = window.confirm(
+    `${table.tableLabel} 테이블 정리를 완료할까요?`
+  );
+
+  if (!confirmed) return;
+
+  try {
+    await finalizeOrderSheetCleanup({
+      orderSheetId: table.orderSheetId,
+    });
+
+    await createSystemChatMessage({
+      orderSheetId: table.orderSheetId,
+      tableNumber: table.tableNumber,
+      displayName: table.displayName || `No.${table.tableNumber}`,
+      message: `${
+        table.displayName || `No.${table.tableNumber}`
+      } 테이블 이용이 종료되었어요.`,
+    });
+
+    closeTableModal();
+    alert("테이블 정리가 완료되었어요.");
+  } catch (error) {
+    console.error("테이블 정리 완료 처리 실패:", error);
+    alert("테이블 정리 완료 처리 중 문제가 발생했어요.");
   }
 }
 

@@ -291,9 +291,8 @@ onUnmounted(() => {
 
 <style scoped lang="scss">
 .admin-chat-view {
-  min-height: 100vh;
+  min-height: 100%;
   padding: 24px;
-  background: #0f172a;
   color: #fff;
 }
 
@@ -348,7 +347,7 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
   gap: 16px;
-  min-height: calc(100vh - 180px);
+  min-height: calc(100% - 180px);
 }
 
 .sidebar-card,

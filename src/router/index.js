@@ -12,10 +12,11 @@ import ProjectorView from "@/views/Projector/ProjectorView.vue";
 import AdminProductView from "@/views/Admin/AdminProductView.vue";
 import AdminProductFormView from "@/views/Admin/AdminProductFormView.vue";
 import AdminCategoryView from "@/views/Admin/AdminCategoryView.vue";
-import PhoneDashboardView from "@/views/Phone/PhoneDashboardView.vue";
 import TabletAdminView from "@/views/Tablet/TabletAdminView.vue";
 import AdminDashboardView from "@/views/Admin/AdminDashboardView.vue";
 import AdminSalesView from "@/views/Admin/AdminSalesView.vue";
+import AdminLayout from "@/layouts/AdminLayout.vue";
+import AdminProjectorNoticeView from "@/views/Admin/AdminProjectorNoticeView.vue";
 
 const routes = [
   {
@@ -53,55 +54,60 @@ const routes = [
     name: "user-song",
     component: UserSongView,
   },
-  // {
-  //   path: "/user/sing",
-  //   name: "user-sing",
-  //   component: () => import("@/views/user/UserSingView.vue"),
-  // },
   {
     path: "/user/checkout",
     name: "user-checkout",
     component: UserCheckoutView,
   },
   {
-    path: "/admin/dashboard",
-    name: "admin-dashboard",
-    component: AdminDashboardView,
-  },
-  {
-    path: "/admin/sales",
-    name: "admin-sales",
-    component: AdminSalesView,
-  },
-  {
-    path: "/admin/chat",
-    name: "admin-chat",
-    component: AdminChatView,
-  },
-  {
-    path: "/admin/products",
-    name: "admin-products",
-    component: AdminProductView,
-  },
-  {
-    path: "/admin/products/create",
-    name: "admin-product-create",
-    component: AdminProductFormView,
-  },
-  {
-    path: "/admin/categories",
-    name: "admin-categories",
-    component: AdminCategoryView,
-  },
-  {
-    path: "/admin/products/:productId",
-    name: "admin-product-edit",
-    component: AdminProductFormView,
-  },
-  {
-    path: "/phone/dashboard",
-    name: "phone-dashboard",
-    component: PhoneDashboardView,
+    path: "/admin",
+    component: AdminLayout,
+    children: [
+      {
+        path: "",
+        redirect: "/admin/dashboard",
+      },
+      {
+        path: "dashboard",
+        name: "admin-dashboard",
+        component: AdminDashboardView,
+      },
+      {
+        path: "sales",
+        name: "admin-sales",
+        component: AdminSalesView,
+      },
+      {
+        path: "chat",
+        name: "admin-chat",
+        component: AdminChatView,
+      },
+      {
+        path: "projector-notices",
+        name: "admin-projector-notices",
+        component: AdminProjectorNoticeView,
+      },
+      {
+        path: "products",
+        name: "admin-products",
+        component: AdminProductView,
+      },
+      {
+        path: "products/create",
+        name: "admin-product-create",
+        component: AdminProductFormView,
+      },
+      {
+        path: "products/:productId",
+        name: "admin-product-edit",
+        component: AdminProductFormView,
+      },
+      {
+        path: "categories",
+        name: "admin-categories",
+        component: AdminCategoryView,
+      },
+    ],
   },
   {
     path: "/tablet",

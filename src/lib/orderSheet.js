@@ -8,6 +8,20 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
+export async function finalizeOrderSheetCleanup({ orderSheetId }) {
+  const safeOrderSheetId = String(orderSheetId || "").trim();
+
+  if (!safeOrderSheetId) {
+    throw new Error("orderSheetId가 비어 있어요.");
+  }
+
+  await updateDoc(doc(db, "orderSheets", safeOrderSheetId), {
+    status: "CLOSED",
+    closedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
 function formatBusinessDate(date = new Date()) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
