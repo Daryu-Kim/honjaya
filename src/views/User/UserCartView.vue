@@ -166,6 +166,7 @@ import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { createSystemChatMessage } from "@/lib/chat";
 import { recalculateOrderSheetTotals } from "@/lib/orderSheetTotals";
+import { getOrderSheetStatus, isBlockedOrderSheetStatus } from "@/lib/userOrderSheetGuard";
 
 const router = useRouter();
 
@@ -307,6 +308,9 @@ async function submitOrder() {
   if (!tableNumber.value || !displayName.value || !orderSheetId.value) return;
   if (cartList.value.length === 0 || isSubmitting.value) return;
 
+  const canUse = await guardOrderSheetUsable();
+  if (!canUse) return;
+
   isSubmitting.value = true;
   saveRequestMessage();
 
@@ -380,7 +384,30 @@ async function submitOrder() {
   }
 }
 
-onMounted(() => {
+async function guardOrderSheetUsable() {
+  const result = await getOrderSheetStatus(orderSheetId.value);
+
+  if (!result.exists) {
+    alert("주문서를 찾을 수 없어 다시 입장이 필요해요.");
+    sessionStorage.removeItem("userEntryInfo");
+    sessionStorage.removeItem("userCart");
+    sessionStorage.removeItem("userCartRequestMessage");
+    router.replace("/enter");
+    return false;
+  }
+
+  if (isBlockedOrderSheetStatus(result.status)) {
+    alert("이미 결제가 완료된 주문서라 더 이상 주문할 수 없어요.");
+    sessionStorage.removeItem("userCart");
+    sessionStorage.removeItem("userCartRequestMessage");
+    router.replace("/enter");
+    return false;
+  }
+
+  return true;
+}
+
+onMounted(async () => {
   detectMobile();
   loadEntryInfo();
   loadCart();
@@ -388,7 +415,11 @@ onMounted(() => {
 
   if (!tableNumber.value || !displayName.value || !orderSheetId.value) {
     router.replace("/enter");
+    return;
   }
+
+  const canUse = await guardOrderSheetUsable();
+  if (!canUse) return;
 });
 </script>
 

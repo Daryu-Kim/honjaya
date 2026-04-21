@@ -106,6 +106,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { createSystemChatMessage } from "@/lib/chat";
+import { getOrderSheetStatus, isBlockedOrderSheetStatus } from "@/lib/userOrderSheetGuard";
 
 const router = useRouter();
 
@@ -226,6 +227,9 @@ async function createCheckoutRequest() {
   if (!tableNumber.value || !displayName.value || !orderSheetId.value) return;
   if (isSubmitting.value || activePaymentRequest.value) return;
 
+  const canUse = await guardOrderSheetUsableForCheckout();
+  if (!canUse) return;
+
   isSubmitting.value = true;
 
   try {
@@ -298,7 +302,26 @@ function goBack() {
   router.push("/user/main");
 }
 
-onMounted(() => {
+async function guardOrderSheetUsableForCheckout() {
+  const result = await getOrderSheetStatus(orderSheetId.value);
+
+  if (!result.exists) {
+    alert("주문서를 찾을 수 없어 다시 입장이 필요해요.");
+    sessionStorage.removeItem("userEntryInfo");
+    router.replace("/enter");
+    return false;
+  }
+
+  if (isBlockedOrderSheetStatus(result.status)) {
+    alert("이미 결제가 완료된 주문서예요.");
+    router.replace("/enter");
+    return false;
+  }
+
+  return true;
+}
+
+onMounted(async () => {
   detectMobile();
   loadEntryInfo();
 
@@ -306,6 +329,9 @@ onMounted(() => {
     router.replace("/enter");
     return;
   }
+
+  const canUse = await guardOrderSheetUsableForCheckout();
+  if (!canUse) return;
 
   subscribeActivePaymentRequest();
 });

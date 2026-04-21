@@ -291,6 +291,7 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { getOrderSheetStatus, isBlockedOrderSheetStatus } from "@/lib/userOrderSheetGuard";
 
 const router = useRouter();
 
@@ -728,16 +729,45 @@ function goCart() {
   router.push("/user/cart");
 }
 
-onMounted(() => {
+async function guardOrderSheetUsable() {
+  const result = await getOrderSheetStatus(orderSheetId.value);
+
+  if (!result.exists) {
+    alert("주문서를 찾을 수 없어 다시 입장이 필요해요.");
+    sessionStorage.removeItem("userEntryInfo");
+    sessionStorage.removeItem("userCart");
+    sessionStorage.removeItem("userCartRequestMessage");
+    router.replace("/enter");
+    return false;
+  }
+
+  if (isBlockedOrderSheetStatus(result.status)) {
+    alert("이미 결제가 완료된 테이블이에요. 새로 입장해주세요.");
+    sessionStorage.removeItem("userEntryInfo");
+    sessionStorage.removeItem("userCart");
+    sessionStorage.removeItem("userCartRequestMessage");
+    router.replace("/enter");
+    return false;
+  }
+
+  return true;
+}
+
+onMounted(async () => {
   detectMobile();
   loadEntryInfo();
-  loadCart();
-  subscribeCategories();
-  subscribeProducts();
 
   if (!tableNumber.value || !displayName.value || !orderSheetId.value) {
     router.replace("/enter");
+    return;
   }
+
+  const canUse = await guardOrderSheetUsable();
+  if (!canUse) return;
+
+  loadCart();
+  subscribeCategories();
+  subscribeProducts();
 });
 
 onUnmounted(() => {

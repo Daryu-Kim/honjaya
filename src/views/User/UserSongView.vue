@@ -149,6 +149,7 @@ import {
 import { db } from "@/lib/firebase";
 import { createSystemChatMessage } from "@/lib/chat";
 import { searchYoutubeVideosFunc } from "@/lib/youtube";
+import { getOrderSheetStatus, isBlockedOrderSheetStatus } from "@/lib/userOrderSheetGuard";
 
 const router = useRouter();
 
@@ -279,6 +280,9 @@ async function requestYoutubeVideo(video) {
   if (!tableNumber.value || !displayName.value || !orderSheetId.value) return;
   if (isSubmitting.value) return;
 
+  const canUse = await guardOrderSheetUsableForYoutube();
+  if (!canUse) return;
+
   isSubmitting.value = true;
 
   try {
@@ -340,7 +344,26 @@ function goBack() {
   router.push("/user/main");
 }
 
-onMounted(() => {
+async function guardOrderSheetUsableForYoutube() {
+  const result = await getOrderSheetStatus(orderSheetId.value);
+
+  if (!result.exists) {
+    alert("주문서를 찾을 수 없어 다시 입장이 필요해요.");
+    sessionStorage.removeItem("userEntryInfo");
+    router.replace("/enter");
+    return false;
+  }
+
+  if (isBlockedOrderSheetStatus(result.status)) {
+    alert("이미 이용이 종료된 테이블이라 영상 신청이 불가해요.");
+    router.replace("/enter");
+    return false;
+  }
+
+  return true;
+}
+
+onMounted(async () => {
   detectMobile();
   loadEntryInfo();
 
@@ -348,6 +371,9 @@ onMounted(() => {
     router.replace("/enter");
     return;
   }
+
+  const canUse = await guardOrderSheetUsableForYoutube();
+  if (!canUse) return;
 
   subscribeMyRequests();
 });
