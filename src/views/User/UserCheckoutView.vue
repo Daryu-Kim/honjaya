@@ -105,8 +105,10 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { createSystemChatMessage } from "@/lib/chat";
-import { getOrderSheetStatus, isBlockedOrderSheetStatus } from "@/lib/userOrderSheetGuard";
+import {
+  getOrderSheetStatus,
+  isBlockedOrderSheetStatus,
+} from "@/lib/userOrderSheetGuard";
 
 const router = useRouter();
 
@@ -248,13 +250,6 @@ async function createCheckoutRequest() {
       updatedAt: serverTimestamp(),
     });
 
-    await createSystemChatMessage({
-      orderSheetId: orderSheetId.value,
-      tableNumber: tableNumber.value,
-      displayName: displayName.value,
-      message: `${displayName.value}에서 결제를 요청했어요.`,
-    });
-
     alert("결제 요청이 접수되었어요.");
   } catch (error) {
     console.error("결제 요청 생성 실패:", error);
@@ -282,13 +277,6 @@ async function cancelCheckoutRequest() {
       status: "OPEN",
       paymentStatus: "UNPAID",
       updatedAt: serverTimestamp(),
-    });
-
-    await createSystemChatMessage({
-      orderSheetId: orderSheetId.value,
-      tableNumber: tableNumber.value,
-      displayName: displayName.value,
-      message: `${displayName.value}에서 결제 요청을 취소했어요.`,
     });
   } catch (error) {
     console.error("결제 요청 취소 실패:", error);

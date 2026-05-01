@@ -81,10 +81,10 @@ const menuList = [
     matchStartsWith: "/admin/categories",
   },
   {
-    to: "/tablet/admin",
+    to: "/tablet",
     label: "태블릿 운영판",
     description: "매장 현장용 화면",
-    matchStartsWith: "/tablet/admin",
+    matchStartsWith: "/tablet",
   },
 ];
 

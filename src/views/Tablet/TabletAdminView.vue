@@ -291,61 +291,6 @@
         </div>
       </div>
 
-      <!-- 영상 탭 -->
-      <div v-else-if="activeTab === 'youtube'" class="tab-panel">
-        <div class="panel-head">
-          <h2>영상 신청</h2>
-          <p>신청된 영상을 확인하고 현재 재생 큐를 관리할 수 있어요.</p>
-        </div>
-
-        <div v-if="isLoadingYoutubeRequests" class="empty-box">
-          <p>영상 신청을 불러오는 중이에요.</p>
-        </div>
-
-        <div v-else-if="youtubeRequestList.length === 0" class="empty-box">
-          <p>영상 신청이 없어요.</p>
-        </div>
-
-        <div v-else class="list-card-wrap">
-          <article
-            v-for="request in youtubeRequestList"
-            :key="request.id"
-            class="list-card youtube-card"
-          >
-            <div class="youtube-thumb">
-              <img :src="request.thumbnailUrl" :alt="request.title" />
-            </div>
-
-            <div class="youtube-body">
-              <div class="list-card-head">
-                <div>
-                  <strong>{{
-                    request.displayName || `No.${request.tableNumber}`
-                  }}</strong>
-                  <p>{{ request.title }}</p>
-                </div>
-                <span class="status-badge">
-                  {{ convertYoutubeStatusText(request.status) }}
-                </span>
-              </div>
-
-              <div class="action-row">
-                <button type="button" @click="markYoutubeAsPlaying(request)">
-                  재생시작
-                </button>
-                <button
-                  type="button"
-                  class="danger"
-                  @click="cancelYoutubeRequest(request)"
-                >
-                  취소
-                </button>
-              </div>
-            </div>
-          </article>
-        </div>
-      </div>
-
       <!-- 레시피 탭 -->
       <div v-else-if="activeTab === 'recipes'" class="tab-panel">
         <div class="panel-head">
@@ -1001,13 +946,11 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { createSystemChatMessage } from "@/lib/chat";
 import {
   completeOrderSheetPayment,
   finalizeOrderSheetCleanup,
 } from "@/lib/orderSheet";
 import { recalculateOrderSheetTotals } from "@/lib/orderSheetTotals";
-import { forcePlayYoutubeRequest } from "@/lib/youtubeQueue";
 
 const activeTab = ref("tables");
 const adminMessageText = ref("");
@@ -1058,7 +1001,6 @@ const tabList = [
   { key: "orders", label: "주문" },
   { key: "payments", label: "결제" },
   { key: "chat", label: "채팅" },
-  { key: "youtube", label: "영상" },
   { key: "recipes", label: "레시피" },
 ];
 
@@ -1066,21 +1008,18 @@ const isLoadingOrderSheets = ref(true);
 const isLoadingOrders = ref(true);
 const isLoadingPaymentRequests = ref(true);
 const isLoadingMessages = ref(true);
-const isLoadingYoutubeRequests = ref(true);
 const isLoadingProducts = ref(true);
 
 const orderSheetList = ref([]);
 const orderList = ref([]);
 const paymentRequestList = ref([]);
 const chatMessageList = ref([]);
-const youtubeRequestList = ref([]);
 const productList = ref([]);
 
 let unsubscribeOrderSheets = null;
 let unsubscribeOrders = null;
 let unsubscribePayments = null;
 let unsubscribeMessages = null;
-let unsubscribeYoutube = null;
 let unsubscribeProducts = null;
 
 const recipeKeyword = ref("");
@@ -1326,14 +1265,6 @@ function convertPaymentMethodText(method) {
   return method || "-";
 }
 
-function convertYoutubeStatusText(status) {
-  if (status === "QUEUED") return "신청됨";
-  if (status === "PLAYING") return "재생중";
-  if (status === "DONE") return "완료";
-  if (status === "CANCELLED") return "취소";
-  return status || "알 수 없음";
-}
-
 function getHiddenPreviewCount(table) {
   const previewLength = Array.isArray(table.latestOrderItemsPreview)
     ? table.latestOrderItemsPreview.length
@@ -1444,28 +1375,6 @@ function subscribeMessages() {
     (error) => {
       console.error("채팅 구독 실패:", error);
       isLoadingMessages.value = false;
-    }
-  );
-}
-
-function subscribeYoutubeRequests() {
-  const q = query(
-    collection(db, "youtubeRequests"),
-    where("status", "in", ["QUEUED", "PLAYING"]),
-    orderBy("createdAt", "asc")
-  );
-  unsubscribeYoutube = onSnapshot(
-    q,
-    (snapshot) => {
-      youtubeRequestList.value = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-      isLoadingYoutubeRequests.value = false;
-    },
-    (error) => {
-      console.error("영상 신청 구독 실패:", error);
-      isLoadingYoutubeRequests.value = false;
     }
   );
 }
@@ -1829,13 +1738,6 @@ async function submitManualAddOrder() {
 
     await recalculateOrderSheetTotals(state.orderSheetId);
 
-    await createSystemChatMessage({
-      orderSheetId: state.orderSheetId,
-      tableNumber: state.tableNumber,
-      displayName: state.displayName,
-      message: `${state.displayName}에 직원이 상품을 추가했어요.`,
-    });
-
     closeManualAddModal();
     closeTableModal();
     alert("상품이 테이블에 추가되었어요.");
@@ -1930,17 +1832,6 @@ async function completePayment() {
       paymentMethod: state.paymentMethod,
     });
 
-    await createSystemChatMessage({
-      orderSheetId: state.orderSheetId,
-      tableNumber: state.tableNumber,
-      displayName: state.displayName,
-      message: `${
-        state.displayName
-      } 결제가 완료되었어요. (${convertPaymentMethodText(
-        state.paymentMethod
-      )})`,
-    });
-
     paymentCompleteModalState.value = {
       isOpen: true,
       displayName: state.displayName,
@@ -1964,17 +1855,6 @@ async function updateOrderStatus(order, nextStatus) {
     });
 
     await recalculateOrderSheetTotals(order.orderSheetId);
-
-    await createSystemChatMessage({
-      orderSheetId: order.orderSheetId,
-      tableNumber: order.tableNumber,
-      displayName: order.displayName,
-      message: `${
-        order.displayName || `No.${order.tableNumber}`
-      } 주문 상태가 "${convertOrderStatusText(
-        nextStatus
-      )}"(으)로 변경되었어요.`,
-    });
   } catch (error) {
     console.error("주문 상태 변경 실패:", error);
     alert("주문 상태 변경 중 문제가 발생했어요.");
@@ -2005,45 +1885,6 @@ async function sendAdminMessage() {
   }
 }
 
-async function markYoutubeAsPlaying(request) {
-  try {
-    await forcePlayYoutubeRequest(request.id);
-
-    await createSystemChatMessage({
-      orderSheetId: request.orderSheetId,
-      tableNumber: request.tableNumber,
-      displayName: request.displayName,
-      message: `${
-        request.displayName || `No.${request.tableNumber}`
-      } 신청 영상이 재생을 시작했어요.`,
-    });
-  } catch (error) {
-    console.error("영상 재생 시작 처리 실패:", error);
-    alert("영상 재생 시작 처리 중 문제가 발생했어요.");
-  }
-}
-
-async function cancelYoutubeRequest(request) {
-  try {
-    await updateDoc(doc(db, "youtubeRequests", request.id), {
-      status: "CANCELLED",
-      updatedAt: serverTimestamp(),
-    });
-
-    await createSystemChatMessage({
-      orderSheetId: request.orderSheetId,
-      tableNumber: request.tableNumber,
-      displayName: request.displayName,
-      message: `${
-        request.displayName || `No.${request.tableNumber}`
-      } 신청 영상이 취소되었어요.`,
-    });
-  } catch (error) {
-    console.error("영상 취소 처리 실패:", error);
-    alert("영상 취소 처리 중 문제가 발생했어요.");
-  }
-}
-
 async function finalizeTableCleanup(table) {
   const confirmed = window.confirm(
     `${table.tableLabel} 테이블 정리를 완료할까요?`
@@ -2054,15 +1895,6 @@ async function finalizeTableCleanup(table) {
   try {
     await finalizeOrderSheetCleanup({
       orderSheetId: table.orderSheetId,
-    });
-
-    await createSystemChatMessage({
-      orderSheetId: table.orderSheetId,
-      tableNumber: table.tableNumber,
-      displayName: table.displayName || `No.${table.tableNumber}`,
-      message: `${
-        table.displayName || `No.${table.tableNumber}`
-      } 테이블 이용이 종료되었어요.`,
     });
 
     closeTableModal();
@@ -2078,7 +1910,6 @@ onMounted(() => {
   subscribeOrders();
   subscribePaymentRequests();
   subscribeMessages();
-  subscribeYoutubeRequests();
   subscribeProducts();
 });
 
@@ -2087,7 +1918,6 @@ onUnmounted(() => {
   if (unsubscribeOrders) unsubscribeOrders();
   if (unsubscribePayments) unsubscribePayments();
   if (unsubscribeMessages) unsubscribeMessages();
-  if (unsubscribeYoutube) unsubscribeYoutube();
   if (unsubscribeProducts) unsubscribeProducts();
 });
 </script>
@@ -2430,24 +2260,6 @@ onUnmounted(() => {
   min-height: unset;
   height: 46px;
 }
-.youtube-card {
-  display: grid;
-  grid-template-columns: 180px 1fr;
-  gap: 14px;
-}
-.youtube-thumb {
-  width: 180px;
-  height: 102px;
-  border-radius: 16px;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.08);
-}
-.youtube-thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
 .recipe-layout,
 .manual-add-layout {
   display: grid;
@@ -2735,15 +2547,6 @@ onUnmounted(() => {
 @media (max-width: 960px) {
   .table-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .youtube-card {
-    grid-template-columns: 1fr;
-  }
-
-  .youtube-thumb {
-    width: 100%;
-    height: 180px;
   }
 }
 </style>

@@ -5,7 +5,6 @@ import UserOrderView from "@/views/User/UserOrderView.vue";
 import UserCartView from "@/views/User/UserCartView.vue";
 import UserOrderCompleteView from "@/views/User/UserOrderCompleteView.vue";
 import UserChatView from "@/views/User/UserChatView.vue";
-import UserSongView from "@/views/User/UserSongView.vue";
 import UserCheckoutView from "@/views/User/UserCheckoutView.vue";
 import AdminChatView from "@/views/Admin/AdminChatView.vue";
 import ProjectorView from "@/views/Projector/ProjectorView.vue";
@@ -48,11 +47,6 @@ const routes = [
     path: "/user/chat",
     name: "user-chat",
     component: UserChatView,
-  },
-  {
-    path: "/user/song",
-    name: "user-song",
-    component: UserSongView,
   },
   {
     path: "/user/checkout",

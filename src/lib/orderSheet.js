@@ -118,7 +118,6 @@ export async function getOrCreateOpenOrderSheet(tableNumber) {
       paymentMethod: "",
       totalAmount: 0,
       orderCount: 0,
-      youtubeRequestCount: 0,
       latestOrderItemsPreview: [],
       latestOrderSummaryText: "",
       createdAt: serverTimestamp(),

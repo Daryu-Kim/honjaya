@@ -46,14 +46,6 @@
           </div>
         </button>
 
-        <button type="button" class="menu-card" @click="goSong">
-          <div class="menu-icon">🎬</div>
-          <div class="menu-text">
-            <strong>영상 신청</strong>
-            <p>유튜브 영상을 검색하고 신청할 수 있어요.</p>
-          </div>
-        </button>
-
         <button type="button" class="menu-card" @click="goCheckout">
           <div class="menu-icon">💳</div>
           <div class="menu-text">
@@ -120,10 +112,6 @@ function goOrder() {
 
 function goChat() {
   router.push("/user/chat");
-}
-
-function goSong() {
-  router.push("/user/song");
 }
 
 function goCheckout() {

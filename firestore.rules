@@ -94,24 +94,6 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
-    // 유튜브 신청
-    match /youtubeRequests/{requestId} {
-      allow read: if isAdmin() || isOwner();
-
-      allow create: if
-        isOwnerOnCreate() &&
-        request.resource.data.requestType == "YOUTUBE" &&
-        isSafeString(request.resource.data.tableNumber, 10) &&
-        isSafeString(request.resource.data.nickname, 30) &&
-        isSafeString(request.resource.data.youtubeVideoId, 30) &&
-        isSafeString(request.resource.data.title, 300) &&
-        isSafeString(request.resource.data.youtubeChannelTitle, 200) &&
-        isSafeString(request.resource.data.thumbnailUrl, 1000) &&
-        request.resource.data.status == "WAITING";
-
-      allow update, delete: if isAdmin();
-    }
-
     // 상품
     match /products/{productId} {
       allow read: if signedIn();

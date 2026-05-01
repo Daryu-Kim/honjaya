@@ -29,11 +29,6 @@
         <span class="summary-label">결제 요청</span>
         <strong>{{ paymentRequestCount }}건</strong>
       </article>
-
-      <article class="summary-card">
-        <span class="summary-label">영상 신청</span>
-        <strong>{{ queuedYoutubeCount }}건</strong>
-      </article>
     </section>
 
     <section class="dashboard-grid">
@@ -170,45 +165,6 @@
 
         <section class="panel-card">
           <div class="panel-head">
-            <h2>영상 신청</h2>
-            <p>현재 재생 큐에 올라간 신청 영상입니다.</p>
-          </div>
-
-          <div v-if="isLoadingYoutube" class="empty-box">
-            <p>영상 신청을 불러오는 중이에요.</p>
-          </div>
-
-          <div v-else-if="youtubeRequestList.length === 0" class="empty-box">
-            <p>대기 중인 영상 신청이 없어요.</p>
-          </div>
-
-          <div v-else class="card-list compact">
-            <article
-              v-for="request in youtubeRequestList.slice(0, 5)"
-              :key="request.id"
-              class="mini-card"
-            >
-              <div class="mini-card-head">
-                <div>
-                  <strong>{{
-                    request.displayName || `No.${request.tableNumber}`
-                  }}</strong>
-                  <p class="ellipsis">{{ request.title }}</p>
-                </div>
-                <span class="status-badge">
-                  {{ convertYoutubeStatusText(request.status) }}
-                </span>
-              </div>
-
-              <div class="mini-card-foot">
-                <span>{{ formatDateTime(request.createdAt) }}</span>
-              </div>
-            </article>
-          </div>
-        </section>
-
-        <section class="panel-card">
-          <div class="panel-head">
             <h2>최근 채팅</h2>
             <p>실시간 분위기를 빠르게 확인할 수 있어요.</p>
           </div>
@@ -257,19 +213,16 @@ const router = useRouter();
 
 const isLoadingOrders = ref(true);
 const isLoadingPayments = ref(true);
-const isLoadingYoutube = ref(true);
 const isLoadingMessages = ref(true);
 const isLoadingOrderSheets = ref(true);
 
 const orderList = ref([]);
 const paymentRequestList = ref([]);
-const youtubeRequestList = ref([]);
 const chatMessageList = ref([]);
 const orderSheetList = ref([]);
 
 let unsubscribeOrders = null;
 let unsubscribePayments = null;
-let unsubscribeYoutube = null;
 let unsubscribeMessages = null;
 let unsubscribeOrderSheets = null;
 
@@ -309,12 +262,6 @@ const todaySalesAmount = computed(() => {
 
 const paymentRequestCount = computed(() => {
   return paymentRequestList.value.length;
-});
-
-const queuedYoutubeCount = computed(() => {
-  return youtubeRequestList.value.filter((item) =>
-    ["QUEUED", "PLAYING"].includes(String(item.status || ""))
-  ).length;
 });
 
 const recentOrders = computed(() => {
@@ -359,14 +306,6 @@ function convertPaymentRequestStatusText(status) {
   if (status === "REQUESTED") return "요청됨";
   if (status === "CONFIRMED") return "확인됨";
   if (status === "DONE") return "결제완료";
-  if (status === "CANCELLED") return "취소";
-  return status || "알 수 없음";
-}
-
-function convertYoutubeStatusText(status) {
-  if (status === "QUEUED") return "신청됨";
-  if (status === "PLAYING") return "재생중";
-  if (status === "DONE") return "완료";
   if (status === "CANCELLED") return "취소";
   return status || "알 수 없음";
 }
@@ -449,29 +388,6 @@ function subscribePayments() {
   );
 }
 
-function subscribeYoutube() {
-  const q = query(
-    collection(db, "youtubeRequests"),
-    where("status", "in", ["QUEUED", "PLAYING"]),
-    orderBy("createdAt", "asc"),
-    limit(20)
-  );
-
-  unsubscribeYoutube = onSnapshot(
-    q,
-    (snapshot) => {
-      youtubeRequestList.value = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-      isLoadingYoutube.value = false;
-    },
-    () => {
-      isLoadingYoutube.value = false;
-    }
-  );
-}
-
 function subscribeMessages() {
   const q = query(
     collection(db, "chatMessages"),
@@ -519,7 +435,6 @@ function subscribeOrderSheets() {
 onMounted(() => {
   subscribeOrders();
   subscribePayments();
-  subscribeYoutube();
   subscribeMessages();
   subscribeOrderSheets();
 });
@@ -527,7 +442,6 @@ onMounted(() => {
 onUnmounted(() => {
   if (unsubscribeOrders) unsubscribeOrders();
   if (unsubscribePayments) unsubscribePayments();
-  if (unsubscribeYoutube) unsubscribeYoutube();
   if (unsubscribeMessages) unsubscribeMessages();
   if (unsubscribeOrderSheets) unsubscribeOrderSheets();
 });

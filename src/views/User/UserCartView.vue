@@ -164,9 +164,11 @@ import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { createSystemChatMessage } from "@/lib/chat";
 import { recalculateOrderSheetTotals } from "@/lib/orderSheetTotals";
-import { getOrderSheetStatus, isBlockedOrderSheetStatus } from "@/lib/userOrderSheetGuard";
+import {
+  getOrderSheetStatus,
+  isBlockedOrderSheetStatus,
+} from "@/lib/userOrderSheetGuard";
 
 const router = useRouter();
 
@@ -353,15 +355,6 @@ async function submitOrder() {
     const orderRef = await addDoc(collection(db, "orders"), orderPayload);
 
     await recalculateOrderSheetTotals(orderSheetId.value);
-
-    await createSystemChatMessage({
-      orderSheetId: orderSheetId.value,
-      tableNumber: tableNumber.value,
-      displayName: displayName.value,
-      message: `${displayName.value}에서 주문을 요청했어요. (${
-        totalCartCount.value
-      }개 / ${formatPrice(totalCartPrice.value)}원)`,
-    });
 
     sessionStorage.setItem("lastRequestedOrderId", orderRef.id);
     sessionStorage.removeItem("userCart");
