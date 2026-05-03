@@ -1066,6 +1066,7 @@ onUnmounted(() => {
     font-size: 17px;
     font-weight: 800;
     line-height: 1.4;
+    text-align: left;
   }
 }
 
@@ -1074,6 +1075,8 @@ onUnmounted(() => {
   font-size: 13px;
   line-height: 1.5;
   color: rgba(255, 255, 255, 0.68);
+  text-align: left;
+  word-break: keep-all;
 }
 
 .product-bottom {

@@ -54,6 +54,17 @@
           </div>
         </button>
       </section>
+
+      <div class="session-card" style="margin-top: 20px">
+        <div class="session-row">
+          <span>WIFI 이름</span>
+          <strong>U+NetB1D9</strong>
+        </div>
+        <div class="session-row">
+          <span>WIFI 비밀번호</span>
+          <strong>6D99493BM*</strong>
+        </div>
+      </div>
     </div>
   </div>
 </template>
