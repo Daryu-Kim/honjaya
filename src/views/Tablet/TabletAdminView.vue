@@ -109,12 +109,16 @@
           <p>주문 정보를 불러오는 중이에요.</p>
         </div>
 
-        <div v-else-if="orderList.length === 0" class="empty-box">
-          <p>주문이 없어요.</p>
+        <div v-else-if="filteredOrderList.length === 0" class="empty-box">
+          <p>진행 중인 주문이 없어요.</p>
         </div>
 
         <div v-else class="list-card-wrap">
-          <article v-for="order in orderList" :key="order.id" class="list-card">
+          <article
+            v-for="order in filteredOrderList"
+            :key="order.id"
+            class="list-card"
+          >
             <div class="list-card-head">
               <div>
                 <strong>{{
@@ -428,10 +432,7 @@
                 </div>
 
                 <div
-                  v-if="
-                    !selectedRecipeData?.hasStructuredRecipe &&
-                    selectedRecipeData?.recipeText
-                  "
+                  v-if="selectedRecipeData?.recipeText"
                   class="recipe-section-box"
                 >
                   <h4>레시피 메모</h4>
@@ -1094,28 +1095,76 @@ const filteredRecipeProductList = computed(() => {
   });
 });
 
+const filteredOrderList = computed(() => {
+  return orderList.value.filter((order) => {
+    const status = String(order.status || "");
+    return status !== "SERVED" && status !== "CANCELLED";
+  });
+});
+
 const selectedRecipeData = computed(() => {
   if (!selectedRecipeProduct.value) return null;
 
   const product = selectedRecipeProduct.value;
   const recipeInfo = product.recipeInfo || null;
 
+  const normalizeIngredient = (item) => {
+    if (typeof item === "string") {
+      const text = item.trim();
+      if (!text) return { name: "", amount: "" };
+      const separator = text.includes(" - ")
+        ? " - "
+        : text.includes("-")
+        ? "-"
+        : null;
+      if (separator) {
+        const [name, amount] = text.split(separator).map((part) => part.trim());
+        return { name: name || "", amount: amount || "" };
+      }
+      return { name: text, amount: "" };
+    }
+
+    if (item && typeof item === "object") {
+      return {
+        name: String(
+          item.name || item.ingredient || item.title || item.text || ""
+        ).trim(),
+        amount: String(item.amount || item.quantity || item.value || "").trim(),
+      };
+    }
+
+    return { name: String(item || "").trim(), amount: "" };
+  };
+
+  const ingredients = Array.isArray(recipeInfo?.ingredients)
+    ? recipeInfo.ingredients.map(normalizeIngredient)
+    : [];
+
+  const steps = Array.isArray(recipeInfo?.steps)
+    ? recipeInfo.steps
+        .map((step) => String(step || "").trim())
+        .filter((step) => step)
+    : [];
+
+  const tips = Array.isArray(recipeInfo?.tips)
+    ? recipeInfo.tips
+        .map((tip) => String(tip || "").trim())
+        .filter((tip) => tip)
+    : [];
+
   const hasStructuredRecipe =
     recipeInfo &&
     (String(recipeInfo.description || "").trim() ||
-      (Array.isArray(recipeInfo.ingredients) &&
-        recipeInfo.ingredients.length > 0) ||
-      (Array.isArray(recipeInfo.steps) && recipeInfo.steps.length > 0) ||
-      (Array.isArray(recipeInfo.tips) && recipeInfo.tips.length > 0));
+      ingredients.length > 0 ||
+      steps.length > 0 ||
+      tips.length > 0);
 
   return {
     productName: product.productName || "",
     description: String(recipeInfo?.description || "").trim(),
-    ingredients: Array.isArray(recipeInfo?.ingredients)
-      ? recipeInfo.ingredients
-      : [],
-    steps: Array.isArray(recipeInfo?.steps) ? recipeInfo.steps : [],
-    tips: Array.isArray(recipeInfo?.tips) ? recipeInfo.tips : [],
+    ingredients,
+    steps,
+    tips,
     recipeText: String(product.recipeText || "").trim(),
     hasStructuredRecipe,
   };
@@ -2389,7 +2438,7 @@ onUnmounted(() => {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(2, 6, 23, 0.62);
+  background: rgba(2, 6, 23, 0.85);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2400,6 +2449,9 @@ onUnmounted(() => {
   width: 100%;
   max-width: 760px;
   padding: 20px;
+  background: rgba(15, 23, 42, 0.96);
+  border-radius: 18px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
 }
 .table-detail-modal {
   max-width: 640px;

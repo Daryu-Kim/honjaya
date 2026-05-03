@@ -11,6 +11,7 @@ import ProjectorView from "@/views/Projector/ProjectorView.vue";
 import AdminProductView from "@/views/Admin/AdminProductView.vue";
 import AdminProductFormView from "@/views/Admin/AdminProductFormView.vue";
 import AdminCategoryView from "@/views/Admin/AdminCategoryView.vue";
+import AdminRecipeView from "@/views/Admin/AdminRecipeView.vue";
 import TabletAdminView from "@/views/Tablet/TabletAdminView.vue";
 import AdminDashboardView from "@/views/Admin/AdminDashboardView.vue";
 import AdminSalesView from "@/views/Admin/AdminSalesView.vue";
@@ -85,6 +86,11 @@ const routes = [
         path: "products",
         name: "admin-products",
         component: AdminProductView,
+      },
+      {
+        path: "recipes",
+        name: "admin-recipes",
+        component: AdminRecipeView,
       },
       {
         path: "products/create",

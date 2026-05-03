@@ -470,6 +470,9 @@ onUnmounted(() => {
 .message-section {
   flex: 1;
   min-height: 0;
+  max-height: calc(
+    100dvh - 280px
+  ); /* 헤더(약 120px) + 입력창(약 120px) + 여백 고려 */
   padding: 16px;
   overflow-y: auto;
   margin-bottom: 16px;

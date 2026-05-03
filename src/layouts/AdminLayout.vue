@@ -75,6 +75,12 @@ const menuList = [
     matchStartsWith: "/admin/products",
   },
   {
+    to: "/admin/recipes",
+    label: "레시피 관리",
+    description: "상품별 레시피 등록/수정/삭제",
+    matchStartsWith: "/admin/recipes",
+  },
+  {
     to: "/admin/categories",
     label: "카테고리 관리",
     description: "분류 구조 관리",
