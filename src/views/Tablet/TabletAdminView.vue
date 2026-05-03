@@ -1016,6 +1016,12 @@ const paymentRequestList = ref([]);
 const chatMessageList = ref([]);
 const productList = ref([]);
 
+const orderSoundSrc = "/audio/order-request.mp3"; // 나중에 경로 수정 가능
+const paymentSoundSrc = "/audio/payment-request.mp3"; // 나중에 경로 수정 가능
+
+let previousOrderIds = new Set();
+let previousPaymentRequestIds = new Set();
+
 let unsubscribeOrderSheets = null;
 let unsubscribeOrders = null;
 let unsubscribePayments = null;
@@ -1321,15 +1327,41 @@ function subscribeOrderSheets() {
   );
 }
 
+function playNotificationSound(type) {
+  try {
+    const soundSrc = type === "payment" ? paymentSoundSrc : orderSoundSrc;
+    const audio = new Audio(soundSrc);
+    audio.preload = "auto";
+    audio.play().catch((error) => {
+      console.warn("소리 재생 차단됨:", error);
+    });
+  } catch (error) {
+    console.error("알림음 재생 실패:", error);
+  }
+}
+
 function subscribeOrders() {
   const q = query(collection(db, "orders"), orderBy("createdAt", "desc"));
   unsubscribeOrders = onSnapshot(
     q,
     (snapshot) => {
-      orderList.value = snapshot.docs.map((docSnap) => ({
+      const currentOrders = snapshot.docs.map((docSnap) => ({
         id: docSnap.id,
         ...docSnap.data(),
       }));
+      const currentOrderIds = new Set(currentOrders.map((item) => item.id));
+
+      if (!isLoadingOrders.value) {
+        for (const id of currentOrderIds) {
+          if (!previousOrderIds.has(id)) {
+            playNotificationSound("order");
+            break;
+          }
+        }
+      }
+
+      previousOrderIds = currentOrderIds;
+      orderList.value = currentOrders;
       isLoadingOrders.value = false;
     },
     (error) => {
@@ -1348,10 +1380,23 @@ function subscribePaymentRequests() {
   unsubscribePayments = onSnapshot(
     q,
     (snapshot) => {
-      paymentRequestList.value = snapshot.docs.map((docSnap) => ({
+      const currentRequests = snapshot.docs.map((docSnap) => ({
         id: docSnap.id,
         ...docSnap.data(),
       }));
+      const currentRequestIds = new Set(currentRequests.map((item) => item.id));
+
+      if (!isLoadingPaymentRequests.value) {
+        for (const id of currentRequestIds) {
+          if (!previousPaymentRequestIds.has(id)) {
+            playNotificationSound("payment");
+            break;
+          }
+        }
+      }
+
+      previousPaymentRequestIds = currentRequestIds;
+      paymentRequestList.value = currentRequests;
       isLoadingPaymentRequests.value = false;
     },
     (error) => {

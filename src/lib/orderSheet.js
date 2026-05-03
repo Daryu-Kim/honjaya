@@ -22,19 +22,12 @@ export async function finalizeOrderSheetCleanup({ orderSheetId }) {
   });
 }
 
-function formatBusinessDate(date = new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}${month}${day}`;
-}
-
 function formatSequenceNo(sequenceNo) {
-  return String(sequenceNo).padStart(4, "0");
+  return String(sequenceNo).padStart(6, "0");
 }
 
-function buildActiveOrderSheetKey(businessDate, tableNumber) {
-  return `${businessDate}_${tableNumber}`;
+function buildActiveOrderSheetKey(tableNumber) {
+  return `table_${tableNumber}`;
 }
 
 function isReusableOrderSheetStatus(status) {
@@ -48,9 +41,9 @@ export async function getOrCreateOpenOrderSheet(tableNumber) {
     throw new Error("테이블 번호가 없어요.");
   }
 
-  const businessDate = formatBusinessDate(new Date());
+  const businessDate = new Date();
   const displayName = `No.${safeTableNumber}`;
-  const activeKey = buildActiveOrderSheetKey(businessDate, safeTableNumber);
+  const activeKey = buildActiveOrderSheetKey(safeTableNumber);
 
   const result = await runTransaction(db, async (transaction) => {
     const activeRef = doc(db, "activeOrderSheets", activeKey);
@@ -86,7 +79,7 @@ export async function getOrCreateOpenOrderSheet(tableNumber) {
       }
     }
 
-    const counterRef = doc(db, "dailyCounters", businessDate);
+    const counterRef = doc(db, "counters", "orderSheet");
     const counterSnap = await transaction.get(counterRef);
 
     const lastSequenceNo = counterSnap.exists()
@@ -94,13 +87,12 @@ export async function getOrCreateOpenOrderSheet(tableNumber) {
       : 0;
 
     const nextSequenceNo = lastSequenceNo + 1;
-    const orderSheetId = `${businessDate}_${formatSequenceNo(nextSequenceNo)}`;
+    const orderSheetId = formatSequenceNo(nextSequenceNo);
     const orderSheetRef = doc(db, "orderSheets", orderSheetId);
 
     transaction.set(
       counterRef,
       {
-        businessDate,
         lastSequenceNo: nextSequenceNo,
         updatedAt: serverTimestamp(),
       },
@@ -157,8 +149,7 @@ export async function completeOrderSheetPayment({
     throw new Error("주문서 정보가 올바르지 않아요.");
   }
 
-  const businessDate = formatBusinessDate(new Date());
-  const activeKey = buildActiveOrderSheetKey(businessDate, safeTableNumber);
+  const activeKey = buildActiveOrderSheetKey(safeTableNumber);
 
   await updateDoc(doc(db, "orderSheets", safeOrderSheetId), {
     status: "PAID",
@@ -188,8 +179,7 @@ export async function closeOrderSheet({ orderSheetId, tableNumber }) {
     throw new Error("주문서 정보가 올바르지 않아요.");
   }
 
-  const businessDate = formatBusinessDate(new Date());
-  const activeKey = buildActiveOrderSheetKey(businessDate, safeTableNumber);
+  const activeKey = buildActiveOrderSheetKey(safeTableNumber);
 
   await updateDoc(doc(db, "orderSheets", safeOrderSheetId), {
     status: "CLOSED",
