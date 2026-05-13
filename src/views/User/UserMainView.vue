@@ -38,11 +38,11 @@
           </div>
         </button>
 
-        <button type="button" class="menu-card" @click="goChat">
-          <div class="menu-icon">💬</div>
+        <button type="button" class="menu-card" @click="goOrderHistory">
+          <div class="menu-icon">📋</div>
           <div class="menu-text">
-            <strong>전체 채팅</strong>
-            <p>다른 테이블과 직원이 함께 참여하는 채팅방이에요.</p>
+            <strong>주문 내역</strong>
+            <p>지금까지 주문한 모든 내역을 확인할 수 있어요.</p>
           </div>
         </button>
 
@@ -53,6 +53,28 @@
             <p>직원에게 결제 요청을 보낼 수 있어요.</p>
           </div>
         </button>
+      </section>
+
+      <section class="external-links-section">
+        <a
+          href="https://www.instagram.com/honjaya_daegu"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="external-link-button instagram"
+        >
+          <span class="link-icon">📸</span>
+          <span class="link-text">인스타그램</span>
+        </a>
+
+        <a
+          href="https://m.place.naver.com/my/checkin"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="external-link-button naver"
+        >
+          <span class="link-icon">⭐</span>
+          <span class="link-text">리뷰 쓰러가기</span>
+        </a>
       </section>
 
       <div class="session-card" style="margin-top: 20px">
@@ -121,8 +143,8 @@ function goOrder() {
   router.push("/user/order");
 }
 
-function goChat() {
-  router.push("/user/chat");
+function goOrderHistory() {
+  router.push("/user/order-history");
 }
 
 function goCheckout() {
@@ -295,6 +317,49 @@ onMounted(() => {
     line-height: 1.6;
     color: rgba(255, 255, 255, 0.72);
   }
+}
+
+.external-links-section {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.external-link-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  border: none;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.12);
+    transform: translateY(-2px);
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
+}
+
+.link-icon {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.link-text {
+  font-size: 13px;
+  font-weight: 800;
+  text-align: center;
 }
 
 @media (min-width: 768px) {

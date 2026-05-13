@@ -162,35 +162,6 @@
             </article>
           </div>
         </section>
-
-        <section class="panel-card">
-          <div class="panel-head">
-            <h2>최근 채팅</h2>
-            <p>실시간 분위기를 빠르게 확인할 수 있어요.</p>
-          </div>
-
-          <div v-if="isLoadingMessages" class="empty-box">
-            <p>채팅을 불러오는 중이에요.</p>
-          </div>
-
-          <div v-else-if="chatMessageList.length === 0" class="empty-box">
-            <p>최근 채팅이 없어요.</p>
-          </div>
-
-          <div v-else class="chat-list">
-            <div
-              v-for="message in chatMessageList.slice(0, 6)"
-              :key="message.id"
-              class="chat-row"
-            >
-              <div class="chat-meta">
-                <strong>{{ buildChatSender(message) }}</strong>
-                <span>{{ formatDateTime(message.createdAt) }}</span>
-              </div>
-              <p>{{ message.message }}</p>
-            </div>
-          </div>
-        </section>
       </div>
     </section>
   </div>
@@ -213,17 +184,14 @@ const router = useRouter();
 
 const isLoadingOrders = ref(true);
 const isLoadingPayments = ref(true);
-const isLoadingMessages = ref(true);
 const isLoadingOrderSheets = ref(true);
 
 const orderList = ref([]);
 const paymentRequestList = ref([]);
-const chatMessageList = ref([]);
 const orderSheetList = ref([]);
 
 let unsubscribeOrders = null;
 let unsubscribePayments = null;
-let unsubscribeMessages = null;
 let unsubscribeOrderSheets = null;
 
 const currentDateText = computed(() => {
@@ -324,14 +292,6 @@ function buildOrderSummary(items) {
   return preview.join(", ");
 }
 
-function buildChatSender(message) {
-  if (message.messageType === "SYSTEM") return "시스템";
-  if (message.messageType === "ADMIN") return message.senderLabel || "직원";
-  if (message.displayName) return message.displayName;
-  if (message.tableNumber) return `No.${message.tableNumber}`;
-  return "알 수 없음";
-}
-
 function getOrderSheetTotalAmount(orderSheetId) {
   const found = orderSheetList.value.find(
     (item) => item.orderSheetId === orderSheetId
@@ -388,28 +348,6 @@ function subscribePayments() {
   );
 }
 
-function subscribeMessages() {
-  const q = query(
-    collection(db, "chatMessages"),
-    orderBy("createdAt", "desc"),
-    limit(20)
-  );
-
-  unsubscribeMessages = onSnapshot(
-    q,
-    (snapshot) => {
-      chatMessageList.value = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-      isLoadingMessages.value = false;
-    },
-    () => {
-      isLoadingMessages.value = false;
-    }
-  );
-}
-
 function subscribeOrderSheets() {
   const q = query(
     collection(db, "orderSheets"),
@@ -435,14 +373,12 @@ function subscribeOrderSheets() {
 onMounted(() => {
   subscribeOrders();
   subscribePayments();
-  subscribeMessages();
   subscribeOrderSheets();
 });
 
 onUnmounted(() => {
   if (unsubscribeOrders) unsubscribeOrders();
   if (unsubscribePayments) unsubscribePayments();
-  if (unsubscribeMessages) unsubscribeMessages();
   if (unsubscribeOrderSheets) unsubscribeOrderSheets();
 });
 </script>
@@ -664,41 +600,6 @@ onUnmounted(() => {
   strong {
     font-size: 14px;
     font-weight: 800;
-  }
-}
-
-.chat-list {
-  display: grid;
-  gap: 10px;
-}
-
-.chat-row {
-  padding: 12px 14px;
-
-  p {
-    margin: 0;
-    font-size: 13px;
-    line-height: 1.6;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-}
-
-.chat-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 6px;
-
-  strong {
-    font-size: 13px;
-    font-weight: 800;
-  }
-
-  span {
-    font-size: 11px;
-    color: rgba(255, 255, 255, 0.52);
   }
 }
 

@@ -35,6 +35,41 @@
         </div>
       </header>
 
+      <section class="order-summary-section">
+        <div v-if="isLoadingOrders" class="empty-box">
+          <p>주문 내역을 불러오는 중이에요.</p>
+        </div>
+
+        <div v-else-if="orderList.length === 0" class="empty-box">
+          <p>주문 내역이 없어요.</p>
+        </div>
+
+        <div v-else class="order-summary-card">
+          <div class="summary-header">
+            <h3>현재 주문 내역</h3>
+            <span class="order-count">{{ orderList.length }}건</span>
+          </div>
+
+          <div class="summary-items">
+            <div
+              v-for="(item, index) in orderSummaryItems"
+              :key="index"
+              class="summary-item"
+            >
+              <span class="item-name">{{ item.productName }}</span>
+              <span class="item-qty">{{ item.quantity }}개</span>
+            </div>
+          </div>
+
+          <div class="summary-footer">
+            <div class="summary-total-row">
+              <span>총 결제 금액</span>
+              <strong>{{ formatPrice(totalOrderAmount) }}원</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section class="checkout-section">
         <div v-if="isLoadingRequest" class="empty-box">
           <p>결제 요청 상태를 불러오는 중이에요.</p>
@@ -118,10 +153,13 @@ const displayName = ref("");
 const orderSheetId = ref("");
 
 const isLoadingRequest = ref(true);
+const isLoadingOrders = ref(true);
 const isSubmitting = ref(false);
 const activePaymentRequest = ref(null);
+const orderList = ref([]);
 
 let unsubscribePaymentRequest = null;
+let unsubscribeOrders = null;
 
 const tableText = computed(() => {
   return tableNumber.value
@@ -135,6 +173,28 @@ const displayNameText = computed(() => {
 
 const orderSheetIdText = computed(() => {
   return orderSheetId.value || "주문서 없음";
+});
+
+const totalOrderAmount = computed(() => {
+  return orderList.value.reduce(
+    (acc, order) => acc + Number(order.totalPrice || 0),
+    0
+  );
+});
+
+const orderSummaryItems = computed(() => {
+  const items = [];
+  orderList.value.forEach((order) => {
+    if (order.items && Array.isArray(order.items)) {
+      order.items.forEach((item) => {
+        items.push({
+          productName: item.productName,
+          quantity: Number(item.quantity || 0),
+        });
+      });
+    }
+  });
+  return items;
 });
 
 function detectMobile() {
@@ -193,6 +253,34 @@ function subscribeActivePaymentRequest() {
   );
 }
 
+function subscribeOrders() {
+  if (!orderSheetId.value) {
+    isLoadingOrders.value = false;
+    return;
+  }
+
+  const ordersQuery = query(
+    collection(db, "orders"),
+    where("orderSheetId", "==", orderSheetId.value),
+    orderBy("createdAt", "desc")
+  );
+
+  unsubscribeOrders = onSnapshot(
+    ordersQuery,
+    (snapshot) => {
+      orderList.value = snapshot.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+      }));
+      isLoadingOrders.value = false;
+    },
+    (error) => {
+      console.error("주문 내역 조회 실패:", error);
+      isLoadingOrders.value = false;
+    }
+  );
+}
+
 function convertStatusText(status) {
   if (status === "REQUESTED") return "요청됨";
   if (status === "CONFIRMED") return "확인됨";
@@ -223,6 +311,10 @@ function formatDateTime(value) {
   const minutes = String(date.getMinutes()).padStart(2, "0");
 
   return `${month}.${day} ${hours}:${minutes}`;
+}
+
+function formatPrice(value) {
+  return Number(value || 0).toLocaleString("ko-KR");
 }
 
 async function createCheckoutRequest() {
@@ -322,12 +414,17 @@ onMounted(async () => {
   if (!canUse) return;
 
   subscribeActivePaymentRequest();
+  subscribeOrders();
 });
 
 onUnmounted(() => {
   if (unsubscribePaymentRequest) {
     unsubscribePaymentRequest();
     unsubscribePaymentRequest = null;
+  }
+  if (unsubscribeOrders) {
+    unsubscribeOrders();
+    unsubscribeOrders = null;
   }
 });
 </script>
@@ -546,11 +643,110 @@ onUnmounted(() => {
 .empty-box {
   padding: 28px 16px;
   text-align: center;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.08);
 
   p {
     margin: 0;
     font-size: 14px;
     color: rgba(255, 255, 255, 0.7);
+  }
+}
+
+.order-summary-section {
+  margin-top: 16px;
+  margin-bottom: 16px;
+}
+
+.order-summary-card {
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+
+  h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 800;
+  }
+
+  .order-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 36px;
+    height: 24px;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: rgba(96, 165, 250, 0.2);
+    color: #93c5fd;
+    font-size: 11px;
+    font-weight: 800;
+  }
+}
+
+.summary-items {
+  padding: 12px 16px;
+  max-height: 200px;
+  overflow-y: auto;
+  display: grid;
+  gap: 8px;
+}
+
+.summary-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 13px;
+
+  .item-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .item-qty {
+    font-weight: 800;
+    color: rgba(255, 255, 255, 0.8);
+    flex-shrink: 0;
+  }
+}
+
+.summary-footer {
+  padding: 12px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.summary-total-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  span {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  strong {
+    font-size: 18px;
+    font-weight: 800;
+    color: #60a5fa;
   }
 }
 

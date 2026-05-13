@@ -169,7 +169,14 @@
                 </div>
 
                 <div class="order-item-right">
-                  {{ formatPrice(item.totalPrice || 0) }}원
+                  <strong>{{ formatPrice(item.totalPrice || 0) }}원</strong>
+                  <button
+                    type="button"
+                    class="recipe-view-button"
+                    @click="openRecipeModalByOrderItem(item)"
+                  >
+                    레시피 보기
+                  </button>
                 </div>
               </div>
             </div>
@@ -256,45 +263,6 @@
         </div>
       </div>
 
-      <!-- 채팅 탭 -->
-      <div v-else-if="activeTab === 'chat'" class="tab-panel">
-        <div class="panel-head">
-          <h2>전체 채팅</h2>
-          <p>테이블과 직원이 함께 보는 채팅입니다.</p>
-        </div>
-
-        <div v-if="isLoadingMessages" class="empty-box">
-          <p>채팅을 불러오는 중이에요.</p>
-        </div>
-
-        <div v-else class="chat-panel">
-          <div class="chat-message-list">
-            <div
-              v-for="message in chatMessageList"
-              :key="message.id"
-              class="chat-message-row"
-              :class="String(message.messageType || '').toLowerCase()"
-            >
-              <div class="chat-meta">
-                <strong>{{
-                  message.displayName || message.senderLabel || "시스템"
-                }}</strong>
-                <span>{{ formatDateTime(message.createdAt) }}</span>
-              </div>
-              <p>{{ message.message }}</p>
-            </div>
-          </div>
-
-          <div class="chat-input-row">
-            <textarea
-              v-model.trim="adminMessageText"
-              placeholder="직원 메시지를 입력해주세요"
-            ></textarea>
-            <button type="button" @click="sendAdminMessage">전송</button>
-          </div>
-        </div>
-      </div>
-
       <!-- 레시피 탭 -->
       <div v-else-if="activeTab === 'recipes'" class="tab-panel">
         <div class="panel-head">
@@ -312,6 +280,19 @@
               />
             </div>
 
+            <div class="category-filter-scroll">
+              <button
+                v-for="category in categoryFilterList"
+                :key="`recipe-${category.id}`"
+                type="button"
+                class="category-filter-button"
+                :class="{ active: selectedRecipeCategory === category.id }"
+                @click="selectedRecipeCategory = category.id"
+              >
+                {{ category.name }}
+              </button>
+            </div>
+
             <div class="recipe-menu-list">
               <button
                 v-for="product in filteredRecipeProductList"
@@ -319,10 +300,10 @@
                 type="button"
                 class="recipe-menu-button"
                 :class="{
-                  active: selectedRecipeProduct?.id === product.id,
+                  active: recipeModalProduct?.id === product.id,
                   empty: !product.recipeInfo && !product.recipeText,
                 }"
-                @click="selectedRecipeProduct = product"
+                @click="openRecipeModal(product)"
               >
                 <div class="recipe-menu-button-left">
                   <strong>{{ product.productName }}</strong>
@@ -337,114 +318,6 @@
                   }}
                 </span>
               </button>
-            </div>
-          </div>
-
-          <div class="recipe-viewer">
-            <div v-if="!selectedRecipeProduct" class="empty-box">
-              <p>메뉴를 선택해주세요.</p>
-            </div>
-
-            <div v-else class="recipe-card">
-              <div class="recipe-card-head">
-                <div>
-                  <h3>{{ selectedRecipeData?.productName }}</h3>
-                  <p v-if="selectedRecipeData?.description">
-                    {{ selectedRecipeData.description }}
-                  </p>
-                </div>
-
-                <span class="status-badge">
-                  {{
-                    selectedRecipeData?.hasStructuredRecipe ||
-                    selectedRecipeData?.recipeText
-                      ? "확인 가능"
-                      : "미등록"
-                  }}
-                </span>
-              </div>
-
-              <div
-                v-if="
-                  selectedRecipeData?.hasStructuredRecipe ||
-                  selectedRecipeData?.recipeText
-                "
-                class="recipe-content"
-              >
-                <div
-                  v-if="selectedRecipeData?.ingredients?.length > 0"
-                  class="recipe-section-box"
-                >
-                  <h4>재료</h4>
-
-                  <div class="recipe-ingredient-list">
-                    <div
-                      v-for="(
-                        ingredient, index
-                      ) in selectedRecipeData.ingredients"
-                      :key="`${selectedRecipeData.productName}-ingredient-${index}`"
-                      class="recipe-ingredient-row"
-                    >
-                      <span class="ingredient-name">
-                        {{ ingredient.name || "-" }}
-                      </span>
-                      <span class="ingredient-amount">
-                        {{ ingredient.amount || "-" }}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  v-if="selectedRecipeData?.steps?.length > 0"
-                  class="recipe-section-box"
-                >
-                  <h4>제조 순서</h4>
-
-                  <div class="recipe-step-list">
-                    <div
-                      v-for="(step, index) in selectedRecipeData.steps"
-                      :key="`${selectedRecipeData.productName}-step-${index}`"
-                      class="recipe-step-row"
-                    >
-                      <span class="step-no">{{ index + 1 }}</span>
-                      <p>{{ step }}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  v-if="selectedRecipeData?.tips?.length > 0"
-                  class="recipe-section-box"
-                >
-                  <h4>참고사항</h4>
-
-                  <div class="recipe-tip-list">
-                    <div
-                      v-for="(tip, index) in selectedRecipeData.tips"
-                      :key="`${selectedRecipeData.productName}-tip-${index}`"
-                      class="recipe-tip-row"
-                    >
-                      <span>•</span>
-                      <p>{{ tip }}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  v-if="selectedRecipeData?.recipeText"
-                  class="recipe-section-box"
-                >
-                  <h4>레시피 메모</h4>
-                  <p class="recipe-free-text">
-                    {{ selectedRecipeData.recipeText }}
-                  </p>
-                </div>
-              </div>
-
-              <div v-else class="empty-box compact">
-                <p>등록된 레시피가 없어요.</p>
-              </div>
             </div>
           </div>
         </div>
@@ -494,6 +367,10 @@
                 ) in selectedTable.latestOrderItemsPreview"
                 :key="`${selectedTable.tableNumber}-${index}`"
                 class="modal-preview-row"
+                role="button"
+                tabindex="0"
+                @click="openRecipeModalByOrderItem(preview)"
+                @keyup.enter="openRecipeModalByOrderItem(preview)"
               >
                 <span>{{ preview.productName }}</span>
                 <span>{{ preview.quantity }}개</span>
@@ -523,6 +400,125 @@
             >
               테이블 정리 완료
             </button>
+          </div>
+        </div>
+      </div>
+    </transition>
+
+    <!-- 레시피 모달 -->
+    <transition name="fade">
+      <div
+        v-if="recipeModalProduct"
+        class="modal-overlay"
+        @click.self="closeRecipeModal"
+      >
+        <div class="modal-card recipe-modal">
+          <div class="modal-head">
+            <div>
+              <h3>{{ selectedRecipeData?.productName }}</h3>
+              <p v-if="selectedRecipeData?.description">
+                {{ selectedRecipeData.description }}
+              </p>
+              <p v-else>레시피 상세</p>
+            </div>
+
+            <div class="modal-head-actions">
+              <span class="status-badge">
+                {{
+                  selectedRecipeData?.hasStructuredRecipe ||
+                  selectedRecipeData?.recipeText
+                    ? "확인 가능"
+                    : "미등록"
+                }}
+              </span>
+              <button
+                type="button"
+                class="close-button"
+                @click="closeRecipeModal"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+
+          <div
+            v-if="
+              selectedRecipeData?.hasStructuredRecipe ||
+              selectedRecipeData?.recipeText
+            "
+            class="recipe-content"
+          >
+            <div
+              v-if="selectedRecipeData?.ingredients?.length > 0"
+              class="recipe-section-box"
+            >
+              <h4>재료</h4>
+
+              <div class="recipe-ingredient-list">
+                <div
+                  v-for="(ingredient, index) in selectedRecipeData.ingredients"
+                  :key="`${selectedRecipeData.productName}-ingredient-${index}`"
+                  class="recipe-ingredient-row"
+                >
+                  <span class="ingredient-name">
+                    {{ ingredient.name || "-" }}
+                  </span>
+                  <span class="ingredient-amount">
+                    {{ ingredient.amount || "-" }}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div
+              v-if="selectedRecipeData?.steps?.length > 0"
+              class="recipe-section-box"
+            >
+              <h4>제조 순서</h4>
+
+              <div class="recipe-step-list">
+                <div
+                  v-for="(step, index) in selectedRecipeData.steps"
+                  :key="`${selectedRecipeData.productName}-step-${index}`"
+                  class="recipe-step-row"
+                >
+                  <span class="step-no">{{ index + 1 }}</span>
+                  <p>{{ step }}</p>
+                </div>
+              </div>
+            </div>
+
+            <div
+              v-if="selectedRecipeData?.tips?.length > 0"
+              class="recipe-section-box"
+            >
+              <h4>참고사항</h4>
+
+              <div class="recipe-tip-list">
+                <div
+                  v-for="(tip, index) in selectedRecipeData.tips"
+                  :key="`${selectedRecipeData.productName}-tip-${index}`"
+                  class="recipe-tip-row"
+                >
+                  <span>•</span>
+                  <p>{{ tip }}</p>
+                </div>
+              </div>
+            </div>
+
+            <div
+              v-if="selectedRecipeData?.recipeText"
+              class="recipe-section-box"
+            >
+              <h4>레시피 메모</h4>
+              <p class="recipe-free-text">
+                {{ selectedRecipeData.recipeText }}
+              </p>
+            </div>
+          </div>
+
+          <div v-else class="empty-box compact">
+            <p>등록된 레시피가 없어요.</p>
           </div>
         </div>
       </div>
@@ -687,6 +683,21 @@
                   type="text"
                   placeholder="상품명을 검색해주세요"
                 />
+              </div>
+
+              <div class="category-filter-scroll">
+                <button
+                  v-for="category in categoryFilterList"
+                  :key="`manual-${category.id}`"
+                  type="button"
+                  class="category-filter-button"
+                  :class="{
+                    active: manualAddModalState.categoryId === category.id,
+                  }"
+                  @click="manualAddModalState.categoryId = category.id"
+                >
+                  {{ category.name }}
+                </button>
               </div>
 
               <div class="manual-product-list">
@@ -954,10 +965,9 @@ import {
 import { recalculateOrderSheetTotals } from "@/lib/orderSheetTotals";
 
 const activeTab = ref("tables");
-const adminMessageText = ref("");
 
 const selectedTable = ref(null);
-const selectedRecipeProduct = ref(null);
+const recipeModalProduct = ref(null);
 
 const paymentModalState = ref({
   isOpen: false,
@@ -984,6 +994,7 @@ const manualAddModalState = ref({
   displayName: "",
   cartItems: [],
   keyword: "",
+  categoryId: "all",
 });
 
 const manualOptionModalState = ref({
@@ -1001,20 +1012,18 @@ const tabList = [
   { key: "tables", label: "테이블" },
   { key: "orders", label: "주문" },
   { key: "payments", label: "결제" },
-  { key: "chat", label: "채팅" },
   { key: "recipes", label: "레시피" },
 ];
 
 const isLoadingOrderSheets = ref(true);
 const isLoadingOrders = ref(true);
 const isLoadingPaymentRequests = ref(true);
-const isLoadingMessages = ref(true);
 const isLoadingProducts = ref(true);
 
 const orderSheetList = ref([]);
 const orderList = ref([]);
 const paymentRequestList = ref([]);
-const chatMessageList = ref([]);
+const categoryList = ref([]);
 const productList = ref([]);
 
 const orderSoundSrc = "/audio/order-request.mp3"; // 나중에 경로 수정 가능
@@ -1026,10 +1035,11 @@ let previousPaymentRequestIds = new Set();
 let unsubscribeOrderSheets = null;
 let unsubscribeOrders = null;
 let unsubscribePayments = null;
-let unsubscribeMessages = null;
+let unsubscribeCategories = null;
 let unsubscribeProducts = null;
 
 const recipeKeyword = ref("");
+const selectedRecipeCategory = ref("all");
 
 const currentDateText = computed(() => {
   const now = new Date();
@@ -1076,12 +1086,30 @@ const recipeProductList = computed(() => {
     .sort((a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0));
 });
 
+const categoryFilterList = computed(() => {
+  return [
+    { id: "all", name: "전체" },
+    ...categoryList.value
+      .filter((item) => item.isActive !== false)
+      .sort((a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0))
+      .map((item) => ({
+        id: item.id,
+        name: item.name || "이름 없음",
+      })),
+  ];
+});
+
 const filteredRecipeProductList = computed(() => {
   const keyword = String(recipeKeyword.value || "")
     .trim()
     .toLowerCase();
 
   return recipeProductList.value.filter((item) => {
+    const matchCategory =
+      selectedRecipeCategory.value === "all" ||
+      item.categoryId === selectedRecipeCategory.value;
+
+    if (!matchCategory) return false;
     if (!keyword) return true;
 
     return (
@@ -1103,9 +1131,9 @@ const filteredOrderList = computed(() => {
 });
 
 const selectedRecipeData = computed(() => {
-  if (!selectedRecipeProduct.value) return null;
+  if (!recipeModalProduct.value) return null;
 
-  const product = selectedRecipeProduct.value;
+  const product = recipeModalProduct.value;
   const recipeInfo = product.recipeInfo || null;
 
   const normalizeIngredient = (item) => {
@@ -1174,6 +1202,7 @@ const manualFilteredProductList = computed(() => {
   const keyword = String(manualAddModalState.value.keyword || "")
     .trim()
     .toLowerCase();
+  const categoryId = manualAddModalState.value.categoryId || "all";
 
   return [...productList.value]
     .filter((item) => {
@@ -1181,6 +1210,7 @@ const manualFilteredProductList = computed(() => {
       if (item.isDeleted === true) return false;
       if (item.isSoldOut === true) return false;
       if (Number(item.stock ?? 0) <= 0) return false;
+      if (categoryId !== "all" && item.categoryId !== categoryId) return false;
 
       if (!keyword) return true;
 
@@ -1267,19 +1297,6 @@ const manualOptionTotalPrice = computed(() => {
 
 function formatPrice(value) {
   return Number(value || 0).toLocaleString("ko-KR");
-}
-
-function formatDateTime(value) {
-  if (!value) return "";
-  const date =
-    typeof value?.toDate === "function" ? value.toDate() : new Date(value);
-
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-
-  return `${month}.${day} ${hours}:${minutes}`;
 }
 
 function convertOrderSheetStatusText(status) {
@@ -1455,20 +1472,18 @@ function subscribePaymentRequests() {
   );
 }
 
-function subscribeMessages() {
-  const q = query(collection(db, "chatMessages"), orderBy("createdAt", "desc"));
-  unsubscribeMessages = onSnapshot(
+function subscribeCategories() {
+  const q = query(collection(db, "categories"), orderBy("sortOrder", "asc"));
+  unsubscribeCategories = onSnapshot(
     q,
     (snapshot) => {
-      chatMessageList.value = snapshot.docs.map((docSnap) => ({
+      categoryList.value = snapshot.docs.map((docSnap) => ({
         id: docSnap.id,
         ...docSnap.data(),
       }));
-      isLoadingMessages.value = false;
     },
     (error) => {
-      console.error("채팅 구독 실패:", error);
-      isLoadingMessages.value = false;
+      console.error("카테고리 구독 실패:", error);
     }
   );
 }
@@ -1499,6 +1514,45 @@ function closeTableModal() {
   selectedTable.value = null;
 }
 
+function findRecipeProductByOrderItem(item) {
+  const productId = String(item?.productId || "").trim();
+  const productName = String(item?.productName || "").trim();
+
+  if (productId) {
+    const foundById = productList.value.find(
+      (product) => String(product.id || "") === productId
+    );
+    if (foundById) return foundById;
+  }
+
+  if (productName) {
+    const foundByName = productList.value.find(
+      (product) => String(product.productName || "").trim() === productName
+    );
+    if (foundByName) return foundByName;
+  }
+
+  return {
+    id: productId || productName,
+    productName: productName || "이름 없음",
+    description: "",
+    recipeInfo: null,
+    recipeText: "",
+  };
+}
+
+function openRecipeModal(product) {
+  recipeModalProduct.value = product;
+}
+
+function openRecipeModalByOrderItem(item) {
+  recipeModalProduct.value = findRecipeProductByOrderItem(item);
+}
+
+function closeRecipeModal() {
+  recipeModalProduct.value = null;
+}
+
 function openManualAddModal(table) {
   manualAddModalState.value = {
     isOpen: true,
@@ -1507,6 +1561,7 @@ function openManualAddModal(table) {
     displayName: table.displayName || `No.${table.tableNumber}`,
     cartItems: [],
     keyword: "",
+    categoryId: "all",
   };
 }
 
@@ -1518,6 +1573,7 @@ function closeManualAddModal() {
     displayName: "",
     cartItems: [],
     keyword: "",
+    categoryId: "all",
   };
 }
 
@@ -1955,30 +2011,6 @@ async function updateOrderStatus(order, nextStatus) {
   }
 }
 
-async function sendAdminMessage() {
-  const safeMessage = adminMessageText.value.trim().slice(0, 500);
-  if (!safeMessage) return;
-
-  try {
-    await addDoc(collection(db, "chatMessages"), {
-      orderSheetId: "",
-      tableNumber: "",
-      displayName: "직원",
-      senderLabel: "직원",
-      message: safeMessage,
-      messageType: "ADMIN",
-      isDeleted: false,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-
-    adminMessageText.value = "";
-  } catch (error) {
-    console.error("직원 메시지 전송 실패:", error);
-    alert("직원 메시지 전송 중 문제가 발생했어요.");
-  }
-}
-
 async function finalizeTableCleanup(table) {
   const confirmed = window.confirm(
     `${table.tableLabel} 테이블 정리를 완료할까요?`
@@ -2003,7 +2035,7 @@ onMounted(() => {
   subscribeOrderSheets();
   subscribeOrders();
   subscribePaymentRequests();
-  subscribeMessages();
+  subscribeCategories();
   subscribeProducts();
 });
 
@@ -2011,7 +2043,7 @@ onUnmounted(() => {
   if (unsubscribeOrderSheets) unsubscribeOrderSheets();
   if (unsubscribeOrders) unsubscribeOrders();
   if (unsubscribePayments) unsubscribePayments();
-  if (unsubscribeMessages) unsubscribeMessages();
+  if (unsubscribeCategories) unsubscribeCategories();
   if (unsubscribeProducts) unsubscribeProducts();
 });
 </script>
@@ -2028,7 +2060,6 @@ onUnmounted(() => {
 .list-card-head,
 .modal-head,
 .list-card-bottom,
-.chat-meta,
 .modal-info-row,
 .manual-option-group-head,
 .manual-option-footer,
@@ -2112,7 +2143,6 @@ onUnmounted(() => {
 }
 .empty-box,
 .list-card,
-.chat-panel,
 .recipe-card,
 .modal-card {
   border-radius: 22px;
@@ -2198,6 +2228,34 @@ onUnmounted(() => {
   display: grid;
   gap: 10px;
 }
+
+.manual-product-list,
+.manual-cart-list {
+  overflow-y: auto;
+  max-height: calc(70vh - 140px);
+}
+
+.manual-product-list::-webkit-scrollbar,
+.manual-cart-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.manual-product-list::-webkit-scrollbar-track,
+.manual-cart-list::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+}
+
+.manual-product-list::-webkit-scrollbar-thumb,
+.manual-cart-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.manual-product-list::-webkit-scrollbar-thumb:hover,
+.manual-cart-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
 .table-preview-list span {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.76);
@@ -2255,6 +2313,22 @@ onUnmounted(() => {
   font-size: 14px;
   font-weight: 800;
 }
+.order-item-right {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+.recipe-view-button {
+  height: 32px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
 .request-message-box {
   margin-top: 12px;
   padding: 12px 14px;
@@ -2302,40 +2376,7 @@ onUnmounted(() => {
   background: rgba(252, 165, 165, 0.14);
   color: #fecaca;
 }
-.chat-panel {
-  padding: 16px;
-  display: grid;
-  gap: 14px;
-}
-.chat-message-list {
-  max-height: 520px;
-  overflow-y: auto;
-  display: grid;
-  gap: 10px;
-}
-.chat-message-row {
-  padding: 12px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.06);
-}
-.chat-message-row.user {
-  background: rgba(96, 165, 250, 0.12);
-}
-.chat-message-row.admin {
-  background: rgba(52, 211, 153, 0.12);
-}
-.chat-message-row p {
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-}
-.chat-input-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 10px;
-}
-.chat-input-row textarea,
+
 .recipe-search-box input,
 .manual-search-box input {
   min-height: 84px;
@@ -2354,11 +2395,38 @@ onUnmounted(() => {
   min-height: unset;
   height: 46px;
 }
+.category-filter-scroll {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0 12px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+.category-filter-button {
+  flex: 0 0 auto;
+  height: 34px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.category-filter-button.active {
+  background: #fff;
+  color: #111827;
+}
 .recipe-layout,
 .manual-add-layout {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 1fr;
   gap: 16px;
+}
+.manual-add-layout {
+  grid-template-columns: 320px 1fr;
 }
 .recipe-card,
 .manual-product-panel,
@@ -2366,6 +2434,20 @@ onUnmounted(() => {
 .manual-option-group {
   min-height: 320px;
   padding: 18px;
+}
+
+.manual-product-panel,
+.manual-cart-panel {
+  display: flex;
+  flex-direction: column;
+  max-height: 70vh;
+  overflow: hidden;
+}
+
+.manual-product-panel .manual-product-list,
+.manual-cart-panel .manual-cart-list {
+  flex: 1;
+  min-height: 0;
 }
 .recipe-card-head h3,
 .modal-head h3 {
@@ -2452,7 +2534,14 @@ onUnmounted(() => {
   background: rgba(15, 23, 42, 0.96);
   border-radius: 18px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  max-height: 90vh;
+  overflow-y: auto;
 }
+
+.manual-add-modal {
+  max-width: 1100px;
+}
+
 .table-detail-modal {
   max-width: 640px;
 }
@@ -2616,6 +2705,32 @@ onUnmounted(() => {
   min-height: 120px;
 }
 
+.recipe-modal {
+  max-width: 840px;
+}
+
+.modal-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.modal-preview-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border: none;
+  color: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.modal-preview-row:focus-visible,
+.recipe-view-button:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.5);
+  outline-offset: 2px;
+}
+
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.2s ease;
@@ -2634,7 +2749,6 @@ onUnmounted(() => {
     grid-template-columns: 1fr;
   }
 }
-
 @media (max-width: 1100px) {
   .manual-add-layout {
     grid-template-columns: 1fr;

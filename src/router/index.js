@@ -3,8 +3,8 @@ import HomeView from "../views/HomeView.vue";
 import UserMainView from "@/views/User/UserMainView.vue";
 import UserOrderView from "@/views/User/UserOrderView.vue";
 import UserCartView from "@/views/User/UserCartView.vue";
+import UserOrderHistoryView from "@/views/User/UserOrderHistoryView.vue";
 import UserOrderCompleteView from "@/views/User/UserOrderCompleteView.vue";
-import UserChatView from "@/views/User/UserChatView.vue";
 import UserCheckoutView from "@/views/User/UserCheckoutView.vue";
 import AdminChatView from "@/views/Admin/AdminChatView.vue";
 import ProjectorView from "@/views/Projector/ProjectorView.vue";
@@ -40,14 +40,14 @@ const routes = [
     component: UserCartView,
   },
   {
+    path: "/user/order-history",
+    name: "user-order-history",
+    component: UserOrderHistoryView,
+  },
+  {
     path: "/user/order-complete",
     name: "user-order-complete",
     component: UserOrderCompleteView,
-  },
-  {
-    path: "/user/chat",
-    name: "user-chat",
-    component: UserChatView,
   },
   {
     path: "/user/checkout",
