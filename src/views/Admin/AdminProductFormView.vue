@@ -48,19 +48,26 @@
           </div>
 
           <div class="form-group">
-            <label for="categoryId">카테고리</label>
-            <select id="categoryId" v-model="form.categoryId">
-              <option value="">카테고리 선택</option>
-              <option
+            <label>카테고리</label>
+            <div class="category-check-list">
+              <label
                 v-for="category in categoryList"
                 :key="category.id"
-                :value="category.id"
+                class="category-check-item"
               >
-                {{ category.name }}
-              </option>
-            </select>
+                <input
+                  v-model="form.categoryIds"
+                  type="checkbox"
+                  :value="category.id"
+                />
+                <span>{{ category.name }}</span>
+              </label>
+            </div>
             <p v-if="categoryList.length === 0" class="helper-text">
               등록된 활성 카테고리가 없어요. 먼저 카테고리를 만들어주세요.
+            </p>
+            <p v-else class="helper-text">
+              상품이 노출될 카테고리를 하나 이상 선택해주세요.
             </p>
           </div>
 
@@ -383,7 +390,7 @@ let unsubscribeCategories = null;
 const form = ref({
   productName: "",
   description: "",
-  categoryId: "",
+  categoryIds: [],
   basePrice: 0,
   stock: 0,
   imageUrl: "",
@@ -511,8 +518,8 @@ function validateForm() {
     return false;
   }
 
-  if (!form.value.categoryId) {
-    alert("카테고리를 선택해주세요.");
+  if (form.value.categoryIds.length === 0) {
+    alert("카테고리를 하나 이상 선택해주세요.");
     return false;
   }
 
@@ -597,7 +604,11 @@ async function loadProduct() {
     form.value = {
       productName: data.productName || "",
       description: data.description || "",
-      categoryId: data.categoryId || "",
+      categoryIds: Array.isArray(data.categoryIds)
+        ? data.categoryIds
+        : data.categoryId
+        ? [data.categoryId]
+        : [],
       basePrice: data.basePrice ?? data.price ?? 0,
       stock: data.stock ?? 0,
       imageUrl: data.imageUrl || "",
@@ -620,10 +631,13 @@ async function handleSubmit() {
   isSubmitting.value = true;
 
   try {
+    const categoryIds = [...new Set(form.value.categoryIds.filter(Boolean))];
+
     const payload = {
       productName: form.value.productName,
       description: form.value.description,
-      categoryId: form.value.categoryId,
+      categoryId: categoryIds[0] || "",
+      categoryIds,
       basePrice: Number(form.value.basePrice || 0),
       stock: Number(form.value.stock || 0),
       imageUrl: form.value.imageUrl,
@@ -862,6 +876,40 @@ onUnmounted(() => {
   span {
     font-size: 14px;
     font-weight: 700;
+    color: #fff;
+  }
+}
+
+.category-check-list {
+  min-height: 46px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.category-check-item {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  margin: 0 !important;
+  padding: 0 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+
+  input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+  }
+
+  span {
+    font-size: 13px;
+    font-weight: 800;
     color: #fff;
   }
 }

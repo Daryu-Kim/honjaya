@@ -1,9 +1,24 @@
 <template>
   <div class="admin-layout">
-    <aside class="admin-sidebar">
+    <button
+      v-if="isMobileMenuOpen"
+      type="button"
+      class="mobile-menu-backdrop"
+      aria-label="메뉴 닫기"
+      @click="closeMobileMenu"
+    ></button>
+
+    <aside class="admin-sidebar" :class="{ open: isMobileMenuOpen }">
       <div class="sidebar-top">
         <p class="sidebar-eyebrow">HONJAYA ADMIN</p>
         <h1>관리자</h1>
+        <button
+          type="button"
+          class="sidebar-close-button"
+          @click="closeMobileMenu"
+        >
+          닫기
+        </button>
       </div>
 
       <nav class="sidebar-nav">
@@ -25,6 +40,17 @@
 
     <div class="admin-main">
       <header class="admin-topbar">
+        <button
+          type="button"
+          class="mobile-menu-button"
+          aria-label="관리자 메뉴 열기"
+          @click="openMobileMenu"
+        >
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+
         <div class="topbar-left">
           <p class="topbar-breadcrumb">{{ currentSectionLabel }}</p>
           <h2>{{ currentTitle }}</h2>
@@ -43,11 +69,12 @@
 </template>
 
 <script setup>
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 const router = useRouter();
 const route = useRoute();
+const isMobileMenuOpen = ref(false);
 
 const menuList = [
   {
@@ -61,12 +88,6 @@ const menuList = [
     label: "매출 통계",
     description: "기간별 매출 분석",
     matchStartsWith: "/admin/sales",
-  },
-  {
-    to: "/admin/projector-notices",
-    label: "프로젝터 공지",
-    description: "하단 흐름 문구 관리",
-    matchStartsWith: "/admin/projector-notices",
   },
   {
     to: "/admin/products",
@@ -95,8 +116,17 @@ const menuList = [
 ];
 
 function goMenu(path) {
+  closeMobileMenu();
   if (route.path === path) return;
   router.push(path);
+}
+
+function openMobileMenu() {
+  isMobileMenuOpen.value = true;
+}
+
+function closeMobileMenu() {
+  isMobileMenuOpen.value = false;
 }
 
 function isActiveMenu(menu) {
@@ -127,6 +157,13 @@ const currentDateText = computed(() => {
 
   return `${year}.${month}.${day} ${hours}:${minutes}`;
 });
+
+watch(
+  () => route.fullPath,
+  () => {
+    closeMobileMenu();
+  }
+);
 </script>
 
 <style scoped lang="scss">
@@ -149,6 +186,7 @@ const currentDateText = computed(() => {
 
 .sidebar-top {
   padding: 8px 8px 4px;
+  position: relative;
 
   .sidebar-eyebrow {
     margin: 0 0 8px;
@@ -163,6 +201,12 @@ const currentDateText = computed(() => {
     font-size: 28px;
     font-weight: 800;
   }
+}
+
+.sidebar-close-button,
+.mobile-menu-button,
+.mobile-menu-backdrop {
+  display: none;
 }
 
 .sidebar-nav {
@@ -270,23 +314,96 @@ const currentDateText = computed(() => {
   }
 
   .admin-sidebar {
-    border-right: none;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 210;
+    width: min(320px, 86vw);
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: none;
+    background: #120b16;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    box-shadow: 24px 0 60px rgba(0, 0, 0, 0.46);
+
+    &.open {
+      transform: translateX(0);
+    }
   }
 
-  .sidebar-nav {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 720px) {
   .sidebar-nav {
     grid-template-columns: 1fr;
   }
 
-  .admin-topbar {
+  .sidebar-close-button {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 34px;
+    padding: 0 12px;
+    border: none;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .mobile-menu-button {
+    width: 42px;
+    height: 42px;
+    border: none;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.1);
+    display: inline-flex;
     flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    flex-shrink: 0;
+    cursor: pointer;
+
+    span {
+      width: 18px;
+      height: 2px;
+      border-radius: 999px;
+      background: currentColor;
+      color: #fff;
+    }
+  }
+
+  .mobile-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: block;
+    border: none;
+    background: rgba(0, 0, 0, 0.5);
+  }
+
+  .admin-topbar {
     align-items: flex-start;
+  }
+}
+
+@media (max-width: 720px) {
+  .admin-topbar {
+    padding: 16px;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 12px;
+  }
+
+  .topbar-right {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .date-chip {
+    width: 100%;
   }
 }
 </style>

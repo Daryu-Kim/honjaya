@@ -1107,7 +1107,7 @@ const filteredRecipeProductList = computed(() => {
   return recipeProductList.value.filter((item) => {
     const matchCategory =
       selectedRecipeCategory.value === "all" ||
-      item.categoryId === selectedRecipeCategory.value;
+      getProductCategoryIds(item).includes(selectedRecipeCategory.value);
 
     if (!matchCategory) return false;
     if (!keyword) return true;
@@ -1210,7 +1210,12 @@ const manualFilteredProductList = computed(() => {
       if (item.isDeleted === true) return false;
       if (item.isSoldOut === true) return false;
       if (Number(item.stock ?? 0) <= 0) return false;
-      if (categoryId !== "all" && item.categoryId !== categoryId) return false;
+      if (
+        categoryId !== "all" &&
+        !getProductCategoryIds(item).includes(categoryId)
+      ) {
+        return false;
+      }
 
       if (!keyword) return true;
 
@@ -1486,6 +1491,14 @@ function subscribeCategories() {
       console.error("카테고리 구독 실패:", error);
     }
   );
+}
+
+function getProductCategoryIds(product) {
+  if (Array.isArray(product.categoryIds) && product.categoryIds.length > 0) {
+    return product.categoryIds.map((item) => String(item));
+  }
+
+  return product.categoryId ? [String(product.categoryId)] : [];
 }
 
 function subscribeProducts() {
@@ -2054,6 +2067,7 @@ onUnmounted(() => {
   padding: 20px;
   background: #0f172a;
   color: #fff;
+  overflow-x: hidden;
 }
 .tablet-header,
 .table-card-top,
@@ -2098,12 +2112,16 @@ onUnmounted(() => {
 }
 .tab-section {
   margin-bottom: 18px;
+  min-width: 0;
 }
 .tab-scroll {
   display: flex;
   gap: 10px;
   overflow-x: auto;
   padding-bottom: 4px;
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
 }
 .tab-scroll::-webkit-scrollbar {
   display: none;
@@ -2399,8 +2417,15 @@ onUnmounted(() => {
   display: flex;
   gap: 8px;
   margin: 10px 0 12px;
-  overflow-x: auto;
-  padding-bottom: 2px;
+  width: 100%;
+  min-width: 0;
+  overflow-x: scroll;
+  overflow-y: hidden;
+  padding: 0 2px 8px;
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x;
 }
 .category-filter-button {
   flex: 0 0 auto;
@@ -2424,6 +2449,16 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: 1fr;
   gap: 16px;
+  min-width: 0;
+  width: 100%;
+}
+.recipe-menu-panel {
+  min-width: 0;
+  width: 100%;
+  padding: 18px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
 }
 .manual-add-layout {
   grid-template-columns: 320px 1fr;
@@ -2637,6 +2672,14 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
+}
+.recipe-menu-button-left {
+  min-width: 0;
+}
+.recipe-menu-button-left strong,
+.recipe-menu-button-left p {
+  overflow-wrap: anywhere;
 }
 .recipe-menu-button.active {
   background: #fff;
@@ -2648,9 +2691,12 @@ onUnmounted(() => {
 }
 .recipe-badge {
   flex-shrink: 0;
+  max-width: 88px;
+  text-align: right;
   font-size: 11px;
   font-weight: 800;
   color: #bfdbfe;
+  white-space: nowrap;
 }
 .manual-product-button span,
 .manual-option-button span {
@@ -2758,6 +2804,215 @@ onUnmounted(() => {
 @media (max-width: 960px) {
   .table-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .tablet-admin-view {
+    padding: 12px;
+  }
+
+  .tablet-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .header-summary {
+    width: 100%;
+  }
+
+  .table-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tab-panel,
+  .recipe-layout,
+  .recipe-menu-panel,
+  .recipe-card,
+  .manual-add-layout,
+  .manual-product-panel,
+  .manual-cart-panel {
+    min-width: 0;
+  }
+
+  .list-card-head,
+  .list-card-bottom,
+  .order-item-row,
+  .modal-info-row,
+  .manual-option-group-head,
+  .manual-option-footer,
+  .manual-cart-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .order-item-right {
+    justify-items: stretch;
+  }
+
+  .action-row button,
+  .modal-action-grid button,
+  .confirm-button,
+  .quick-button,
+  .send-button,
+  .recipe-view-button {
+    width: 100%;
+  }
+
+  .modal-overlay {
+    align-items: flex-end;
+    padding: 10px;
+  }
+
+  .modal-card {
+    max-height: 92vh;
+    border-radius: 22px;
+    padding: 18px;
+  }
+
+  .modal-head {
+    align-items: flex-start;
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+
+  .modal-head > div:first-child {
+    min-width: 0;
+    display: grid;
+    gap: 6px;
+  }
+
+  .modal-head-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .close-button {
+    flex-shrink: 0;
+  }
+
+  .modal-section {
+    margin-bottom: 18px;
+  }
+
+  .modal-section h4,
+  .manual-cart-panel h4 {
+    margin-bottom: 12px;
+  }
+
+  .modal-info-row,
+  .modal-preview-row {
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .modal-info-row + .modal-info-row,
+  .modal-preview-row + .modal-preview-row,
+  .manual-cart-row + .manual-cart-row,
+  .manual-option-group + .manual-option-group {
+    margin-top: 10px;
+  }
+
+  .modal-action-grid,
+  .payment-method-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .manual-add-layout {
+    gap: 14px;
+  }
+
+  .manual-product-panel,
+  .manual-cart-panel,
+  .manual-option-group {
+    padding: 14px;
+  }
+
+  .manual-search-box,
+  .recipe-search-box {
+    margin-bottom: 10px;
+  }
+
+  .manual-product-list,
+  .manual-cart-list,
+  .manual-option-button-list,
+  .recipe-menu-list,
+  .recipe-content {
+    gap: 12px;
+  }
+
+  .manual-product-button,
+  .manual-option-button,
+  .recipe-menu-button {
+    padding: 14px;
+  }
+
+  .manual-cart-row {
+    padding: 14px;
+  }
+
+  .manual-cart-body {
+    display: grid;
+    gap: 8px;
+  }
+
+  .manual-cart-actions {
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .manual-cart-footer,
+  .manual-option-footer {
+    gap: 12px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid rgba(246, 198, 106, 0.18);
+  }
+
+  .manual-cart-total,
+  .manual-option-total {
+    display: grid;
+    gap: 4px;
+  }
+
+  .manual-option-group-head {
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .option-error-box {
+    margin-top: 12px;
+    margin-bottom: 12px;
+  }
+
+  .quantity-controller {
+    justify-content: center;
+  }
+
+  .recipe-menu-button,
+  .manual-product-button,
+  .manual-option-button {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .recipe-menu-button-left,
+  .manual-product-button-left,
+  .manual-option-button-left {
+    min-width: 0;
+  }
+
+  .recipe-menu-button-left strong,
+  .manual-product-button strong,
+  .manual-option-button strong {
+    overflow-wrap: anywhere;
+  }
+
+  .recipe-badge {
+    align-self: flex-start;
+    max-width: 100%;
+    text-align: left;
   }
 }
 </style>

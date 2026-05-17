@@ -51,12 +51,12 @@
                 <strong>{{ product.productName }}</strong>
                 <span>{{ getRecipeStatus(product) }}</span>
               </div>
-              <small>{{ getCategoryName(product.categoryId) }}</small>
+              <small>{{ getProductCategoryNames(product) }}</small>
             </button>
           </div>
         </div>
 
-        <div class="recipe-edit-card">
+        <div ref="editCardRef" class="recipe-edit-card">
           <div v-if="!selectedProduct" class="empty-box">
             <h2>레시피 편집할 상품을 선택해주세요</h2>
             <p>왼쪽 목록에서 상품을 선택하면 레시피를 등록할 수 있어요.</p>
@@ -215,7 +215,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
 import {
   collection,
   doc,
@@ -233,6 +233,7 @@ const productList = ref([]);
 const categoryList = ref([]);
 const selectedProduct = ref(null);
 const isSaving = ref(false);
+const editCardRef = ref(null);
 let unsubscribeProducts = null;
 let unsubscribeCategories = null;
 
@@ -294,9 +295,25 @@ function getRecipeStatus(product) {
   return recipeText || hasStructured ? "등록됨" : "미등록";
 }
 
+function getProductCategoryIds(product) {
+  if (Array.isArray(product.categoryIds) && product.categoryIds.length > 0) {
+    return product.categoryIds.map((item) => String(item));
+  }
+
+  return product.categoryId ? [String(product.categoryId)] : [];
+}
+
 function getCategoryName(categoryId) {
-  const category = categoryList.value.find((item) => item.id === categoryId);
+  const categoryKey = String(categoryId || "");
+  const category = categoryList.value.find(
+    (item) => item.id === categoryKey || item.code === categoryKey
+  );
   return category?.name || "카테고리 미지정";
+}
+
+function getProductCategoryNames(product) {
+  const names = getProductCategoryIds(product).map(getCategoryName);
+  return names.length > 0 ? names.join(", ") : "카테고리 미지정";
 }
 
 function normalizeList(value) {
@@ -358,9 +375,18 @@ function initializeForm(product) {
   };
 }
 
-function selectProduct(product) {
+async function selectProduct(product) {
   selectedProduct.value = product;
   initializeForm(product);
+
+  await nextTick();
+
+  if (window.innerWidth <= 900 && editCardRef.value) {
+    editCardRef.value.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }
 }
 
 function addArrayItem(key) {
@@ -739,5 +765,74 @@ onUnmounted(() => {
 .helper-text {
   color: rgba(255, 255, 255, 0.6);
   font-size: 13px;
+}
+
+@media (max-width: 900px) {
+  .admin-recipe-view {
+    padding: 16px;
+  }
+
+  .page-header {
+    margin-bottom: 16px;
+  }
+
+  .recipe-layout {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .recipe-list-card,
+  .recipe-edit-card {
+    padding: 16px;
+  }
+
+  .product-list {
+    max-height: 42vh;
+    overflow-y: auto;
+    padding-right: 2px;
+  }
+
+  .recipe-edit-card {
+    scroll-margin-top: 16px;
+  }
+
+  .section-title {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .array-item-row {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .array-item-row .amount-input {
+    width: 100%;
+  }
+
+  .inline-button,
+  .remove-button,
+  .primary-button,
+  .secondary-button {
+    min-height: 44px;
+  }
+
+  .remove-button,
+  .form-actions button {
+    width: 100%;
+  }
+
+  .form-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    padding-top: 12px;
+    background: linear-gradient(
+      to top,
+      rgba(18, 11, 22, 0.98) 72%,
+      rgba(18, 11, 22, 0)
+    );
+  }
 }
 </style>

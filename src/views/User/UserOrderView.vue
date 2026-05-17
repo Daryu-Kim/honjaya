@@ -356,7 +356,7 @@ const filteredProductList = computed(() => {
 
       const matchCategory =
         selectedCategory.value === "all" ||
-        item.categoryId === selectedCategory.value;
+        getProductCategoryIds(item).includes(selectedCategory.value);
 
       const matchKeyword =
         !keyword ||
@@ -534,6 +534,14 @@ function formatPrice(value) {
 
 function isSoldOutProduct(product) {
   return product.isSoldOut === true || Number(product.stock ?? 0) <= 0;
+}
+
+function getProductCategoryIds(product) {
+  if (Array.isArray(product.categoryIds) && product.categoryIds.length > 0) {
+    return product.categoryIds.map((item) => String(item));
+  }
+
+  return product.categoryId ? [String(product.categoryId)] : [];
 }
 
 function getActiveOptions(group) {

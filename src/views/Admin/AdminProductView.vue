@@ -104,7 +104,7 @@
                 </div>
               </td>
 
-              <td>{{ getCategoryName(item.categoryId) }}</td>
+              <td>{{ getProductCategoryNames(item) }}</td>
               <td>{{ formatPrice(item.basePrice || item.price) }}원</td>
               <td>{{ item.stock }}</td>
               <td>
@@ -275,7 +275,7 @@ const filteredProductList = computed(() => {
 
       const matchCategory =
         selectedCategory.value === "ALL" ||
-        item.categoryId === selectedCategory.value;
+        getProductCategoryIds(item).includes(selectedCategory.value);
 
       const currentStatus = convertStatusCode(item);
       const matchStatus =
@@ -355,12 +355,26 @@ function subscribeCategories() {
   );
 }
 
+function getProductCategoryIds(product) {
+  if (Array.isArray(product.categoryIds) && product.categoryIds.length > 0) {
+    return product.categoryIds.map((item) => String(item));
+  }
+
+  return product.categoryId ? [String(product.categoryId)] : [];
+}
+
 function getCategoryName(categoryId) {
+  const categoryKey = String(categoryId || "");
   const found = categoryList.value.find(
-    (item) => item.id === categoryId || item.code === categoryId
+    (item) => item.id === categoryKey || item.code === categoryKey
   );
 
   return found ? found.name : "미분류";
+}
+
+function getProductCategoryNames(product) {
+  const names = getProductCategoryIds(product).map(getCategoryName);
+  return names.length > 0 ? names.join(", ") : "미분류";
 }
 
 function formatPrice(value) {
@@ -418,7 +432,8 @@ async function duplicateProduct(item) {
     const payload = {
       productName: duplicatedName,
       description: item.description || "",
-      categoryId: item.categoryId || "",
+      categoryId: getProductCategoryIds(item)[0] || "",
+      categoryIds: getProductCategoryIds(item),
       basePrice: Number(item.basePrice ?? item.price ?? 0),
       stock: Number(item.stock ?? 0),
       imageUrl: item.imageUrl || "",

@@ -7,7 +7,6 @@ import UserOrderHistoryView from "@/views/User/UserOrderHistoryView.vue";
 import UserOrderCompleteView from "@/views/User/UserOrderCompleteView.vue";
 import UserCheckoutView from "@/views/User/UserCheckoutView.vue";
 import AdminChatView from "@/views/Admin/AdminChatView.vue";
-import ProjectorView from "@/views/Projector/ProjectorView.vue";
 import AdminProductView from "@/views/Admin/AdminProductView.vue";
 import AdminProductFormView from "@/views/Admin/AdminProductFormView.vue";
 import AdminCategoryView from "@/views/Admin/AdminCategoryView.vue";
@@ -16,7 +15,6 @@ import TabletAdminView from "@/views/Tablet/TabletAdminView.vue";
 import AdminDashboardView from "@/views/Admin/AdminDashboardView.vue";
 import AdminSalesView from "@/views/Admin/AdminSalesView.vue";
 import AdminLayout from "@/layouts/AdminLayout.vue";
-import AdminProjectorNoticeView from "@/views/Admin/AdminProjectorNoticeView.vue";
 
 const routes = [
   {
@@ -78,11 +76,6 @@ const routes = [
         component: AdminChatView,
       },
       {
-        path: "projector-notices",
-        name: "admin-projector-notices",
-        component: AdminProjectorNoticeView,
-      },
-      {
         path: "products",
         name: "admin-products",
         component: AdminProductView,
@@ -113,11 +106,6 @@ const routes = [
     path: "/tablet",
     name: "tablet-admin",
     component: TabletAdminView,
-  },
-  {
-    path: "/projector",
-    name: "projector",
-    component: ProjectorView,
   },
 ];
 
