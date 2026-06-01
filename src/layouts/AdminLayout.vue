@@ -90,6 +90,12 @@ const menuList = [
     matchStartsWith: "/admin/sales",
   },
   {
+    to: "/admin/payments",
+    label: "결제 내역",
+    description: "주문서별 결제 조회",
+    matchStartsWith: "/admin/payments",
+  },
+  {
     to: "/admin/products",
     label: "상품 관리",
     description: "상품 등록 및 수정",

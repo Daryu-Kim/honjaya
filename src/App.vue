@@ -384,7 +384,8 @@
     .admin-category-view,
     .admin-recipe-view,
     .admin-chat-view,
-    .admin-sales-view
+    .admin-sales-view,
+    .admin-payment-history-view
   ) {
   color: var(--user-text);
 }
@@ -439,6 +440,7 @@
     .admin-recipe-view,
     .admin-chat-view,
     .admin-sales-view,
+    .admin-payment-history-view,
     .tablet-admin-view
   )
   :is(.description, .panel-head p, .helper-text, small, label) {
@@ -454,6 +456,7 @@
     .admin-recipe-view,
     .admin-chat-view,
     .admin-sales-view,
+    .admin-payment-history-view,
     .tablet-admin-view
   )
   :is(input, select, textarea) {
@@ -471,6 +474,7 @@
     .admin-recipe-view,
     .admin-chat-view,
     .admin-sales-view,
+    .admin-payment-history-view,
     .tablet-admin-view
   )
   select {
@@ -496,6 +500,7 @@
     .admin-recipe-view,
     .admin-chat-view,
     .admin-sales-view,
+    .admin-payment-history-view,
     .tablet-admin-view
   )
   select:focus {
@@ -512,6 +517,7 @@
     .admin-recipe-view,
     .admin-chat-view,
     .admin-sales-view,
+    .admin-payment-history-view,
     .tablet-admin-view
   )
   select

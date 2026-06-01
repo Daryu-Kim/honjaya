@@ -66,6 +66,18 @@
             <div class="table-card-middle">
               <p class="table-location">{{ table.locationLabel }}</p>
               <p class="table-amount">{{ formatPrice(table.totalAmount) }}원</p>
+              <div
+                v-if="normalizeOrderSheetTags(table.internalTags).length > 0"
+                class="table-tag-list"
+              >
+                <span
+                  v-for="tag in normalizeOrderSheetTags(table.internalTags)"
+                  :key="`${table.orderSheetId}-${tag}`"
+                  class="table-tag"
+                >
+                  {{ tag }}
+                </span>
+              </div>
             </div>
 
             <div class="table-card-bottom">
@@ -355,6 +367,26 @@
             </div>
           </div>
 
+          <div
+            v-if="
+              normalizeOrderSheetTags(selectedTable.internalTags).length > 0
+            "
+            class="modal-section"
+          >
+            <h4>주문서 태그</h4>
+            <div class="table-tag-list">
+              <span
+                v-for="tag in normalizeOrderSheetTags(
+                  selectedTable.internalTags
+                )"
+                :key="`detail-${tag}`"
+                class="table-tag"
+              >
+                {{ tag }}
+              </span>
+            </div>
+          </div>
+
           <div class="modal-section">
             <h4>최근 주문</h4>
             <div
@@ -385,6 +417,13 @@
             </button>
 
             <button
+              type="button"
+              @click="openOrderSheetTagModal(selectedTable)"
+            >
+              태그 관리
+            </button>
+
+            <button
               v-if="selectedTable.paymentStatus !== 'COMPLETED'"
               type="button"
               @click="openTablePaymentModal(selectedTable)"
@@ -401,6 +440,96 @@
               테이블 정리 완료
             </button>
           </div>
+        </div>
+      </div>
+    </transition>
+
+    <!-- 주문서 내부 태그 모달 -->
+    <transition name="fade">
+      <div
+        v-if="orderSheetTagModalState.isOpen"
+        class="modal-overlay"
+        @click.self="closeOrderSheetTagModal"
+      >
+        <div class="modal-card order-sheet-tag-modal">
+          <div class="modal-head">
+            <div>
+              <h3>주문서 태그 관리</h3>
+              <p>{{ orderSheetTagModalState.displayName }}</p>
+            </div>
+            <button
+              type="button"
+              class="close-button"
+              @click="closeOrderSheetTagModal"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div class="modal-section">
+            <h4>기본 태그</h4>
+            <div class="order-sheet-tag-preset-list">
+              <button
+                v-for="tag in orderSheetTagPresets"
+                :key="tag"
+                type="button"
+                class="order-sheet-tag-button"
+                :class="{ active: orderSheetTagModalState.tags.includes(tag) }"
+                @click="toggleOrderSheetTag(tag)"
+              >
+                {{ tag }}
+              </button>
+            </div>
+          </div>
+
+          <div class="modal-section">
+            <h4>직접 입력</h4>
+            <div class="order-sheet-tag-input-row">
+              <input
+                v-model.trim="orderSheetTagModalState.customTag"
+                type="text"
+                maxlength="20"
+                placeholder="태그명을 입력해주세요"
+                @keyup.enter="addCustomOrderSheetTag"
+              />
+              <button
+                type="button"
+                class="quick-button"
+                @click="addCustomOrderSheetTag"
+              >
+                추가
+              </button>
+            </div>
+          </div>
+
+          <div class="modal-section">
+            <h4>선택된 태그</h4>
+            <div
+              v-if="orderSheetTagModalState.tags.length > 0"
+              class="selected-order-sheet-tag-list"
+            >
+              <button
+                v-for="tag in orderSheetTagModalState.tags"
+                :key="`selected-${tag}`"
+                type="button"
+                class="selected-order-sheet-tag"
+                @click="removeOrderSheetTag(tag)"
+              >
+                <span>{{ tag }}</span>
+                <strong>✕</strong>
+              </button>
+            </div>
+            <p v-else class="modal-empty-text">선택된 태그가 없어요.</p>
+          </div>
+
+          <button
+            type="button"
+            class="confirm-button"
+            :disabled="orderSheetTagModalState.isSaving"
+            @click="saveOrderSheetTags"
+          >
+            {{ orderSheetTagModalState.isSaving ? "저장 중..." : "태그 저장" }}
+          </button>
         </div>
       </div>
     </transition>
@@ -677,6 +806,32 @@
 
           <div class="manual-add-layout">
             <div class="manual-product-panel">
+              <div class="manual-custom-product">
+                <div class="manual-custom-product-head">
+                  <strong>커스텀 메뉴</strong>
+                  <span>메뉴에 없는 상품</span>
+                </div>
+
+                <div class="manual-custom-product-form">
+                  <input
+                    v-model.number="manualAddModalState.customPrice"
+                    type="number"
+                    min="1"
+                    step="1"
+                    inputmode="numeric"
+                    placeholder="금액 입력"
+                    @keyup.enter="addManualCustomProduct"
+                  />
+                  <button
+                    type="button"
+                    class="quick-button"
+                    @click="addManualCustomProduct"
+                  >
+                    추가
+                  </button>
+                </div>
+              </div>
+
               <div class="manual-search-box">
                 <input
                   v-model.trim="manualAddModalState.keyword"
@@ -987,6 +1142,17 @@ const paymentCompleteModalState = ref({
   amount: 0,
 });
 
+const orderSheetTagPresets = ["블로그체험단", "지인", "워크인", "진상"];
+
+const orderSheetTagModalState = ref({
+  isOpen: false,
+  orderSheetId: "",
+  displayName: "",
+  tags: [],
+  customTag: "",
+  isSaving: false,
+});
+
 const manualAddModalState = ref({
   isOpen: false,
   orderSheetId: "",
@@ -995,6 +1161,7 @@ const manualAddModalState = ref({
   cartItems: [],
   keyword: "",
   categoryId: "all",
+  customPrice: "",
 });
 
 const manualOptionModalState = ref({
@@ -1566,6 +1733,94 @@ function closeRecipeModal() {
   recipeModalProduct.value = null;
 }
 
+function normalizeOrderSheetTags(tags) {
+  if (!Array.isArray(tags)) return [];
+
+  return [
+    ...new Set(
+      tags.map((tag) => String(tag || "").trim()).filter((tag) => tag)
+    ),
+  ];
+}
+
+function openOrderSheetTagModal(table) {
+  if (!table.orderSheetId) return;
+
+  orderSheetTagModalState.value = {
+    isOpen: true,
+    orderSheetId: table.orderSheetId,
+    displayName: table.displayName || table.tableLabel || "",
+    tags: normalizeOrderSheetTags(table.internalTags),
+    customTag: "",
+    isSaving: false,
+  };
+}
+
+function closeOrderSheetTagModal() {
+  orderSheetTagModalState.value = {
+    isOpen: false,
+    orderSheetId: "",
+    displayName: "",
+    tags: [],
+    customTag: "",
+    isSaving: false,
+  };
+}
+
+function toggleOrderSheetTag(tag) {
+  if (orderSheetTagModalState.value.tags.includes(tag)) {
+    removeOrderSheetTag(tag);
+    return;
+  }
+
+  orderSheetTagModalState.value.tags.push(tag);
+}
+
+function addCustomOrderSheetTag() {
+  const tag = String(orderSheetTagModalState.value.customTag || "").trim();
+  if (!tag) return;
+
+  if (!orderSheetTagModalState.value.tags.includes(tag)) {
+    orderSheetTagModalState.value.tags.push(tag);
+  }
+
+  orderSheetTagModalState.value.customTag = "";
+}
+
+function removeOrderSheetTag(tag) {
+  orderSheetTagModalState.value.tags =
+    orderSheetTagModalState.value.tags.filter((item) => item !== tag);
+}
+
+async function saveOrderSheetTags() {
+  const state = orderSheetTagModalState.value;
+  if (!state.orderSheetId || state.isSaving) return;
+
+  state.isSaving = true;
+
+  try {
+    const internalTags = normalizeOrderSheetTags(state.tags);
+
+    await updateDoc(doc(db, "orderSheets", state.orderSheetId), {
+      internalTags,
+      updatedAt: serverTimestamp(),
+    });
+
+    if (selectedTable.value?.orderSheetId === state.orderSheetId) {
+      selectedTable.value = {
+        ...selectedTable.value,
+        internalTags,
+      };
+    }
+
+    closeOrderSheetTagModal();
+  } catch (error) {
+    console.error("주문서 태그 저장 실패:", error);
+    alert("주문서 태그 저장 중 문제가 발생했어요.");
+    state.isSaving = false;
+  }
+}
+
 function openManualAddModal(table) {
   manualAddModalState.value = {
     isOpen: true,
@@ -1575,6 +1830,7 @@ function openManualAddModal(table) {
     cartItems: [],
     keyword: "",
     categoryId: "all",
+    customPrice: "",
   };
 }
 
@@ -1587,6 +1843,7 @@ function closeManualAddModal() {
     cartItems: [],
     keyword: "",
     categoryId: "all",
+    customPrice: "",
   };
 }
 
@@ -1769,6 +2026,47 @@ function addManualSimpleProduct(product) {
   }
 }
 
+function addManualCustomProduct() {
+  const customPrice = Number(manualAddModalState.value.customPrice);
+
+  if (!Number.isInteger(customPrice) || customPrice <= 0) {
+    alert("커스텀 메뉴 금액을 1원 이상의 정수로 입력해주세요.");
+    return;
+  }
+
+  const cartItemKey = `custom_manual_${customPrice}`;
+  const found = manualAddModalState.value.cartItems.find(
+    (item) => item.cartItemKey === cartItemKey
+  );
+
+  if (found) {
+    found.quantity += 1;
+    found.totalPrice =
+      Number(found.unitPrice || 0) * Number(found.quantity || 0);
+  } else {
+    manualAddModalState.value.cartItems.push({
+      cartItemId: `manual_custom_${Date.now()}_${Math.random()
+        .toString(36)
+        .slice(2, 7)}`,
+      cartItemKey,
+      orderSheetId: manualAddModalState.value.orderSheetId,
+      tableNumber: manualAddModalState.value.tableNumber,
+      displayName: manualAddModalState.value.displayName,
+      productId: "custom",
+      productName: "커스텀",
+      basePrice: customPrice,
+      imageUrl: "",
+      quantity: 1,
+      selectedOptions: [],
+      unitPrice: customPrice,
+      totalPrice: customPrice,
+      isCustom: true,
+    });
+  }
+
+  manualAddModalState.value.customPrice = "";
+}
+
 function addManualOptionProductToCart() {
   if (!manualOptionModalState.value.product) return;
   if (!validateManualOptions()) return;
@@ -1865,6 +2163,7 @@ async function submitManualAddOrder() {
       totalPrice: Number(item.totalPrice || 0),
       quantity: Number(item.quantity || 0),
       imageUrl: item.imageUrl || "",
+      isCustom: item.isCustom === true,
       selectedOptions: Array.isArray(item.selectedOptions)
         ? item.selectedOptions.map((option) => ({
             groupId: option.groupId,
@@ -2233,6 +2532,24 @@ onUnmounted(() => {
   font-size: 28px;
   font-weight: 800;
 }
+.table-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.table-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  border: 1px solid rgba(250, 204, 21, 0.3);
+  border-radius: 999px;
+  background: rgba(250, 204, 21, 0.12);
+  color: #fde68a;
+  font-size: 11px;
+  font-weight: 800;
+}
 .table-card-bottom {
   margin-top: auto;
 }
@@ -2479,6 +2796,50 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
+.manual-custom-product {
+  margin-bottom: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.manual-custom-product-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.manual-custom-product-head strong {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.manual-custom-product-head span {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.manual-custom-product-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.manual-custom-product-form input {
+  width: 100%;
+  min-width: 0;
+  height: 42px;
+  padding: 0 12px;
+  border: none;
+  outline: none;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 14px;
+}
+
 .manual-product-panel .manual-product-list,
 .manual-cart-panel .manual-cart-list {
   flex: 1;
@@ -2632,6 +2993,60 @@ onUnmounted(() => {
 .payment-complete-modal {
   max-width: 480px;
   text-align: center;
+}
+.order-sheet-tag-modal {
+  max-width: 560px;
+}
+.order-sheet-tag-preset-list,
+.selected-order-sheet-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.order-sheet-tag-button,
+.selected-order-sheet-tag {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.order-sheet-tag-button.active {
+  border-color: rgba(250, 204, 21, 0.72);
+  background: rgba(250, 204, 21, 0.16);
+  color: #fde68a;
+}
+.selected-order-sheet-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-color: rgba(250, 204, 21, 0.34);
+  background: rgba(250, 204, 21, 0.12);
+  color: #fde68a;
+}
+.selected-order-sheet-tag strong {
+  color: #fecaca;
+}
+.order-sheet-tag-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.order-sheet-tag-input-row input {
+  width: 100%;
+  min-width: 0;
+  height: 42px;
+  padding: 0 12px;
+  border: none;
+  outline: none;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 14px;
 }
 .payment-complete-icon {
   width: 72px;
@@ -2932,6 +3347,24 @@ onUnmounted(() => {
   .manual-search-box,
   .recipe-search-box {
     margin-bottom: 10px;
+  }
+
+  .manual-custom-product {
+    padding: 12px;
+  }
+
+  .manual-custom-product-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .manual-custom-product-form {
+    grid-template-columns: 1fr;
+  }
+
+  .order-sheet-tag-input-row {
+    grid-template-columns: 1fr;
   }
 
   .manual-product-list,

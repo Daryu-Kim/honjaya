@@ -26,6 +26,16 @@
       </article>
 
       <article class="summary-card">
+        <span class="summary-label">이번주 매출</span>
+        <strong>{{ formatPrice(thisWeekSalesAmount) }}원</strong>
+      </article>
+
+      <article class="summary-card">
+        <span class="summary-label">이번달 매출</span>
+        <strong>{{ formatPrice(thisMonthSalesAmount) }}원</strong>
+      </article>
+
+      <article class="summary-card">
         <span class="summary-label">결제 요청</span>
         <strong>{{ paymentRequestCount }}건</strong>
       </article>
@@ -60,6 +70,13 @@
               @click="goPage('/admin/sales')"
             >
               매출 통계
+            </button>
+            <button
+              type="button"
+              class="quick-button"
+              @click="goPage('/admin/payments')"
+            >
+              결제 내역
             </button>
             <button
               type="button"
@@ -212,20 +229,15 @@ const todayOrderCount = computed(() => {
 });
 
 const todaySalesAmount = computed(() => {
-  const todayStart = getTodayStart();
+  return getPaidSheetSalesAmount(getTodayStart());
+});
 
-  return orderList.value.reduce((acc, item) => {
-    const date = convertToDate(item.createdAt);
-    const isToday = date && date >= todayStart;
-    const isPaid =
-      item.status !== "CANCELLED" &&
-      orderSheetList.value.find(
-        (sheet) => sheet.orderSheetId === item.orderSheetId
-      )?.paymentStatus === "COMPLETED";
+const thisWeekSalesAmount = computed(() => {
+  return getPaidSheetSalesAmount(getThisWeekStart());
+});
 
-    if (!isToday || !isPaid) return acc;
-    return acc + Number(item.totalPrice || 0);
-  }, 0);
+const thisMonthSalesAmount = computed(() => {
+  return getPaidSheetSalesAmount(getThisMonthStart());
 });
 
 const paymentRequestCount = computed(() => {
@@ -239,6 +251,30 @@ const recentOrders = computed(() => {
 function getTodayStart() {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+}
+
+function getThisWeekStart() {
+  const now = getTodayStart();
+  const day = now.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  now.setDate(now.getDate() + diff);
+  return now;
+}
+
+function getThisMonthStart() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+}
+
+function getPaidSheetSalesAmount(startDate) {
+  return orderSheetList.value.reduce((acc, sheet) => {
+    if (sheet.paymentStatus !== "COMPLETED") return acc;
+
+    const paidDate = convertToDate(sheet.paidAt || sheet.updatedAt);
+    if (!paidDate || paidDate < startDate) return acc;
+
+    return acc + Number(sheet.totalAmount || 0);
+  }, 0);
 }
 
 function convertToDate(value) {
@@ -349,11 +385,7 @@ function subscribePayments() {
 }
 
 function subscribeOrderSheets() {
-  const q = query(
-    collection(db, "orderSheets"),
-    orderBy("updatedAt", "desc"),
-    limit(50)
-  );
+  const q = query(collection(db, "orderSheets"), orderBy("updatedAt", "desc"));
 
   unsubscribeOrderSheets = onSnapshot(
     q,

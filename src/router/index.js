@@ -14,6 +14,7 @@ import AdminRecipeView from "@/views/Admin/AdminRecipeView.vue";
 import TabletAdminView from "@/views/Tablet/TabletAdminView.vue";
 import AdminDashboardView from "@/views/Admin/AdminDashboardView.vue";
 import AdminSalesView from "@/views/Admin/AdminSalesView.vue";
+import AdminPaymentHistoryView from "@/views/Admin/AdminPaymentHistoryView.vue";
 import AdminLayout from "@/layouts/AdminLayout.vue";
 
 const routes = [
@@ -69,6 +70,11 @@ const routes = [
         path: "sales",
         name: "admin-sales",
         component: AdminSalesView,
+      },
+      {
+        path: "payments",
+        name: "admin-payments",
+        component: AdminPaymentHistoryView,
       },
       {
         path: "chat",

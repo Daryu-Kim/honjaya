@@ -107,6 +107,31 @@
 
         <section class="panel-card">
           <div class="panel-head">
+            <h2>요일별 매출</h2>
+            <p>선택한 기간의 결제 완료 주문서를 요일별로 합산했어요.</p>
+          </div>
+
+          <div class="list-table">
+            <div class="list-head three">
+              <span>요일</span>
+              <span>건수</span>
+              <span>매출</span>
+            </div>
+
+            <div
+              v-for="item in weekdaySalesList"
+              :key="item.dayIndex"
+              class="list-row three"
+            >
+              <span>{{ item.label }}</span>
+              <span>{{ item.count }}건</span>
+              <strong>{{ formatPrice(item.amount) }}원</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel-card">
+          <div class="panel-head">
             <h2>상품별 매출</h2>
             <p>판매량과 매출 기준으로 집계했어요.</p>
           </div>
@@ -216,13 +241,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import {
-  collection,
-  onSnapshot,
-  orderBy,
-  query,
-  limit,
-} from "firebase/firestore";
+import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 const isLoadingSheets = ref(true);
@@ -372,6 +391,33 @@ const dailySalesList = computed(() => {
   return [...map.values()].sort((a, b) => b.date.localeCompare(a.date));
 });
 
+const weekdaySalesList = computed(() => {
+  const weekdays = [
+    { dayIndex: 1, label: "월요일", count: 0, amount: 0 },
+    { dayIndex: 2, label: "화요일", count: 0, amount: 0 },
+    { dayIndex: 3, label: "수요일", count: 0, amount: 0 },
+    { dayIndex: 4, label: "목요일", count: 0, amount: 0 },
+    { dayIndex: 5, label: "금요일", count: 0, amount: 0 },
+    { dayIndex: 6, label: "토요일", count: 0, amount: 0 },
+    { dayIndex: 0, label: "일요일", count: 0, amount: 0 },
+  ];
+
+  filteredPaidSheets.value.forEach((item) => {
+    const date = convertToDate(item.paidAt || item.updatedAt);
+    if (!date) return;
+
+    const found = weekdays.find(
+      (weekday) => weekday.dayIndex === date.getDay()
+    );
+    if (!found) return;
+
+    found.count += 1;
+    found.amount += Number(item.totalAmount || 0);
+  });
+
+  return weekdays;
+});
+
 const productSalesList = computed(() => {
   const map = new Map();
 
@@ -441,11 +487,7 @@ function convertPaymentMethodText(method) {
 }
 
 function subscribeOrderSheets() {
-  const q = query(
-    collection(db, "orderSheets"),
-    orderBy("updatedAt", "desc"),
-    limit(500)
-  );
+  const q = query(collection(db, "orderSheets"), orderBy("updatedAt", "desc"));
 
   unsubscribeSheets = onSnapshot(
     q,
@@ -463,11 +505,7 @@ function subscribeOrderSheets() {
 }
 
 function subscribeOrders() {
-  const q = query(
-    collection(db, "orders"),
-    orderBy("createdAt", "desc"),
-    limit(1000)
-  );
+  const q = query(collection(db, "orders"), orderBy("createdAt", "desc"));
 
   unsubscribeOrders = onSnapshot(
     q,
