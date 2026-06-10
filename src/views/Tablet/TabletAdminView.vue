@@ -1421,7 +1421,6 @@ const productList = ref([]);
 
 const orderSoundSrc = "/audio/order-request.mp3"; // 나중에 경로 수정 가능
 const paymentSoundSrc = "/audio/payment-request.mp3"; // 나중에 경로 수정 가능
-const paymentCompleteSoundSrc = "/audio/payment-complete.mp3"; // 나중에 파일명 수정 가능
 
 let previousOrderIds = new Set();
 let previousPaymentRequestIds = new Set();
@@ -1963,28 +1962,20 @@ function subscribeOrderSheets() {
   );
 }
 
-function playNotificationSound(type) {
+function playNotificationSound(type, options = {}) {
   try {
-    const soundSrc = type === "payment" ? paymentSoundSrc : orderSoundSrc;
+    const soundSrc = type === "order" ? orderSoundSrc : paymentSoundSrc;
+    if (!soundSrc) return;
+
     const audio = new Audio(soundSrc);
     audio.preload = "auto";
     audio.play().catch((error) => {
+      if (options.silent) return;
       console.warn("소리 재생 차단됨:", error);
     });
   } catch (error) {
+    if (options.silent) return;
     console.error("알림음 재생 실패:", error);
-  }
-}
-
-function playPaymentCompleteSound() {
-  try {
-    if (!paymentCompleteSoundSrc) return;
-
-    const audio = new Audio(paymentCompleteSoundSrc);
-    audio.preload = "auto";
-    audio.play().catch(() => {});
-  } catch (error) {
-    // 결제 완료음 파일이 없어도 결제 처리는 조용히 계속 진행합니다.
   }
 }
 
@@ -2769,7 +2760,7 @@ async function completePayment() {
         paymentSplits,
       };
 
-      playPaymentCompleteSound();
+      playNotificationSound("paymentComplete", { silent: true });
       closePaymentModal();
       closeTableModal();
     } catch (error) {
