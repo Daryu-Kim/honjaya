@@ -204,20 +204,14 @@
               <div class="action-row">
                 <button
                   type="button"
-                  @click="updateOrderStatus(order, 'PREPARING')"
-                >
-                  준비중
-                </button>
-                <button
-                  type="button"
-                  @click="updateOrderStatus(order, 'SERVED')"
+                  @click="confirmOrderStatusChange(order, 'SERVED')"
                 >
                   제공완료
                 </button>
                 <button
                   type="button"
                   class="danger"
-                  @click="updateOrderStatus(order, 'CANCELLED')"
+                  @click="confirmOrderStatusChange(order, 'CANCELLED')"
                 >
                   취소
                 </button>
@@ -388,25 +382,89 @@
           </div>
 
           <div class="modal-section">
-            <h4>최근 주문</h4>
-            <div
-              v-if="selectedTable.latestOrderItemsPreview?.length > 0"
-              class="modal-preview-list"
-            >
-              <div
-                v-for="(
-                  preview, index
-                ) in selectedTable.latestOrderItemsPreview"
-                :key="`${selectedTable.tableNumber}-${index}`"
-                class="modal-preview-row"
-                role="button"
-                tabindex="0"
-                @click="openRecipeModalByOrderItem(preview)"
-                @keyup.enter="openRecipeModalByOrderItem(preview)"
+            <h4>전체 주문 내용</h4>
+            <div v-if="selectedTableOrders.length > 0" class="table-order-list">
+              <article
+                v-for="order in selectedTableOrders"
+                :key="order.id"
+                class="table-order-card"
               >
-                <span>{{ preview.productName }}</span>
-                <span>{{ preview.quantity }}개</span>
-              </div>
+                <div class="table-order-head">
+                  <div>
+                    <strong>{{ formatDateTime(order.createdAt) }}</strong>
+                    <p v-if="order.requestMessage">
+                      {{ order.requestMessage }}
+                    </p>
+                  </div>
+                  <div class="table-order-head-right">
+                    <span class="status-badge">
+                      {{ convertOrderStatusText(order.status) }}
+                    </span>
+                    <strong>{{ formatPrice(order.totalPrice || 0) }}원</strong>
+                  </div>
+                </div>
+
+                <div class="order-item-list">
+                  <div
+                    v-for="(item, index) in order.items || []"
+                    :key="`${order.id}-${item.productId}-${index}`"
+                    class="order-item-row"
+                  >
+                    <div class="order-item-left">
+                      <strong>{{ item.productName }}</strong>
+                      <span>
+                        {{ formatPrice(item.unitPrice || 0) }}원 x
+                        {{ item.quantity }}개
+                      </span>
+
+                      <div
+                        v-if="
+                          item.selectedOptions &&
+                          item.selectedOptions.length > 0
+                        "
+                        class="order-option-list"
+                      >
+                        <div
+                          v-for="(option, optionIndex) in item.selectedOptions"
+                          :key="`${order.id}-${index}-${optionIndex}`"
+                          class="order-option-row"
+                        >
+                          <span>{{ option.groupName }}</span>
+                          <span>{{ option.optionName }}</span>
+                          <span>
+                            {{
+                              Number(option.additionalPrice || 0) > 0
+                                ? `+${formatPrice(option.additionalPrice)}원`
+                                : "+0원"
+                            }}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="order-item-right">
+                      <strong>{{ formatPrice(item.totalPrice || 0) }}원</strong>
+                      <button
+                        type="button"
+                        class="recipe-view-button"
+                        @click="openRecipeModalByOrderItem(item)"
+                      >
+                        레시피 보기
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="table-order-actions">
+                  <button
+                    type="button"
+                    class="danger-small-button"
+                    @click="confirmOrderStatusChange(order, 'CANCELLED')"
+                  >
+                    주문 취소
+                  </button>
+                </div>
+              </article>
             </div>
             <p v-else class="modal-empty-text">주문 내역이 없어요.</p>
           </div>
@@ -687,41 +745,152 @@
               <strong>{{ paymentModalState.orderSheetId }}</strong>
             </div>
             <div class="modal-info-row">
-              <span>총 금액</span>
+              <span>주문 금액</span>
               <strong>{{ formatPrice(paymentModalState.amount) }}원</strong>
+            </div>
+            <div class="modal-info-row">
+              <span>할인 합계</span>
+              <strong>-{{ formatPrice(paymentDiscountTotal) }}원</strong>
+            </div>
+            <div class="modal-info-row">
+              <span>최종 결제 금액</span>
+              <strong>{{ formatPrice(paymentPayableAmount) }}원</strong>
             </div>
           </div>
 
           <div class="modal-section">
-            <h4>결제 수단 선택</h4>
+            <div class="section-title-row">
+              <h4>할인</h4>
+              <div class="section-action-row">
+                <button
+                  type="button"
+                  class="quick-button"
+                  @click="addPaymentDiscount('AMOUNT')"
+                >
+                  정액 할인
+                </button>
+                <button
+                  type="button"
+                  class="quick-button"
+                  @click="addPaymentDiscount('PERCENT')"
+                >
+                  % 할인
+                </button>
+              </div>
+            </div>
 
-            <div class="payment-method-grid">
-              <button
-                type="button"
-                class="payment-method-button"
-                :class="{ active: paymentModalState.paymentMethod === 'CARD' }"
-                @click="paymentModalState.paymentMethod = 'CARD'"
-              >
-                카드
-              </button>
+            <p
+              v-if="paymentModalState.discounts.length === 0"
+              class="modal-empty-text"
+            >
+              적용된 할인이 없어요.
+            </p>
 
-              <button
-                type="button"
-                class="payment-method-button"
-                :class="{ active: paymentModalState.paymentMethod === 'BANK' }"
-                @click="paymentModalState.paymentMethod = 'BANK'"
+            <div v-else class="payment-edit-list">
+              <div
+                v-for="discount in paymentModalState.discounts"
+                :key="discount.id"
+                class="payment-edit-row discount-row"
               >
-                계좌이체
-              </button>
+                <input
+                  v-model.trim="discount.title"
+                  type="text"
+                  placeholder="할인명"
+                />
+                <select v-model="discount.type">
+                  <option value="AMOUNT">정액</option>
+                  <option value="PERCENT">%</option>
+                </select>
+                <input
+                  v-model.number="discount.value"
+                  type="number"
+                  min="0"
+                  :max="discount.type === 'PERCENT' ? 100 : undefined"
+                  placeholder="값"
+                />
+                <button
+                  type="button"
+                  class="danger-small-button"
+                  @click="removePaymentDiscount(discount.id)"
+                >
+                  삭제
+                </button>
+              </div>
+            </div>
+          </div>
 
-              <button
-                type="button"
-                class="payment-method-button"
-                :class="{ active: paymentModalState.paymentMethod === 'CASH' }"
-                @click="paymentModalState.paymentMethod = 'CASH'"
+          <div class="modal-section">
+            <div class="section-title-row">
+              <h4>결제 수단별 금액</h4>
+              <div class="section-action-row">
+                <button
+                  type="button"
+                  class="quick-button"
+                  @click="addPaymentSplit('CARD')"
+                >
+                  카드 추가
+                </button>
+                <button
+                  type="button"
+                  class="quick-button"
+                  @click="addPaymentSplit('CASH')"
+                >
+                  현금 추가
+                </button>
+                <button
+                  type="button"
+                  class="quick-button"
+                  @click="addPaymentSplit('BANK')"
+                >
+                  계좌 추가
+                </button>
+              </div>
+            </div>
+
+            <div class="payment-edit-list">
+              <div
+                v-for="split in paymentModalState.paymentSplits"
+                :key="split.id"
+                class="payment-edit-row split-row"
               >
-                현금
-              </button>
+                <select v-model="split.method">
+                  <option value="CARD">카드</option>
+                  <option value="CASH">현금</option>
+                  <option value="BANK">계좌이체</option>
+                </select>
+                <input
+                  v-model.number="split.amount"
+                  type="number"
+                  min="0"
+                  placeholder="결제 금액"
+                />
+                <button
+                  type="button"
+                  class="quick-button"
+                  @click="fillPaymentSplitRemaining(split)"
+                >
+                  남은 금액
+                </button>
+                <button
+                  type="button"
+                  class="danger-small-button"
+                  :disabled="paymentModalState.paymentSplits.length <= 1"
+                  @click="removePaymentSplit(split.id)"
+                >
+                  삭제
+                </button>
+              </div>
+            </div>
+
+            <div class="payment-balance-box">
+              <div>
+                <span>입력 합계</span>
+                <strong>{{ formatPrice(paymentSplitTotal) }}원</strong>
+              </div>
+              <div :class="{ warning: paymentRemainingAmount !== 0 }">
+                <span>남은 금액</span>
+                <strong>{{ formatPrice(paymentRemainingAmount) }}원</strong>
+              </div>
             </div>
           </div>
 
@@ -761,10 +930,45 @@
               </strong>
             </div>
             <div class="modal-info-row">
+              <span>주문 금액</span>
+              <strong
+                >{{
+                  formatPrice(paymentCompleteModalState.originalAmount)
+                }}원</strong
+              >
+            </div>
+            <div class="modal-info-row">
+              <span>할인 합계</span>
+              <strong
+                >-{{
+                  formatPrice(paymentCompleteModalState.discountTotal)
+                }}원</strong
+              >
+            </div>
+            <div class="modal-info-row">
               <span>결제 금액</span>
               <strong
                 >{{ formatPrice(paymentCompleteModalState.amount) }}원</strong
               >
+            </div>
+          </div>
+
+          <div
+            v-if="paymentCompleteModalState.paymentSplits.length > 0"
+            class="modal-section"
+          >
+            <h4>결제 상세</h4>
+            <div class="payment-complete-split-list">
+              <div
+                v-for="(
+                  split, index
+                ) in paymentCompleteModalState.paymentSplits"
+                :key="`complete-split-${index}`"
+                class="modal-info-row"
+              >
+                <span>{{ convertPaymentMethodText(split.method) }}</span>
+                <strong>{{ formatPrice(split.amount) }}원</strong>
+              </div>
             </div>
           </div>
 
@@ -1100,7 +1304,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   addDoc,
   collection,
@@ -1113,6 +1317,7 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { runGlobalBusy } from "@/lib/globalBusy";
 import {
   completeOrderSheetPayment,
   finalizeOrderSheetCleanup,
@@ -1132,6 +1337,8 @@ const paymentModalState = ref({
   displayName: "",
   paymentMethod: "CARD",
   amount: 0,
+  discounts: [],
+  paymentSplits: [],
   mode: "",
 });
 
@@ -1140,9 +1347,28 @@ const paymentCompleteModalState = ref({
   displayName: "",
   paymentMethod: "",
   amount: 0,
+  originalAmount: 0,
+  discountTotal: 0,
+  paymentSplits: [],
 });
 
-const orderSheetTagPresets = ["블로그체험단", "지인", "워크인", "진상"];
+const orderSheetTagPresets = [
+  "블로그체험단",
+  "릴스체험단",
+  "클립체험단",
+  "워크인",
+  "첫방문",
+  "재방문",
+  "지인",
+  "남자",
+  "여자",
+  "혼성",
+  "20대",
+  "30대",
+  "40대",
+  "50대 이상",
+  "진상",
+];
 
 const orderSheetTagModalState = ref({
   isOpen: false,
@@ -1195,6 +1421,7 @@ const productList = ref([]);
 
 const orderSoundSrc = "/audio/order-request.mp3"; // 나중에 경로 수정 가능
 const paymentSoundSrc = "/audio/payment-request.mp3"; // 나중에 경로 수정 가능
+const paymentCompleteSoundSrc = "/audio/payment-complete.mp3"; // 나중에 파일명 수정 가능
 
 let previousOrderIds = new Set();
 let previousPaymentRequestIds = new Set();
@@ -1293,8 +1520,26 @@ const filteredRecipeProductList = computed(() => {
 const filteredOrderList = computed(() => {
   return orderList.value.filter((order) => {
     const status = String(order.status || "");
-    return status !== "SERVED" && status !== "CANCELLED";
+    return status === "REQUESTED";
   });
+});
+
+const selectedTableOrders = computed(() => {
+  const orderSheetId = String(selectedTable.value?.orderSheetId || "").trim();
+
+  if (!orderSheetId) return [];
+
+  return orderList.value
+    .filter((order) => {
+      if (String(order.orderSheetId || "") !== orderSheetId) return false;
+      return String(order.status || "") !== "CANCELLED";
+    })
+    .sort((a, b) => {
+      return (
+        (convertToDate(a.createdAt)?.getTime() || 0) -
+        (convertToDate(b.createdAt)?.getTime() || 0)
+      );
+    });
 });
 
 const selectedRecipeData = computed(() => {
@@ -1467,8 +1712,65 @@ const manualOptionTotalPrice = computed(() => {
   );
 });
 
+const paymentDiscountTotal = computed(() => {
+  const originalAmount = Number(paymentModalState.value.amount || 0);
+
+  const discountTotal = paymentModalState.value.discounts.reduce(
+    (acc, discount) => {
+      const value = Number(discount.value || 0);
+      if (value <= 0) return acc;
+
+      if (discount.type === "PERCENT") {
+        return acc + Math.floor((originalAmount * Math.min(value, 100)) / 100);
+      }
+
+      return acc + value;
+    },
+    0
+  );
+
+  return Math.min(originalAmount, discountTotal);
+});
+
+const paymentPayableAmount = computed(() => {
+  return Math.max(
+    0,
+    Number(paymentModalState.value.amount || 0) - paymentDiscountTotal.value
+  );
+});
+
+const paymentSplitTotal = computed(() => {
+  return paymentModalState.value.paymentSplits.reduce((acc, split) => {
+    return acc + Number(split.amount || 0);
+  }, 0);
+});
+
+const paymentRemainingAmount = computed(() => {
+  return paymentPayableAmount.value - paymentSplitTotal.value;
+});
+
 function formatPrice(value) {
   return Number(value || 0).toLocaleString("ko-KR");
+}
+
+function convertToDate(value) {
+  if (!value) return null;
+  if (typeof value?.toDate === "function") return value.toDate();
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatDateTime(value) {
+  const date = convertToDate(value);
+  if (!date) return "-";
+
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+
+  return `${month}.${day} ${hours}:${minutes}`;
 }
 
 function convertOrderSheetStatusText(status) {
@@ -1481,10 +1783,9 @@ function convertOrderSheetStatusText(status) {
 
 function convertOrderStatusText(status) {
   if (status === "REQUESTED") return "주문접수";
-  if (status === "PREPARING") return "준비중";
   if (status === "SERVED") return "제공완료";
   if (status === "CANCELLED") return "취소";
-  return status || "알 수 없음";
+  return "알 수 없음";
 }
 
 function convertPaymentRequestStatusText(status) {
@@ -1506,7 +1807,104 @@ function convertPaymentMethodText(method) {
   if (method === "CARD") return "카드";
   if (method === "BANK") return "계좌이체";
   if (method === "CASH") return "현금";
+  if (method === "MIXED") return "부분 결제";
+  if (method === "DISCOUNT") return "할인 처리";
   return method || "-";
+}
+
+function createPaymentDiscount(type = "AMOUNT") {
+  return {
+    id: `discount_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    title: "",
+    type,
+    value: 0,
+  };
+}
+
+function createPaymentSplit(method = "CARD", amount = 0) {
+  return {
+    id: `split_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    method,
+    amount: Number(amount || 0),
+  };
+}
+
+function getRepresentativePaymentMethod(paymentSplits) {
+  const activeSplits = paymentSplits.filter(
+    (split) => Number(split.amount || 0) > 0
+  );
+  const methodSet = new Set(activeSplits.map((split) => split.method));
+
+  if (activeSplits.length === 0) return "DISCOUNT";
+  if (methodSet.size === 1) return activeSplits[0]?.method || "CARD";
+  return "MIXED";
+}
+
+function normalizePaymentDiscounts(discounts, originalAmount) {
+  return discounts
+    .map((discount) => {
+      const type = discount.type === "PERCENT" ? "PERCENT" : "AMOUNT";
+      const value = Math.max(0, Number(discount.value || 0));
+      const discountAmount =
+        type === "PERCENT"
+          ? Math.floor(
+              (Number(originalAmount || 0) * Math.min(value, 100)) / 100
+            )
+          : value;
+
+      return {
+        title: String(discount.title || "").trim(),
+        type,
+        value,
+        discountAmount,
+      };
+    })
+    .filter((discount) => discount.value > 0 && discount.discountAmount > 0);
+}
+
+function normalizePaymentSplits(paymentSplits) {
+  return paymentSplits
+    .map((split) => ({
+      method: split.method || "CARD",
+      amount: Number(split.amount || 0),
+    }))
+    .filter((split) => split.amount > 0);
+}
+
+function addPaymentDiscount(type = "AMOUNT") {
+  paymentModalState.value.discounts.push(createPaymentDiscount(type));
+}
+
+function removePaymentDiscount(discountId) {
+  paymentModalState.value.discounts = paymentModalState.value.discounts.filter(
+    (discount) => discount.id !== discountId
+  );
+}
+
+function addPaymentSplit(method = "CARD") {
+  const amount = Math.max(0, paymentRemainingAmount.value);
+  paymentModalState.value.paymentSplits.push(
+    createPaymentSplit(method, amount)
+  );
+}
+
+function removePaymentSplit(splitId) {
+  paymentModalState.value.paymentSplits =
+    paymentModalState.value.paymentSplits.filter(
+      (split) => split.id !== splitId
+    );
+}
+
+function fillPaymentSplitRemaining(split) {
+  const otherTotal = paymentModalState.value.paymentSplits.reduce(
+    (acc, item) => {
+      if (item.id === split.id) return acc;
+      return acc + Number(item.amount || 0);
+    },
+    0
+  );
+
+  split.amount = Math.max(0, paymentPayableAmount.value - otherTotal);
 }
 
 function getHiddenPreviewCount(table) {
@@ -1575,6 +1973,18 @@ function playNotificationSound(type) {
     });
   } catch (error) {
     console.error("알림음 재생 실패:", error);
+  }
+}
+
+function playPaymentCompleteSound() {
+  try {
+    if (!paymentCompleteSoundSrc) return;
+
+    const audio = new Audio(paymentCompleteSoundSrc);
+    audio.preload = "auto";
+    audio.play().catch(() => {});
+  } catch (error) {
+    // 결제 완료음 파일이 없어도 결제 처리는 조용히 계속 진행합니다.
   }
 }
 
@@ -1796,29 +2206,31 @@ async function saveOrderSheetTags() {
   const state = orderSheetTagModalState.value;
   if (!state.orderSheetId || state.isSaving) return;
 
-  state.isSaving = true;
+  await runGlobalBusy(async () => {
+    state.isSaving = true;
 
-  try {
-    const internalTags = normalizeOrderSheetTags(state.tags);
+    try {
+      const internalTags = normalizeOrderSheetTags(state.tags);
 
-    await updateDoc(doc(db, "orderSheets", state.orderSheetId), {
-      internalTags,
-      updatedAt: serverTimestamp(),
-    });
-
-    if (selectedTable.value?.orderSheetId === state.orderSheetId) {
-      selectedTable.value = {
-        ...selectedTable.value,
+      await updateDoc(doc(db, "orderSheets", state.orderSheetId), {
         internalTags,
-      };
-    }
+        updatedAt: serverTimestamp(),
+      });
 
-    closeOrderSheetTagModal();
-  } catch (error) {
-    console.error("주문서 태그 저장 실패:", error);
-    alert("주문서 태그 저장 중 문제가 발생했어요.");
-    state.isSaving = false;
-  }
+      if (selectedTable.value?.orderSheetId === state.orderSheetId) {
+        selectedTable.value = {
+          ...selectedTable.value,
+          internalTags,
+        };
+      }
+
+      closeOrderSheetTagModal();
+    } catch (error) {
+      console.error("주문서 태그 저장 실패:", error);
+      alert("주문서 태그 저장 중 문제가 발생했어요.");
+      state.isSaving = false;
+    }
+  }, "주문서 태그를 저장하는 중이에요.");
 }
 
 function openManualAddModal(table) {
@@ -2151,62 +2563,64 @@ async function submitManualAddOrder() {
   const state = manualAddModalState.value;
   if (!state.orderSheetId || state.cartItems.length === 0) return;
 
-  try {
-    const orderItems = state.cartItems.map((item) => ({
-      orderSheetId: state.orderSheetId,
-      tableNumber: state.tableNumber,
-      displayName: state.displayName,
-      productId: item.productId,
-      productName: item.productName,
-      basePrice: Number(item.basePrice || 0),
-      unitPrice: Number(item.unitPrice || 0),
-      totalPrice: Number(item.totalPrice || 0),
-      quantity: Number(item.quantity || 0),
-      imageUrl: item.imageUrl || "",
-      isCustom: item.isCustom === true,
-      selectedOptions: Array.isArray(item.selectedOptions)
-        ? item.selectedOptions.map((option) => ({
-            groupId: option.groupId,
-            groupName: option.groupName,
-            optionId: option.optionId,
-            optionName: option.optionName,
-            additionalPrice: Number(option.additionalPrice || 0),
-          }))
-        : [],
-    }));
+  await runGlobalBusy(async () => {
+    try {
+      const orderItems = state.cartItems.map((item) => ({
+        orderSheetId: state.orderSheetId,
+        tableNumber: state.tableNumber,
+        displayName: state.displayName,
+        productId: item.productId,
+        productName: item.productName,
+        basePrice: Number(item.basePrice || 0),
+        unitPrice: Number(item.unitPrice || 0),
+        totalPrice: Number(item.totalPrice || 0),
+        quantity: Number(item.quantity || 0),
+        imageUrl: item.imageUrl || "",
+        isCustom: item.isCustom === true,
+        selectedOptions: Array.isArray(item.selectedOptions)
+          ? item.selectedOptions.map((option) => ({
+              groupId: option.groupId,
+              groupName: option.groupName,
+              optionId: option.optionId,
+              optionName: option.optionName,
+              additionalPrice: Number(option.additionalPrice || 0),
+            }))
+          : [],
+      }));
 
-    const totalCount = state.cartItems.reduce(
-      (acc, item) => acc + Number(item.quantity || 0),
-      0
-    );
+      const totalCount = state.cartItems.reduce(
+        (acc, item) => acc + Number(item.quantity || 0),
+        0
+      );
 
-    const totalPrice = state.cartItems.reduce(
-      (acc, item) => acc + Number(item.totalPrice || 0),
-      0
-    );
+      const totalPrice = state.cartItems.reduce(
+        (acc, item) => acc + Number(item.totalPrice || 0),
+        0
+      );
 
-    await addDoc(collection(db, "orders"), {
-      orderSheetId: state.orderSheetId,
-      tableNumber: state.tableNumber,
-      displayName: state.displayName,
-      requestMessage: "[직원 수동 추가]",
-      items: orderItems,
-      totalCount,
-      totalPrice,
-      status: "SERVED",
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
+      await addDoc(collection(db, "orders"), {
+        orderSheetId: state.orderSheetId,
+        tableNumber: state.tableNumber,
+        displayName: state.displayName,
+        requestMessage: "[직원 수동 추가]",
+        items: orderItems,
+        totalCount,
+        totalPrice,
+        status: "SERVED",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
 
-    await recalculateOrderSheetTotals(state.orderSheetId);
+      await recalculateOrderSheetTotals(state.orderSheetId);
 
-    closeManualAddModal();
-    closeTableModal();
-    alert("상품이 테이블에 추가되었어요.");
-  } catch (error) {
-    console.error("수동 상품 추가 실패:", error);
-    alert("수동 상품 추가 중 문제가 발생했어요.");
-  }
+      closeManualAddModal();
+      closeTableModal();
+      alert("상품이 테이블에 추가되었어요.");
+    } catch (error) {
+      console.error("수동 상품 추가 실패:", error);
+      alert("수동 상품 추가 중 문제가 발생했어요.");
+    }
+  }, "상품을 추가하는 중이에요.");
 }
 
 function selectManualProduct(product) {
@@ -2221,6 +2635,8 @@ function selectManualProduct(product) {
 }
 
 function openTablePaymentModal(table) {
+  const amount = Number(table.totalAmount || 0);
+
   paymentModalState.value = {
     isOpen: true,
     requestId: "",
@@ -2228,12 +2644,20 @@ function openTablePaymentModal(table) {
     tableNumber: table.tableNumber || "",
     displayName: table.displayName || `No.${table.tableNumber}`,
     paymentMethod: "CARD",
-    amount: Number(table.totalAmount || 0),
+    amount,
+    discounts: [],
+    paymentSplits: [createPaymentSplit("CARD", amount)],
     mode: "DIRECT",
   };
 }
 
 function openPaymentModal(request) {
+  const amount = Number(
+    orderSheetList.value.find(
+      (item) => item.orderSheetId === request.orderSheetId
+    )?.totalAmount || 0
+  );
+
   paymentModalState.value = {
     isOpen: true,
     requestId: request.id,
@@ -2241,11 +2665,9 @@ function openPaymentModal(request) {
     tableNumber: request.tableNumber,
     displayName: request.displayName || `No.${request.tableNumber}`,
     paymentMethod: "CARD",
-    amount: Number(
-      orderSheetList.value.find(
-        (item) => item.orderSheetId === request.orderSheetId
-      )?.totalAmount || 0
-    ),
+    amount,
+    discounts: [],
+    paymentSplits: [createPaymentSplit("CARD", amount)],
     mode: "REQUEST",
   };
 }
@@ -2259,6 +2681,8 @@ function closePaymentModal() {
     displayName: "",
     paymentMethod: "CARD",
     amount: 0,
+    discounts: [],
+    paymentSplits: [],
     mode: "",
   };
 }
@@ -2269,6 +2693,9 @@ function closePaymentCompleteModal() {
     displayName: "",
     paymentMethod: "",
     amount: 0,
+    originalAmount: 0,
+    discountTotal: 0,
+    paymentSplits: [],
   };
 }
 
@@ -2276,51 +2703,106 @@ async function completePayment() {
   const state = paymentModalState.value;
   if (!state.orderSheetId) return;
 
-  try {
-    if (state.requestId) {
-      await updateDoc(doc(db, "checkoutRequests", state.requestId), {
-        status: "DONE",
-        paymentMethod: state.paymentMethod,
-        approvedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-    }
+  const originalAmount = Number(state.amount || 0);
+  const discounts = normalizePaymentDiscounts(state.discounts, originalAmount);
+  const discountTotal = Math.min(
+    originalAmount,
+    discounts.reduce(
+      (acc, discount) => acc + Number(discount.discountAmount || 0),
+      0
+    )
+  );
+  const payableAmount = Math.max(0, originalAmount - discountTotal);
+  const paymentSplits = normalizePaymentSplits(state.paymentSplits);
+  const splitTotal = paymentSplits.reduce(
+    (acc, split) => acc + Number(split.amount || 0),
+    0
+  );
+  const paymentMethod = getRepresentativePaymentMethod(paymentSplits);
 
-    await recalculateOrderSheetTotals(state.orderSheetId);
-
-    await completeOrderSheetPayment({
-      orderSheetId: state.orderSheetId,
-      tableNumber: state.tableNumber,
-      paymentMethod: state.paymentMethod,
-    });
-
-    paymentCompleteModalState.value = {
-      isOpen: true,
-      displayName: state.displayName,
-      paymentMethod: state.paymentMethod,
-      amount: Number(state.amount || 0),
-    };
-
-    closePaymentModal();
-    closeTableModal();
-  } catch (error) {
-    console.error("결제 완료 처리 실패:", error);
-    alert("결제 완료 처리 중 문제가 발생했어요.");
+  if (payableAmount > 0 && paymentSplits.length === 0) {
+    alert("결제 수단별 금액을 1개 이상 입력해주세요.");
+    return;
   }
+
+  if (splitTotal !== payableAmount) {
+    alert("결제 입력 합계가 최종 결제 금액과 같아야 합니다.");
+    return;
+  }
+
+  await runGlobalBusy(async () => {
+    try {
+      if (state.requestId) {
+        await updateDoc(doc(db, "checkoutRequests", state.requestId), {
+          status: "DONE",
+          paymentMethod,
+          originalAmount,
+          discountTotal,
+          totalAmount: payableAmount,
+          discounts,
+          paymentSplits,
+          approvedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      await recalculateOrderSheetTotals(state.orderSheetId);
+
+      await completeOrderSheetPayment({
+        orderSheetId: state.orderSheetId,
+        tableNumber: state.tableNumber,
+        paymentMethod,
+        originalAmount,
+        discountTotal,
+        totalAmount: payableAmount,
+        discounts,
+        paymentSplits,
+      });
+
+      paymentCompleteModalState.value = {
+        isOpen: true,
+        displayName: state.displayName,
+        paymentMethod,
+        amount: payableAmount,
+        originalAmount,
+        discountTotal,
+        paymentSplits,
+      };
+
+      playPaymentCompleteSound();
+      closePaymentModal();
+      closeTableModal();
+    } catch (error) {
+      console.error("결제 완료 처리 실패:", error);
+      alert("결제 완료 처리 중 문제가 발생했어요.");
+    }
+  }, "결제를 처리하는 중이에요.");
+}
+
+function confirmOrderStatusChange(order, nextStatus) {
+  const label = nextStatus === "SERVED" ? "제공완료" : "취소";
+  const tableName = order.displayName || `No.${order.tableNumber}`;
+  const confirmed = window.confirm(`${tableName} 주문을 ${label} 처리할까요?`);
+
+  if (!confirmed) return;
+
+  updateOrderStatus(order, nextStatus);
 }
 
 async function updateOrderStatus(order, nextStatus) {
-  try {
-    await updateDoc(doc(db, "orders", order.id), {
-      status: nextStatus,
-      updatedAt: serverTimestamp(),
-    });
+  await runGlobalBusy(async () => {
+    try {
+      await updateDoc(doc(db, "orders", order.id), {
+        status: nextStatus,
+        updatedAt: serverTimestamp(),
+      });
 
-    await recalculateOrderSheetTotals(order.orderSheetId);
-  } catch (error) {
-    console.error("주문 상태 변경 실패:", error);
-    alert("주문 상태 변경 중 문제가 발생했어요.");
-  }
+      await recalculateOrderSheetTotals(order.orderSheetId);
+    } catch (error) {
+      console.error("주문 상태 변경 실패:", error);
+      alert("주문 상태 변경 중 문제가 발생했어요.");
+    }
+  }, "주문 상태를 변경하는 중이에요.");
 }
 
 async function finalizeTableCleanup(table) {
@@ -2330,18 +2812,27 @@ async function finalizeTableCleanup(table) {
 
   if (!confirmed) return;
 
-  try {
-    await finalizeOrderSheetCleanup({
-      orderSheetId: table.orderSheetId,
-    });
+  await runGlobalBusy(async () => {
+    try {
+      await finalizeOrderSheetCleanup({
+        orderSheetId: table.orderSheetId,
+      });
 
-    closeTableModal();
-    alert("테이블 정리가 완료되었어요.");
-  } catch (error) {
-    console.error("테이블 정리 완료 처리 실패:", error);
-    alert("테이블 정리 완료 처리 중 문제가 발생했어요.");
-  }
+      closeTableModal();
+      alert("테이블 정리가 완료되었어요.");
+    } catch (error) {
+      console.error("테이블 정리 완료 처리 실패:", error);
+      alert("테이블 정리 완료 처리 중 문제가 발생했어요.");
+    }
+  }, "테이블을 정리하는 중이에요.");
 }
+
+watch(paymentPayableAmount, (amount) => {
+  if (!paymentModalState.value.isOpen) return;
+  if (paymentModalState.value.paymentSplits.length !== 1) return;
+
+  paymentModalState.value.paymentSplits[0].amount = amount;
+});
 
 onMounted(() => {
   subscribeOrderSheets();
@@ -2554,6 +3045,7 @@ onUnmounted(() => {
   margin-top: auto;
 }
 .table-preview-list,
+.table-order-list,
 .order-item-list,
 .list-card-wrap,
 .recipe-menu-list,
@@ -2594,6 +3086,49 @@ onUnmounted(() => {
 .table-preview-list span {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.76);
+}
+.table-order-card {
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.table-order-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.table-order-head strong {
+  font-size: 14px;
+  font-weight: 800;
+}
+.table-order-head p {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.62);
+  white-space: pre-wrap;
+}
+.table-order-head-right {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.table-order-head-right > strong {
+  font-size: 14px;
+  font-weight: 800;
+  color: #bfdbfe;
+}
+.table-order-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 .more-preview {
   color: #bfdbfe;
@@ -2990,6 +3525,95 @@ onUnmounted(() => {
   background: #fff;
   color: #111827;
 }
+.section-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.section-title-row h4 {
+  margin: 0;
+}
+.section-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.payment-edit-list,
+.payment-complete-split-list {
+  display: grid;
+  gap: 10px;
+}
+.payment-edit-row {
+  display: grid;
+  gap: 8px;
+  align-items: center;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.payment-edit-row.discount-row {
+  grid-template-columns: minmax(0, 1fr) 96px 120px auto;
+}
+.payment-edit-row.split-row {
+  grid-template-columns: 120px minmax(0, 1fr) auto auto;
+}
+.payment-edit-row input,
+.payment-edit-row select {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  padding: 0 10px;
+  border: none;
+  outline: none;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 13px;
+}
+.payment-edit-row option {
+  color: #111827;
+}
+.danger-small-button {
+  height: 38px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 10px;
+  background: rgba(252, 165, 165, 0.14);
+  color: #fecaca;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.danger-small-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.payment-balance-box {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+.payment-balance-box > div {
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.payment-balance-box span {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.62);
+}
+.payment-balance-box strong {
+  font-size: 16px;
+}
+.payment-balance-box .warning strong {
+  color: #fcd34d;
+}
 .payment-complete-modal {
   max-width: 480px;
   text-align: center;
@@ -3252,6 +3876,7 @@ onUnmounted(() => {
 
   .list-card-head,
   .list-card-bottom,
+  .table-order-head,
   .order-item-row,
   .modal-info-row,
   .manual-option-group-head,
@@ -3401,6 +4026,27 @@ onUnmounted(() => {
     margin-top: 14px;
     padding-top: 14px;
     border-top: 1px solid rgba(246, 198, 106, 0.18);
+  }
+
+  .section-title-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .section-action-row {
+    justify-content: stretch;
+  }
+
+  .section-action-row .quick-button,
+  .payment-edit-row .quick-button,
+  .danger-small-button {
+    width: 100%;
+  }
+
+  .payment-edit-row.discount-row,
+  .payment-edit-row.split-row,
+  .payment-balance-box {
+    grid-template-columns: 1fr;
   }
 
   .manual-cart-total,

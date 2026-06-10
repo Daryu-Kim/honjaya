@@ -41,6 +41,48 @@
       </article>
     </section>
 
+    <section class="ratio-grid">
+      <article
+        v-for="chart in tagRatioCharts"
+        :key="chart.key"
+        class="panel-card ratio-card"
+      >
+        <div class="panel-head">
+          <h2>{{ chart.title }}</h2>
+          <p>{{ chart.description }}</p>
+        </div>
+
+        <div v-if="chart.total === 0" class="empty-box ratio-empty">
+          <p>이번 달에 집계할 태그가 없어요.</p>
+        </div>
+
+        <div v-else class="ratio-body">
+          <div
+            class="pie-chart"
+            :style="{ background: buildPieGradient(chart.items) }"
+          >
+            <span>{{ chart.total }}건</span>
+          </div>
+
+          <div class="ratio-list">
+            <div
+              v-for="item in chart.items"
+              :key="item.label"
+              class="ratio-row"
+            >
+              <span
+                class="ratio-dot"
+                :style="{ backgroundColor: item.color }"
+              ></span>
+              <span class="ratio-label">{{ item.label }}</span>
+              <strong>{{ item.percent }}%</strong>
+              <em>{{ item.count }}건</em>
+            </div>
+          </div>
+        </div>
+      </article>
+    </section>
+
     <section class="dashboard-grid">
       <div class="left-column">
         <section class="panel-card quick-panel">
@@ -248,6 +290,64 @@ const recentOrders = computed(() => {
   return orderList.value.slice(0, 5);
 });
 
+const thisMonthPaidSheets = computed(() => {
+  const monthStart = getThisMonthStart();
+
+  return orderSheetList.value.filter((sheet) => {
+    if (sheet.paymentStatus !== "COMPLETED") return false;
+
+    const paidDate = convertToDate(sheet.paidAt || sheet.updatedAt);
+    return paidDate && paidDate >= monthStart;
+  });
+});
+
+const tagRatioColors = ["#60a5fa", "#34d399", "#fbbf24", "#f87171", "#a78bfa"];
+
+const tagRatioGroups = [
+  {
+    key: "visit-repeat",
+    title: "이번 달 방문 반복",
+    description: "첫방문, 재방문, 확인 필요 기준 비율입니다.",
+    tags: ["첫방문", "재방문"],
+    fallbackLabel: "확인 필요",
+  },
+  {
+    key: "visit-source",
+    title: "이번 달 방문 유입",
+    description: "체험단, 워크인, 지인 태그 기준 비율입니다.",
+    tags: ["릴스체험단", "클립체험단", "블로그체험단", "워크인", "지인"],
+  },
+  {
+    key: "gender",
+    title: "이번 달 성별 구성",
+    description: "남자, 여자, 혼성 태그 기준 비율입니다.",
+    tags: ["남자", "여자", "혼성"],
+  },
+  {
+    key: "age",
+    title: "이번 달 연령대",
+    description: "20대부터 50대 이상까지의 태그 기준 비율입니다.",
+    tags: ["20대", "30대", "40대", "50대 이상"],
+  },
+];
+
+const tagRatioCharts = computed(() => {
+  return tagRatioGroups.map((group) => {
+    const items = buildTagRatioItems(
+      thisMonthPaidSheets.value,
+      group.tags,
+      group.fallbackLabel
+    );
+    const total = items.reduce((acc, item) => acc + item.count, 0);
+
+    return {
+      ...group,
+      items,
+      total,
+    };
+  });
+});
+
 function getTodayStart() {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
@@ -283,6 +383,67 @@ function convertToDate(value) {
 
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function normalizeTags(tags) {
+  if (!Array.isArray(tags)) return [];
+
+  return [
+    ...new Set(
+      tags
+        .map((tag) => String(tag || "").trim())
+        .filter((tag) => tag.length > 0)
+    ),
+  ];
+}
+
+function buildTagRatioItems(sheets, tags, fallbackLabel = "") {
+  const counts = new Map(tags.map((tag) => [tag, 0]));
+  const labels = fallbackLabel ? [...tags, fallbackLabel] : tags;
+  if (fallbackLabel) counts.set(fallbackLabel, 0);
+
+  sheets.forEach((sheet) => {
+    const sheetTags = normalizeTags(sheet.internalTags);
+    const hasAnyGroupTag = tags.some((tag) => sheetTags.includes(tag));
+
+    tags.forEach((tag) => {
+      if (sheetTags.includes(tag)) {
+        counts.set(tag, Number(counts.get(tag) || 0) + 1);
+      }
+    });
+
+    if (fallbackLabel && !hasAnyGroupTag) {
+      counts.set(fallbackLabel, Number(counts.get(fallbackLabel) || 0) + 1);
+    }
+  });
+
+  const total = [...counts.values()].reduce((acc, count) => acc + count, 0);
+
+  return labels.map((tag, index) => {
+    const count = Number(counts.get(tag) || 0);
+
+    return {
+      label: tag,
+      count,
+      percent: total > 0 ? Math.round((count / total) * 1000) / 10 : 0,
+      color: tagRatioColors[index % tagRatioColors.length],
+    };
+  });
+}
+
+function buildPieGradient(items) {
+  let cursor = 0;
+  const segments = items
+    .filter((item) => item.count > 0)
+    .map((item) => {
+      const start = cursor;
+      cursor += item.percent;
+      return `${item.color} ${start}% ${cursor}%`;
+    });
+
+  return segments.length
+    ? `conic-gradient(${segments.join(", ")})`
+    : "rgba(255, 255, 255, 0.12)";
 }
 
 function formatDateTime(value) {
@@ -497,6 +658,86 @@ onUnmounted(() => {
   }
 }
 
+.ratio-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.ratio-card {
+  min-height: 280px;
+}
+
+.ratio-body {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  align-items: center;
+  gap: 18px;
+}
+
+.pie-chart {
+  width: 150px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  box-shadow: inset 0 0 0 16px rgba(17, 24, 39, 0.48);
+
+  span {
+    width: 82px;
+    height: 82px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: rgba(17, 24, 39, 0.92);
+    font-size: 15px;
+    font-weight: 800;
+  }
+}
+
+.ratio-list {
+  display: grid;
+  gap: 10px;
+}
+
+.ratio-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+
+  strong {
+    font-size: 14px;
+    font-weight: 800;
+  }
+
+  em {
+    min-width: 34px;
+    font-style: normal;
+    color: rgba(255, 255, 255, 0.52);
+    text-align: right;
+  }
+}
+
+.ratio-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.ratio-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ratio-empty {
+  min-height: 170px;
+}
+
 .dashboard-grid {
   display: grid;
   grid-template-columns: 1.2fr 0.9fr;
@@ -647,8 +888,23 @@ onUnmounted(() => {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .ratio-grid {
+    grid-template-columns: 1fr;
+  }
+
   .dashboard-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .ratio-body {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .ratio-list {
+    width: 100%;
   }
 }
 </style>

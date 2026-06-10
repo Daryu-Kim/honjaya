@@ -4,7 +4,61 @@
       <component :is="Component" :key="route.fullPath" />
     </transition>
   </router-view>
+
+  <transition name="global-busy-fade">
+    <div
+      v-if="isGlobalBusy"
+      class="global-busy-overlay"
+      role="status"
+      aria-live="polite"
+    >
+      <div class="global-busy-card">
+        <div class="global-busy-spinner"></div>
+        <strong>{{ globalBusyMessage }}</strong>
+      </div>
+    </div>
+  </transition>
 </template>
+
+<script setup>
+import { onMounted, onUnmounted } from "vue";
+import { globalBusyMessage, isGlobalBusy } from "@/lib/globalBusy";
+
+function blockEventWhileBusy(event) {
+  if (!isGlobalBusy.value) return;
+  if (event.target?.closest?.(".global-busy-overlay")) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation?.();
+}
+
+onMounted(() => {
+  [
+    "click",
+    "dblclick",
+    "pointerdown",
+    "touchstart",
+    "submit",
+    "keydown",
+  ].forEach((eventName) => {
+    window.addEventListener(eventName, blockEventWhileBusy, true);
+  });
+});
+
+onUnmounted(() => {
+  [
+    "click",
+    "dblclick",
+    "pointerdown",
+    "touchstart",
+    "submit",
+    "keydown",
+  ].forEach((eventName) => {
+    window.removeEventListener(eventName, blockEventWhileBusy, true);
+  });
+});
+</script>
 
 <style lang="scss">
 * {
@@ -34,6 +88,62 @@
 .page-leave-to {
   opacity: 0;
   transform: translateY(-10px);
+}
+
+.global-busy-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(8, 5, 10, 0.7);
+  backdrop-filter: blur(6px);
+  cursor: wait;
+}
+
+.global-busy-card {
+  min-width: 180px;
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  padding: 22px 24px;
+  border: 1px solid rgba(246, 198, 106, 0.34);
+  border-radius: 18px;
+  background: rgba(21, 15, 24, 0.92);
+  color: #fff7df;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+}
+
+.global-busy-card strong {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.global-busy-spinner {
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  border: 4px solid rgba(246, 198, 106, 0.2);
+  border-top-color: #f6c66a;
+  animation: global-busy-spin 0.8s linear infinite;
+}
+
+.global-busy-fade-enter-active,
+.global-busy-fade-leave-active {
+  transition: opacity 0.16s ease;
+}
+
+.global-busy-fade-enter-from,
+.global-busy-fade-leave-to {
+  opacity: 0;
+}
+
+@keyframes global-busy-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 :root {

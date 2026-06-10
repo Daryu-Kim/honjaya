@@ -226,6 +226,7 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { runGlobalBusy } from "@/lib/globalBusy";
 
 const searchText = ref("");
 const isLoadingProducts = ref(true);
@@ -403,51 +404,56 @@ function removeArrayItem(key, index) {
 
 async function handleSubmit() {
   if (!selectedProduct.value || isSaving.value) return;
-  isSaving.value = true;
 
-  try {
-    const recipeInfo = {
-      description: String(form.value.recipeDescription || "").trim(),
-      ingredients: normalizeIngredientList(form.value.ingredients),
-      steps: normalizeList(form.value.steps),
-      tips: normalizeList(form.value.tips),
-    };
+  await runGlobalBusy(async () => {
+    isSaving.value = true;
 
-    const payload = {
-      recipeText: String(form.value.recipeText || "").trim(),
-      recipeInfo: recipeInfo,
-      updatedAt: serverTimestamp(),
-    };
+    try {
+      const recipeInfo = {
+        description: String(form.value.recipeDescription || "").trim(),
+        ingredients: normalizeIngredientList(form.value.ingredients),
+        steps: normalizeList(form.value.steps),
+        tips: normalizeList(form.value.tips),
+      };
 
-    if (
-      !payload.recipeText &&
-      !recipeInfo.description &&
-      recipeInfo.ingredients.length === 0 &&
-      recipeInfo.steps.length === 0 &&
-      recipeInfo.tips.length === 0
-    ) {
-      payload.recipeInfo = {};
-      payload.recipeText = "";
+      const payload = {
+        recipeText: String(form.value.recipeText || "").trim(),
+        recipeInfo: recipeInfo,
+        updatedAt: serverTimestamp(),
+      };
+
+      if (
+        !payload.recipeText &&
+        !recipeInfo.description &&
+        recipeInfo.ingredients.length === 0 &&
+        recipeInfo.steps.length === 0 &&
+        recipeInfo.tips.length === 0
+      ) {
+        payload.recipeInfo = {};
+        payload.recipeText = "";
+      }
+
+      await updateDoc(doc(db, "products", selectedProduct.value.id), payload);
+
+      const updated = {
+        ...selectedProduct.value,
+        recipeText: payload.recipeText,
+        recipeInfo: payload.recipeInfo,
+      };
+      selectedProduct.value = updated;
+      const index = productList.value.findIndex(
+        (item) => item.id === updated.id
+      );
+      if (index !== -1) productList.value[index] = updated;
+
+      alert("레시피가 저장되었어요.");
+    } catch (error) {
+      console.error("레시피 저장 실패:", error);
+      alert("레시피 저장 중 문제가 발생했어요.");
+    } finally {
+      isSaving.value = false;
     }
-
-    await updateDoc(doc(db, "products", selectedProduct.value.id), payload);
-
-    const updated = {
-      ...selectedProduct.value,
-      recipeText: payload.recipeText,
-      recipeInfo: payload.recipeInfo,
-    };
-    selectedProduct.value = updated;
-    const index = productList.value.findIndex((item) => item.id === updated.id);
-    if (index !== -1) productList.value[index] = updated;
-
-    alert("레시피가 저장되었어요.");
-  } catch (error) {
-    console.error("레시피 저장 실패:", error);
-    alert("레시피 저장 중 문제가 발생했어요.");
-  } finally {
-    isSaving.value = false;
-  }
+  }, "레시피를 저장하는 중이에요.");
 }
 
 async function clearRecipe() {
@@ -455,33 +461,35 @@ async function clearRecipe() {
   const confirmed = window.confirm("이 상품의 레시피 내용을 삭제하시겠어요?");
   if (!confirmed) return;
 
-  isSaving.value = true;
+  await runGlobalBusy(async () => {
+    isSaving.value = true;
 
-  try {
-    await updateDoc(doc(db, "products", selectedProduct.value.id), {
-      recipeText: "",
-      recipeInfo: {},
-      updatedAt: serverTimestamp(),
-    });
+    try {
+      await updateDoc(doc(db, "products", selectedProduct.value.id), {
+        recipeText: "",
+        recipeInfo: {},
+        updatedAt: serverTimestamp(),
+      });
 
-    selectedProduct.value = {
-      ...selectedProduct.value,
-      recipeText: "",
-      recipeInfo: {},
-    };
-    const index = productList.value.findIndex(
-      (item) => item.id === selectedProduct.value.id
-    );
-    if (index !== -1) productList.value[index] = selectedProduct.value;
-    initializeForm(selectedProduct.value);
+      selectedProduct.value = {
+        ...selectedProduct.value,
+        recipeText: "",
+        recipeInfo: {},
+      };
+      const index = productList.value.findIndex(
+        (item) => item.id === selectedProduct.value.id
+      );
+      if (index !== -1) productList.value[index] = selectedProduct.value;
+      initializeForm(selectedProduct.value);
 
-    alert("레시피가 삭제되었어요.");
-  } catch (error) {
-    console.error("레시피 삭제 실패:", error);
-    alert("레시피 삭제 중 문제가 발생했어요.");
-  } finally {
-    isSaving.value = false;
-  }
+      alert("레시피가 삭제되었어요.");
+    } catch (error) {
+      console.error("레시피 삭제 실패:", error);
+      alert("레시피 삭제 중 문제가 발생했어요.");
+    } finally {
+      isSaving.value = false;
+    }
+  }, "레시피를 삭제하는 중이에요.");
 }
 
 function subscribeCategories() {

@@ -140,6 +140,7 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { runGlobalBusy } from "@/lib/globalBusy";
 import {
   getOrderSheetStatus,
   isBlockedOrderSheetStatus,
@@ -321,61 +322,65 @@ async function createCheckoutRequest() {
   if (!tableNumber.value || !displayName.value || !orderSheetId.value) return;
   if (isSubmitting.value || activePaymentRequest.value) return;
 
-  const canUse = await guardOrderSheetUsableForCheckout();
-  if (!canUse) return;
+  await runGlobalBusy(async () => {
+    const canUse = await guardOrderSheetUsableForCheckout();
+    if (!canUse) return;
 
-  isSubmitting.value = true;
+    isSubmitting.value = true;
 
-  try {
-    await addDoc(collection(db, "checkoutRequests"), {
-      orderSheetId: orderSheetId.value,
-      tableNumber: tableNumber.value,
-      displayName: displayName.value,
-      status: "REQUESTED",
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
+    try {
+      await addDoc(collection(db, "checkoutRequests"), {
+        orderSheetId: orderSheetId.value,
+        tableNumber: tableNumber.value,
+        displayName: displayName.value,
+        status: "REQUESTED",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
 
-    await updateDoc(doc(db, "orderSheets", orderSheetId.value), {
-      status: "PAYMENT_REQUESTED",
-      paymentStatus: "REQUESTED",
-      updatedAt: serverTimestamp(),
-    });
+      await updateDoc(doc(db, "orderSheets", orderSheetId.value), {
+        status: "PAYMENT_REQUESTED",
+        paymentStatus: "REQUESTED",
+        updatedAt: serverTimestamp(),
+      });
 
-    alert("결제 요청이 접수되었어요.");
-  } catch (error) {
-    console.error("결제 요청 생성 실패:", error);
-    alert("결제 요청 중 문제가 발생했어요.");
-  } finally {
-    isSubmitting.value = false;
-  }
+      alert("결제 요청이 접수되었어요.");
+    } catch (error) {
+      console.error("결제 요청 생성 실패:", error);
+      alert("결제 요청 중 문제가 발생했어요.");
+    } finally {
+      isSubmitting.value = false;
+    }
+  }, "결제 요청을 보내는 중이에요.");
 }
 
 async function cancelCheckoutRequest() {
   if (!activePaymentRequest.value?.id || isSubmitting.value) return;
 
-  isSubmitting.value = true;
+  await runGlobalBusy(async () => {
+    isSubmitting.value = true;
 
-  try {
-    await updateDoc(
-      doc(db, "checkoutRequests", activePaymentRequest.value.id),
-      {
-        status: "CANCELLED",
+    try {
+      await updateDoc(
+        doc(db, "checkoutRequests", activePaymentRequest.value.id),
+        {
+          status: "CANCELLED",
+          updatedAt: serverTimestamp(),
+        }
+      );
+
+      await updateDoc(doc(db, "orderSheets", orderSheetId.value), {
+        status: "OPEN",
+        paymentStatus: "UNPAID",
         updatedAt: serverTimestamp(),
-      }
-    );
-
-    await updateDoc(doc(db, "orderSheets", orderSheetId.value), {
-      status: "OPEN",
-      paymentStatus: "UNPAID",
-      updatedAt: serverTimestamp(),
-    });
-  } catch (error) {
-    console.error("결제 요청 취소 실패:", error);
-    alert("결제 요청 취소 중 문제가 발생했어요.");
-  } finally {
-    isSubmitting.value = false;
-  }
+      });
+    } catch (error) {
+      console.error("결제 요청 취소 실패:", error);
+      alert("결제 요청 취소 중 문제가 발생했어요.");
+    } finally {
+      isSubmitting.value = false;
+    }
+  }, "결제 요청을 취소하는 중이에요.");
 }
 
 function goBack() {

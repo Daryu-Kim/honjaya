@@ -164,6 +164,7 @@ import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { runGlobalBusy } from "@/lib/globalBusy";
 import { recalculateOrderSheetTotals } from "@/lib/orderSheetTotals";
 import {
   getOrderSheetStatus,
@@ -310,71 +311,73 @@ async function submitOrder() {
   if (!tableNumber.value || !displayName.value || !orderSheetId.value) return;
   if (cartList.value.length === 0 || isSubmitting.value) return;
 
-  const canUse = await guardOrderSheetUsable();
-  if (!canUse) return;
+  await runGlobalBusy(async () => {
+    const canUse = await guardOrderSheetUsable();
+    if (!canUse) return;
 
-  isSubmitting.value = true;
-  saveRequestMessage();
+    isSubmitting.value = true;
+    saveRequestMessage();
 
-  try {
-    const orderItems = cartList.value.map((item) => ({
-      orderSheetId: orderSheetId.value,
-      tableNumber: tableNumber.value,
-      displayName: displayName.value,
-      productId: item.productId,
-      productName: item.productName,
-      basePrice: Number(item.basePrice || 0),
-      unitPrice: Number(item.unitPrice || 0),
-      totalPrice: Number(item.totalPrice || 0),
-      quantity: Number(item.quantity || 0),
-      imageUrl: item.imageUrl || "",
-      selectedOptions: Array.isArray(item.selectedOptions)
-        ? item.selectedOptions.map((option) => ({
-            groupId: option.groupId,
-            groupName: option.groupName,
-            optionId: option.optionId,
-            optionName: option.optionName,
-            additionalPrice: Number(option.additionalPrice || 0),
-          }))
-        : [],
-    }));
+    try {
+      const orderItems = cartList.value.map((item) => ({
+        orderSheetId: orderSheetId.value,
+        tableNumber: tableNumber.value,
+        displayName: displayName.value,
+        productId: item.productId,
+        productName: item.productName,
+        basePrice: Number(item.basePrice || 0),
+        unitPrice: Number(item.unitPrice || 0),
+        totalPrice: Number(item.totalPrice || 0),
+        quantity: Number(item.quantity || 0),
+        imageUrl: item.imageUrl || "",
+        selectedOptions: Array.isArray(item.selectedOptions)
+          ? item.selectedOptions.map((option) => ({
+              groupId: option.groupId,
+              groupName: option.groupName,
+              optionId: option.optionId,
+              optionName: option.optionName,
+              additionalPrice: Number(option.additionalPrice || 0),
+            }))
+          : [],
+      }));
 
-    const orderPayload = {
-      orderSheetId: orderSheetId.value,
-      tableNumber: tableNumber.value,
-      displayName: displayName.value,
-      requestMessage: requestMessage.value,
-      items: orderItems,
-      totalCount: totalCartCount.value,
-      totalPrice: totalCartPrice.value,
-      status: "REQUESTED",
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    };
+      const orderPayload = {
+        orderSheetId: orderSheetId.value,
+        tableNumber: tableNumber.value,
+        displayName: displayName.value,
+        requestMessage: requestMessage.value,
+        items: orderItems,
+        totalCount: totalCartCount.value,
+        totalPrice: totalCartPrice.value,
+        status: "REQUESTED",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
 
-    const orderRef = await addDoc(collection(db, "orders"), orderPayload);
+      const orderRef = await addDoc(collection(db, "orders"), orderPayload);
 
-    await recalculateOrderSheetTotals(orderSheetId.value);
+      await recalculateOrderSheetTotals(orderSheetId.value);
 
-    sessionStorage.setItem("lastRequestedOrderId", orderRef.id);
-    sessionStorage.removeItem("userCart");
-    sessionStorage.removeItem("userCartRequestMessage");
+      sessionStorage.setItem("lastRequestedOrderId", orderRef.id);
+      sessionStorage.removeItem("userCart");
+      sessionStorage.removeItem("userCartRequestMessage");
 
-    cartList.value = [];
-    requestMessage.value = "";
+      cartList.value = [];
+      requestMessage.value = "";
 
-    router.push({
-      path: "/user/order-complete",
-      query: {
-        orderId: orderRef.id,
-      },
-    });
-  } catch (error) {
-    console.error("주문 요청 실패:", error);
-    alert("주문 요청 중 문제가 발생했어요. 다시 시도해주세요.");
-  } finally {
-    isSubmitting.value = false;
-  }
+      router.push({
+        path: "/user/order-complete",
+        query: {
+          orderId: orderRef.id,
+        },
+      });
+    } catch (error) {
+      console.error("주문 요청 실패:", error);
+      alert("주문 요청 중 문제가 발생했어요. 다시 시도해주세요.");
+    } finally {
+      isSubmitting.value = false;
+    }
+  }, "주문을 접수하는 중이에요.");
 }
 
 async function guardOrderSheetUsable() {

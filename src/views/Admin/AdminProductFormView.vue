@@ -377,6 +377,7 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { runGlobalBusy } from "@/lib/globalBusy";
 
 const router = useRouter();
 const route = useRoute();
@@ -628,45 +629,47 @@ async function loadProduct() {
 async function handleSubmit() {
   if (!validateForm() || isSubmitting.value) return;
 
-  isSubmitting.value = true;
+  await runGlobalBusy(async () => {
+    isSubmitting.value = true;
 
-  try {
-    const categoryIds = [...new Set(form.value.categoryIds.filter(Boolean))];
+    try {
+      const categoryIds = [...new Set(form.value.categoryIds.filter(Boolean))];
 
-    const payload = {
-      productName: form.value.productName,
-      description: form.value.description,
-      categoryId: categoryIds[0] || "",
-      categoryIds,
-      basePrice: Number(form.value.basePrice || 0),
-      stock: Number(form.value.stock || 0),
-      imageUrl: form.value.imageUrl,
-      isActive: form.value.isActive,
-      isSoldOut: form.value.isSoldOut,
-      optionGroups: normalizeOptionGroups(),
-      updatedAt: serverTimestamp(),
-      sortOrder: Number(form.value.sortOrder || 0),
-    };
+      const payload = {
+        productName: form.value.productName,
+        description: form.value.description,
+        categoryId: categoryIds[0] || "",
+        categoryIds,
+        basePrice: Number(form.value.basePrice || 0),
+        stock: Number(form.value.stock || 0),
+        imageUrl: form.value.imageUrl,
+        isActive: form.value.isActive,
+        isSoldOut: form.value.isSoldOut,
+        optionGroups: normalizeOptionGroups(),
+        updatedAt: serverTimestamp(),
+        sortOrder: Number(form.value.sortOrder || 0),
+      };
 
-    if (isEditMode.value) {
-      const productId = String(route.params.productId);
-      await updateDoc(doc(db, "products", productId), payload);
-      alert("상품이 수정되었어요.");
-    } else {
-      await addDoc(collection(db, "products"), {
-        ...payload,
-        createdAt: serverTimestamp(),
-      });
-      alert("상품이 등록되었어요.");
+      if (isEditMode.value) {
+        const productId = String(route.params.productId);
+        await updateDoc(doc(db, "products", productId), payload);
+        alert("상품이 수정되었어요.");
+      } else {
+        await addDoc(collection(db, "products"), {
+          ...payload,
+          createdAt: serverTimestamp(),
+        });
+        alert("상품이 등록되었어요.");
+      }
+
+      router.push("/admin/products");
+    } catch (error) {
+      console.error("상품 저장 실패:", error);
+      alert("상품 저장 중 문제가 발생했어요.");
+    } finally {
+      isSubmitting.value = false;
     }
-
-    router.push("/admin/products");
-  } catch (error) {
-    console.error("상품 저장 실패:", error);
-    alert("상품 저장 중 문제가 발생했어요.");
-  } finally {
-    isSubmitting.value = false;
-  }
+  }, "상품을 저장하는 중이에요.");
 }
 
 function goBack() {

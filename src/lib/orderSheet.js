@@ -105,7 +105,7 @@ export async function getOrCreateOpenOrderSheet(tableNumber) {
       sequenceNo: nextSequenceNo,
       tableNumber: safeTableNumber,
       displayName,
-      status: "OPEN", // OPEN, PAYMENT_REQUESTED, PAID, CLOSED
+      status: "OPEN", // OPEN, PAYMENT_REQUESTED, CLOSED
       paymentStatus: "UNPAID", // UNPAID, REQUESTED, COMPLETED
       paymentMethod: "",
       totalAmount: 0,
@@ -140,6 +140,11 @@ export async function completeOrderSheetPayment({
   orderSheetId,
   tableNumber,
   paymentMethod,
+  originalAmount,
+  discountTotal,
+  totalAmount,
+  discounts,
+  paymentSplits,
 }) {
   const safeOrderSheetId = String(orderSheetId || "").trim();
   const safeTableNumber = String(tableNumber || "").trim();
@@ -152,10 +157,26 @@ export async function completeOrderSheetPayment({
   const activeKey = buildActiveOrderSheetKey(safeTableNumber);
 
   await updateDoc(doc(db, "orderSheets", safeOrderSheetId), {
-    status: "PAID",
+    status: "CLOSED",
     paymentStatus: "COMPLETED",
     paymentMethod: safePaymentMethod,
+    ...(originalAmount !== undefined
+      ? { originalAmount: Number(originalAmount || 0) }
+      : {}),
+    ...(discountTotal !== undefined
+      ? { discountTotal: Number(discountTotal || 0) }
+      : {}),
+    ...(totalAmount !== undefined
+      ? { totalAmount: Number(totalAmount || 0) }
+      : {}),
+    ...(discounts !== undefined
+      ? { discounts: Array.isArray(discounts) ? discounts : [] }
+      : {}),
+    ...(paymentSplits !== undefined
+      ? { paymentSplits: Array.isArray(paymentSplits) ? paymentSplits : [] }
+      : {}),
     paidAt: serverTimestamp(),
+    closedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
 

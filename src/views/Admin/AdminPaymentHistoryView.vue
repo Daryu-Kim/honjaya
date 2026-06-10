@@ -86,6 +86,8 @@
               <option value="CARD">카드</option>
               <option value="BANK">계좌이체</option>
               <option value="CASH">현금</option>
+              <option value="MIXED">부분 결제</option>
+              <option value="DISCOUNT">할인 처리</option>
             </select>
           </div>
         </div>
@@ -144,7 +146,12 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="sheet in paginatedPaymentSheets" :key="sheet.id">
+            <tr
+              v-for="sheet in paginatedPaymentSheets"
+              :key="sheet.id"
+              class="clickable-row"
+              @click="openPaymentSheetDetail(sheet)"
+            >
               <td>{{ formatDateTime(sheet.paidAt || sheet.updatedAt) }}</td>
               <td>{{ sheet.orderSheetId || sheet.id }}</td>
               <td>{{ sheet.displayName || `No.${sheet.tableNumber}` }}</td>
@@ -198,6 +205,130 @@
         다음
       </button>
     </nav>
+
+    <transition name="fade">
+      <div
+        v-if="selectedPaymentSheet"
+        class="modal-overlay"
+        @click.self="closePaymentSheetDetail"
+      >
+        <div class="modal-card payment-detail-modal">
+          <div class="modal-head">
+            <div>
+              <p class="eyebrow">ORDER DETAIL</p>
+              <h2>
+                {{
+                  selectedPaymentSheet.displayName ||
+                  `No.${selectedPaymentSheet.tableNumber}`
+                }}
+              </h2>
+              <p class="modal-subtitle">
+                {{
+                  selectedPaymentSheet.orderSheetId || selectedPaymentSheet.id
+                }}
+              </p>
+            </div>
+            <button
+              type="button"
+              class="close-button"
+              @click="closePaymentSheetDetail"
+            >
+              X
+            </button>
+          </div>
+
+          <div class="detail-summary-grid">
+            <div class="detail-summary-card">
+              <span>Paid At</span>
+              <strong>{{
+                formatDateTime(
+                  selectedPaymentSheet.paidAt || selectedPaymentSheet.updatedAt
+                )
+              }}</strong>
+            </div>
+            <div class="detail-summary-card">
+              <span>Payment</span>
+              <strong>{{
+                convertPaymentMethodText(selectedPaymentSheet.paymentMethod)
+              }}</strong>
+            </div>
+            <div class="detail-summary-card">
+              <span>Total</span>
+              <strong
+                >{{
+                  formatPrice(selectedPaymentSheet.totalAmount || 0)
+                }}원</strong
+              >
+            </div>
+          </div>
+
+          <section class="detail-section">
+            <h3>Orders</h3>
+
+            <div
+              v-if="selectedPaymentSheetOrders.length === 0"
+              class="detail-empty"
+            >
+              No order items found.
+            </div>
+
+            <div v-else class="detail-order-list">
+              <article
+                v-for="order in selectedPaymentSheetOrders"
+                :key="order.id"
+                class="detail-order-card"
+              >
+                <div class="detail-order-head">
+                  <div>
+                    <strong>{{ formatDateTime(order.createdAt) }}</strong>
+                    <p v-if="order.requestMessage">
+                      {{ order.requestMessage }}
+                    </p>
+                  </div>
+                  <span>{{ formatPrice(order.totalPrice || 0) }}원</span>
+                </div>
+
+                <div class="detail-item-list">
+                  <div
+                    v-for="(item, itemIndex) in order.items || []"
+                    :key="`${order.id}-${itemIndex}`"
+                    class="detail-item-row"
+                  >
+                    <div class="detail-item-main">
+                      <strong>{{ item.productName }}</strong>
+                      <p>
+                        {{ formatPrice(item.unitPrice || 0) }}원 x
+                        {{ item.quantity || 0 }}
+                      </p>
+
+                      <div
+                        v-if="
+                          item.selectedOptions &&
+                          item.selectedOptions.length > 0
+                        "
+                        class="detail-option-list"
+                      >
+                        <span
+                          v-for="(option, optionIndex) in item.selectedOptions"
+                          :key="`${order.id}-${itemIndex}-${optionIndex}`"
+                        >
+                          {{ option.groupName ? `${option.groupName}: ` : ""
+                          }}{{ option.optionName }}
+                        </span>
+                      </div>
+                    </div>
+
+                    <strong class="detail-item-total">
+                      {{ formatPrice(item.totalPrice || 0) }}원
+                    </strong>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </section>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -210,6 +341,8 @@ const PAGE_SIZE = 20;
 
 const isLoadingSheets = ref(true);
 const orderSheetList = ref([]);
+const orderList = ref([]);
+const selectedPaymentSheet = ref(null);
 const keyword = ref("");
 const startDate = ref("");
 const endDate = ref("");
@@ -221,6 +354,7 @@ const selectedPaymentMethod = ref("ALL");
 const currentPage = ref(1);
 
 let unsubscribeSheets = null;
+let unsubscribeOrders = null;
 
 const weekdayOptions = [
   { value: "1", label: "월요일" },
@@ -318,7 +452,7 @@ const filteredPaymentSheets = computed(() => {
       }
       if (
         selectedPaymentMethod.value !== "ALL" &&
-        sheet.paymentMethod !== selectedPaymentMethod.value
+        !matchesPaymentMethod(sheet, selectedPaymentMethod.value)
       ) {
         return false;
       }
@@ -346,6 +480,25 @@ const totalPages = computed(() => {
 const paginatedPaymentSheets = computed(() => {
   const start = (currentPage.value - 1) * PAGE_SIZE;
   return filteredPaymentSheets.value.slice(start, start + PAGE_SIZE);
+});
+
+const selectedPaymentSheetOrders = computed(() => {
+  const orderSheetId = String(
+    selectedPaymentSheet.value?.orderSheetId ||
+      selectedPaymentSheet.value?.id ||
+      ""
+  );
+
+  if (!orderSheetId) return [];
+
+  return orderList.value
+    .filter((order) => String(order.orderSheetId || "") === orderSheetId)
+    .sort((a, b) => {
+      return (
+        (convertToDate(a.createdAt)?.getTime() || 0) -
+        (convertToDate(b.createdAt)?.getTime() || 0)
+      );
+    });
 });
 
 const visiblePages = computed(() => {
@@ -392,6 +545,14 @@ function resetFilters() {
   selectedPaymentMethod.value = "ALL";
 }
 
+function openPaymentSheetDetail(sheet) {
+  selectedPaymentSheet.value = sheet;
+}
+
+function closePaymentSheetDetail() {
+  selectedPaymentSheet.value = null;
+}
+
 function formatDateTime(value) {
   const date = convertToDate(value);
   if (!date) return "-";
@@ -411,7 +572,19 @@ function convertPaymentMethodText(method) {
   if (method === "CARD") return "카드";
   if (method === "BANK") return "계좌이체";
   if (method === "CASH") return "현금";
+  if (method === "MIXED") return "부분 결제";
+  if (method === "DISCOUNT") return "할인 처리";
   return method || "-";
+}
+
+function matchesPaymentMethod(sheet, method) {
+  if (sheet.paymentMethod === method) return true;
+
+  if (Array.isArray(sheet.paymentSplits)) {
+    return sheet.paymentSplits.some((split) => split.method === method);
+  }
+
+  return false;
 }
 
 function subscribeOrderSheets() {
@@ -428,6 +601,23 @@ function subscribeOrderSheets() {
     },
     () => {
       isLoadingSheets.value = false;
+    }
+  );
+}
+
+function subscribeOrders() {
+  const q = query(collection(db, "orders"), orderBy("createdAt", "desc"));
+
+  unsubscribeOrders = onSnapshot(
+    q,
+    (snapshot) => {
+      orderList.value = snapshot.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+      }));
+    },
+    () => {
+      orderList.value = [];
     }
   );
 }
@@ -455,10 +645,12 @@ watch(totalPages, () => {
 
 onMounted(() => {
   subscribeOrderSheets();
+  subscribeOrders();
 });
 
 onUnmounted(() => {
   if (unsubscribeSheets) unsubscribeSheets();
+  if (unsubscribeOrders) unsubscribeOrders();
 });
 </script>
 
@@ -591,6 +783,12 @@ h1 {
 .payment-table th {
   color: rgba(255, 255, 255, 0.62);
 }
+.clickable-row {
+  cursor: pointer;
+}
+.clickable-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
 .tag-chip {
   display: inline-flex;
   padding: 4px 8px;
@@ -614,16 +812,173 @@ h1 {
   opacity: 0.4;
   cursor: not-allowed;
 }
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(2, 6, 23, 0.82);
+}
+.modal-card {
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.98);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.36);
+}
+.payment-detail-modal {
+  max-width: 760px;
+  padding: 20px;
+}
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.modal-head h2 {
+  margin: 0 0 6px;
+  font-size: 26px;
+}
+.modal-subtitle {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.62);
+}
+.close-button {
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.detail-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.detail-summary-card,
+.detail-order-card,
+.detail-empty {
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.07);
+}
+.detail-summary-card {
+  padding: 14px;
+}
+.detail-summary-card span {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.58);
+}
+.detail-summary-card strong {
+  font-size: 16px;
+}
+.detail-section h3 {
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+.detail-empty {
+  padding: 24px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.62);
+}
+.detail-order-list,
+.detail-item-list,
+.detail-option-list {
+  display: grid;
+  gap: 10px;
+}
+.detail-order-card {
+  padding: 14px;
+}
+.detail-order-head,
+.detail-item-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+.detail-order-head {
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.detail-order-head p,
+.detail-item-main p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.62);
+}
+.detail-order-head span,
+.detail-item-total {
+  flex-shrink: 0;
+  font-size: 14px;
+}
+.detail-item-row {
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+}
+.detail-item-main {
+  min-width: 0;
+}
+.detail-option-list {
+  gap: 6px;
+  margin-top: 8px;
+}
+.detail-option-list span {
+  display: inline-flex;
+  width: fit-content;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(96, 165, 250, 0.16);
+  color: #bfdbfe;
+  font-size: 11px;
+  font-weight: 800;
+}
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
 @media (max-width: 900px) {
   .admin-payment-history-view {
     padding: 16px;
   }
   .filter-grid,
-  .summary-grid {
+  .summary-grid,
+  .detail-summary-grid {
     grid-template-columns: 1fr;
   }
   .filter-group.wide {
     grid-column: auto;
+  }
+  .modal-overlay {
+    align-items: flex-end;
+    padding: 10px;
+  }
+  .modal-card {
+    max-height: 92vh;
+    border-radius: 20px;
+  }
+  .detail-order-head,
+  .detail-item-row {
+    flex-direction: column;
   }
 }
 </style>

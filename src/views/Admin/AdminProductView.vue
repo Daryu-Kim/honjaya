@@ -240,6 +240,7 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { runGlobalBusy } from "@/lib/globalBusy";
 
 const router = useRouter();
 
@@ -426,33 +427,35 @@ function getOptionItemCount(item) {
 }
 
 async function duplicateProduct(item) {
-  try {
-    const duplicatedName = `${item.productName} 복사본`;
+  await runGlobalBusy(async () => {
+    try {
+      const duplicatedName = `${item.productName} 복사본`;
 
-    const payload = {
-      productName: duplicatedName,
-      description: item.description || "",
-      categoryId: getProductCategoryIds(item)[0] || "",
-      categoryIds: getProductCategoryIds(item),
-      basePrice: Number(item.basePrice ?? item.price ?? 0),
-      stock: Number(item.stock ?? 0),
-      imageUrl: item.imageUrl || "",
-      isActive: item.isActive !== false,
-      sortOrder: Number(item.sortOrder ?? 0) + 1,
-      isSoldOut: item.isSoldOut === true,
-      optionGroups: Array.isArray(item.optionGroups)
-        ? JSON.parse(JSON.stringify(item.optionGroups))
-        : [],
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    };
+      const payload = {
+        productName: duplicatedName,
+        description: item.description || "",
+        categoryId: getProductCategoryIds(item)[0] || "",
+        categoryIds: getProductCategoryIds(item),
+        basePrice: Number(item.basePrice ?? item.price ?? 0),
+        stock: Number(item.stock ?? 0),
+        imageUrl: item.imageUrl || "",
+        isActive: item.isActive !== false,
+        sortOrder: Number(item.sortOrder ?? 0) + 1,
+        isSoldOut: item.isSoldOut === true,
+        optionGroups: Array.isArray(item.optionGroups)
+          ? JSON.parse(JSON.stringify(item.optionGroups))
+          : [],
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
 
-    await addDoc(collection(db, "products"), payload);
-    alert("상품이 복제되었어요.");
-  } catch (error) {
-    console.error("상품 복제 실패:", error);
-    alert("상품 복제 중 문제가 발생했어요.");
-  }
+      await addDoc(collection(db, "products"), payload);
+      alert("상품이 복제되었어요.");
+    } catch (error) {
+      console.error("상품 복제 실패:", error);
+      alert("상품 복제 중 문제가 발생했어요.");
+    }
+  }, "상품을 복제하는 중이에요.");
 }
 
 async function deleteProduct(item) {
@@ -462,13 +465,15 @@ async function deleteProduct(item) {
 
   if (!ok) return;
 
-  try {
-    await deleteDoc(doc(db, "products", item.id));
-    alert("상품이 삭제되었어요.");
-  } catch (error) {
-    console.error("상품 삭제 실패:", error);
-    alert("상품 삭제 중 문제가 발생했어요.");
-  }
+  await runGlobalBusy(async () => {
+    try {
+      await deleteDoc(doc(db, "products", item.id));
+      alert("상품이 삭제되었어요.");
+    } catch (error) {
+      console.error("상품 삭제 실패:", error);
+      alert("상품 삭제 중 문제가 발생했어요.");
+    }
+  }, "상품을 삭제하는 중이에요.");
 }
 
 async function saveSortOrder(item) {

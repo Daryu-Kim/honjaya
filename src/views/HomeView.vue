@@ -13,8 +13,8 @@
         <div class="icon-wrap">📋</div>
 
         <p class="eyebrow">TABLE ENTRY</p>
-        <h1>테이블 입장</h1>
-        <p class="description">테이블 정보를 확인한 뒤 시작해주세요.</p>
+        <h1>{{ entryTitle }}</h1>
+        <p class="description">{{ entryDescription }}</p>
 
         <div class="info-box">
           <div class="info-row">
@@ -37,7 +37,7 @@
           :disabled="!canStart || isPreparingEntry"
           @click="handleStart"
         >
-          {{ isPreparingEntry ? "입장 준비 중..." : "시작하기" }}
+          {{ startButtonText }}
         </button>
       </section>
     </div>
@@ -47,6 +47,7 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { runGlobalBusy } from "@/lib/globalBusy";
 import { getOrCreateOpenOrderSheet } from "@/lib/orderSheet";
 
 const router = useRouter();
@@ -70,6 +71,21 @@ const displayNameText = computed(() => {
 
 const canStart = computed(() => {
   return Boolean(tableNumber.value) && Boolean(displayName.value);
+});
+
+const entryTitle = computed(() => {
+  return canStart.value ? "테이블 입장" : "테이블 오더 카드가 필요해요";
+});
+
+const entryDescription = computed(() => {
+  return canStart.value
+    ? "테이블 정보를 확인한 뒤 시작해주세요."
+    : "만료된 주문서이거나 테이블 정보가 없어요. 자리의 테이블 오더 카드를 다시 접촉해주세요.";
+});
+
+const startButtonText = computed(() => {
+  if (isPreparingEntry.value) return "입장 준비 중...";
+  return canStart.value ? "시작하기" : "테이블 오더 카드를 다시 접촉해주세요";
 });
 
 function detectMobile() {
@@ -102,30 +118,32 @@ function initializeEntryInfo() {
 async function handleStart() {
   if (!canStart.value || isPreparingEntry.value) return;
 
-  isPreparingEntry.value = true;
-  entryErrorMessage.value = "";
+  await runGlobalBusy(async () => {
+    isPreparingEntry.value = true;
+    entryErrorMessage.value = "";
 
-  try {
-    const result = await getOrCreateOpenOrderSheet(tableNumber.value);
+    try {
+      const result = await getOrCreateOpenOrderSheet(tableNumber.value);
 
-    sessionStorage.setItem(
-      "userEntryInfo",
-      JSON.stringify({
-        tableNumber: tableNumber.value,
-        displayName: result.displayName,
-        orderSheetId: result.orderSheetId,
-        enteredAt: Date.now(),
-      })
-    );
+      sessionStorage.setItem(
+        "userEntryInfo",
+        JSON.stringify({
+          tableNumber: tableNumber.value,
+          displayName: result.displayName,
+          orderSheetId: result.orderSheetId,
+          enteredAt: Date.now(),
+        })
+      );
 
-    router.push("/user/main");
-  } catch (error) {
-    console.error("주문서 준비 실패:", error);
-    entryErrorMessage.value =
-      error?.message || "입장 준비 중 문제가 발생했어요.";
-  } finally {
-    isPreparingEntry.value = false;
-  }
+      router.push("/user/main");
+    } catch (error) {
+      console.error("주문서 준비 실패:", error);
+      entryErrorMessage.value =
+        error?.message || "입장 준비 중 문제가 발생했어요.";
+    } finally {
+      isPreparingEntry.value = false;
+    }
+  }, "입장 정보를 준비하는 중이에요.");
 }
 
 onMounted(() => {
@@ -133,7 +151,8 @@ onMounted(() => {
   initializeEntryInfo();
 
   if (!tableNumber.value) {
-    entryErrorMessage.value = "테이블 번호를 확인할 수 없어요.";
+    entryErrorMessage.value =
+      "주문서가 만료되었거나 테이블 번호를 확인할 수 없어요. 테이블 오더 카드를 다시 접촉해주세요.";
   }
 });
 </script>

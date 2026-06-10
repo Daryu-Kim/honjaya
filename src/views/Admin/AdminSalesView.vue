@@ -70,6 +70,48 @@
       </article>
     </section>
 
+    <section class="ratio-grid">
+      <article
+        v-for="chart in tagRatioCharts"
+        :key="chart.key"
+        class="panel-card ratio-card"
+      >
+        <div class="panel-head">
+          <h2>{{ chart.title }}</h2>
+          <p>{{ chart.description }}</p>
+        </div>
+
+        <div v-if="chart.total === 0" class="empty-box ratio-empty">
+          <p>선택한 기간에 집계할 태그가 없어요.</p>
+        </div>
+
+        <div v-else class="ratio-body">
+          <div
+            class="pie-chart"
+            :style="{ background: buildPieGradient(chart.items) }"
+          >
+            <span>{{ chart.total }}건</span>
+          </div>
+
+          <div class="ratio-list">
+            <div
+              v-for="item in chart.items"
+              :key="item.label"
+              class="ratio-row"
+            >
+              <span
+                class="ratio-dot"
+                :style="{ backgroundColor: item.color }"
+              ></span>
+              <span class="ratio-label">{{ item.label }}</span>
+              <strong>{{ item.percent }}%</strong>
+              <em>{{ item.count }}건</em>
+            </div>
+          </div>
+        </div>
+      </article>
+    </section>
+
     <section class="sales-grid">
       <div class="left-column">
         <section class="panel-card">
@@ -229,7 +271,11 @@
                 <span>{{
                   formatDateTime(sheet.paidAt || sheet.updatedAt)
                 }}</span>
-                <strong>{{ formatPrice(sheet.totalAmount || 0) }}원</strong>
+                <strong
+                  >{{
+                    formatPrice(getRecognizedSheetSalesAmount(sheet))
+                  }}원</strong
+                >
               </div>
             </article>
           </div>
@@ -318,16 +364,30 @@ function isInSelectedDateRange(value) {
   return true;
 }
 
+const servedOrderSheetIdSet = computed(() => {
+  return new Set(
+    orderList.value
+      .filter((item) => item.status === "SERVED")
+      .map((item) => String(item.orderSheetId || ""))
+  );
+});
+
 const filteredPaidSheets = computed(() => {
   return orderSheetList.value.filter((item) => {
     if (item.paymentStatus !== "COMPLETED") return false;
+    if (
+      !servedOrderSheetIdSet.value.has(
+        String(item.orderSheetId || item.id || "")
+      )
+    )
+      return false;
     return isInSelectedDateRange(item.paidAt || item.updatedAt);
   });
 });
 
 const totalSalesAmount = computed(() => {
   return filteredPaidSheets.value.reduce(
-    (acc, item) => acc + Number(item.totalAmount || 0),
+    (acc, item) => acc + getRecognizedSheetSalesAmount(item),
     0
   );
 });
@@ -340,10 +400,22 @@ const paymentMethodSummary = computed(() => {
   };
 
   filteredPaidSheets.value.forEach((item) => {
+    const recognizedAmount = getRecognizedSheetSalesAmount(item);
+
+    if (Array.isArray(item.paymentSplits) && item.paymentSplits.length > 0) {
+      getRecognizedPaymentSplits(item, recognizedAmount).forEach((split) => {
+        const method = String(split.method || "");
+        if (method === "CARD") result.CARD += Number(split.amount || 0);
+        if (method === "BANK") result.BANK += Number(split.amount || 0);
+        if (method === "CASH") result.CASH += Number(split.amount || 0);
+      });
+      return;
+    }
+
     const method = String(item.paymentMethod || "");
-    if (method === "CARD") result.CARD += Number(item.totalAmount || 0);
-    if (method === "BANK") result.BANK += Number(item.totalAmount || 0);
-    if (method === "CASH") result.CASH += Number(item.totalAmount || 0);
+    if (method === "CARD") result.CARD += recognizedAmount;
+    if (method === "BANK") result.BANK += recognizedAmount;
+    if (method === "CASH") result.CASH += recognizedAmount;
   });
 
   return result;
@@ -351,12 +423,14 @@ const paymentMethodSummary = computed(() => {
 
 const filteredOrders = computed(() => {
   const paidOrderSheetIdSet = new Set(
-    filteredPaidSheets.value.map((item) => item.orderSheetId)
+    filteredPaidSheets.value.map((item) =>
+      String(item.orderSheetId || item.id || "")
+    )
   );
 
   return orderList.value.filter((item) => {
-    if (!paidOrderSheetIdSet.has(item.orderSheetId)) return false;
-    return isInSelectedDateRange(item.createdAt);
+    if (!paidOrderSheetIdSet.has(String(item.orderSheetId || ""))) return false;
+    return item.status === "SERVED";
   });
 });
 
@@ -384,7 +458,7 @@ const dailySalesList = computed(() => {
     const key = formatDisplayDate(date);
     const current = map.get(key) || { date: key, count: 0, amount: 0 };
     current.count += 1;
-    current.amount += Number(item.totalAmount || 0);
+    current.amount += getRecognizedSheetSalesAmount(item);
     map.set(key, current);
   });
 
@@ -412,7 +486,7 @@ const weekdaySalesList = computed(() => {
     if (!found) return;
 
     found.count += 1;
-    found.amount += Number(item.totalAmount || 0);
+    found.amount += getRecognizedSheetSalesAmount(item);
   });
 
   return weekdays;
@@ -456,6 +530,174 @@ const recentPaidSheets = computed(() => {
     .slice(0, 8);
 });
 
+const tagRatioColors = ["#60a5fa", "#34d399", "#fbbf24", "#f87171", "#a78bfa"];
+
+const tagRatioGroups = [
+  {
+    key: "visit-repeat",
+    title: "방문 반복 비율",
+    description: "첫방문, 재방문, 확인 필요 기준 비율입니다.",
+    tags: ["첫방문", "재방문"],
+    fallbackLabel: "확인 필요",
+  },
+  {
+    key: "visit-source",
+    title: "방문 유입 비율",
+    description: "체험단, 워크인, 지인 태그 기준 비율입니다.",
+    tags: ["릴스체험단", "클립체험단", "블로그체험단", "워크인", "지인"],
+  },
+  {
+    key: "gender",
+    title: "성별 구성 비율",
+    description: "남자, 여자, 혼성 태그 기준 비율입니다.",
+    tags: ["남자", "여자", "혼성"],
+  },
+  {
+    key: "age",
+    title: "연령대 비율",
+    description: "20대부터 50대 이상까지의 태그 기준 비율입니다.",
+    tags: ["20대", "30대", "40대", "50대 이상"],
+  },
+];
+
+const tagRatioCharts = computed(() => {
+  return tagRatioGroups.map((group) => {
+    const items = buildTagRatioItems(
+      filteredPaidSheets.value,
+      group.tags,
+      group.fallbackLabel
+    );
+    const total = items.reduce((acc, item) => acc + item.count, 0);
+
+    return {
+      ...group,
+      items,
+      total,
+    };
+  });
+});
+
+function normalizeTags(tags) {
+  if (!Array.isArray(tags)) return [];
+
+  return [
+    ...new Set(
+      tags
+        .map((tag) => String(tag || "").trim())
+        .filter((tag) => tag.length > 0)
+    ),
+  ];
+}
+
+function buildTagRatioItems(sheets, tags, fallbackLabel = "") {
+  const counts = new Map(tags.map((tag) => [tag, 0]));
+  const labels = fallbackLabel ? [...tags, fallbackLabel] : tags;
+  if (fallbackLabel) counts.set(fallbackLabel, 0);
+
+  sheets.forEach((sheet) => {
+    const sheetTags = normalizeTags(sheet.internalTags);
+    const hasAnyGroupTag = tags.some((tag) => sheetTags.includes(tag));
+
+    tags.forEach((tag) => {
+      if (sheetTags.includes(tag)) {
+        counts.set(tag, Number(counts.get(tag) || 0) + 1);
+      }
+    });
+
+    if (fallbackLabel && !hasAnyGroupTag) {
+      counts.set(fallbackLabel, Number(counts.get(fallbackLabel) || 0) + 1);
+    }
+  });
+
+  const total = [...counts.values()].reduce((acc, count) => acc + count, 0);
+
+  return labels.map((tag, index) => {
+    const count = Number(counts.get(tag) || 0);
+
+    return {
+      label: tag,
+      count,
+      percent: total > 0 ? Math.round((count / total) * 1000) / 10 : 0,
+      color: tagRatioColors[index % tagRatioColors.length],
+    };
+  });
+}
+
+function buildPieGradient(items) {
+  let cursor = 0;
+  const segments = items
+    .filter((item) => item.count > 0)
+    .map((item) => {
+      const start = cursor;
+      cursor += item.percent;
+      return `${item.color} ${start}% ${cursor}%`;
+    });
+
+  return segments.length
+    ? `conic-gradient(${segments.join(", ")})`
+    : "rgba(255, 255, 255, 0.12)";
+}
+
+function getOrderSheetKey(sheet) {
+  return String(sheet?.orderSheetId || sheet?.id || "");
+}
+
+function calculateOrderAmount(order) {
+  if (Array.isArray(order?.items)) {
+    return order.items.reduce((acc, item) => {
+      return acc + Number(item.totalPrice || 0);
+    }, 0);
+  }
+
+  return Number(order?.totalPrice || 0);
+}
+
+function getServedOrderGrossAmount(orderSheetId) {
+  const safeOrderSheetId = String(orderSheetId || "");
+
+  return orderList.value.reduce((acc, order) => {
+    if (String(order.orderSheetId || "") !== safeOrderSheetId) return acc;
+    if (order.status !== "SERVED") return acc;
+    return acc + calculateOrderAmount(order);
+  }, 0);
+}
+
+function getRecognizedSheetSalesAmount(sheet) {
+  const paidAmount = Number(sheet?.totalAmount || 0);
+  const servedGrossAmount = getServedOrderGrossAmount(getOrderSheetKey(sheet));
+
+  if (servedGrossAmount <= 0) return 0;
+  return Math.min(paidAmount, servedGrossAmount);
+}
+
+function getRecognizedPaymentSplits(sheet, recognizedAmount) {
+  const splits = Array.isArray(sheet.paymentSplits) ? sheet.paymentSplits : [];
+  const splitTotal = splits.reduce(
+    (acc, split) => acc + Number(split.amount || 0),
+    0
+  );
+
+  if (splitTotal <= 0 || recognizedAmount <= 0) return [];
+  if (splitTotal === recognizedAmount) return splits;
+
+  const ratio = recognizedAmount / splitTotal;
+  let allocatedAmount = 0;
+
+  return splits.map((split, index) => {
+    const isLast = index === splits.length - 1;
+    const amount = isLast
+      ? Math.max(0, recognizedAmount - allocatedAmount)
+      : Math.floor(Number(split.amount || 0) * ratio);
+
+    allocatedAmount += amount;
+
+    return {
+      ...split,
+      amount,
+    };
+  });
+}
+
 function formatDisplayDate(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -483,6 +725,8 @@ function convertPaymentMethodText(method) {
   if (method === "CARD") return "카드";
   if (method === "BANK") return "계좌이체";
   if (method === "CASH") return "현금";
+  if (method === "MIXED") return "부분 결제";
+  if (method === "DISCOUNT") return "할인 처리";
   return method || "-";
 }
 
@@ -651,6 +895,86 @@ onUnmounted(() => {
     font-size: 24px;
     font-weight: 800;
   }
+}
+
+.ratio-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.ratio-card {
+  min-height: 280px;
+}
+
+.ratio-body {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  align-items: center;
+  gap: 18px;
+}
+
+.pie-chart {
+  width: 150px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  box-shadow: inset 0 0 0 16px rgba(17, 24, 39, 0.48);
+
+  span {
+    width: 82px;
+    height: 82px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: rgba(17, 24, 39, 0.92);
+    font-size: 15px;
+    font-weight: 800;
+  }
+}
+
+.ratio-list {
+  display: grid;
+  gap: 10px;
+}
+
+.ratio-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+
+  strong {
+    font-size: 14px;
+    font-weight: 800;
+  }
+
+  em {
+    min-width: 34px;
+    font-style: normal;
+    color: rgba(255, 255, 255, 0.52);
+    text-align: right;
+  }
+}
+
+.ratio-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.ratio-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ratio-empty {
+  min-height: 170px;
 }
 
 .sales-grid {
@@ -839,6 +1163,10 @@ onUnmounted(() => {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .ratio-grid {
+    grid-template-columns: 1fr;
+  }
+
   .sales-grid {
     grid-template-columns: 1fr;
   }
@@ -852,6 +1180,15 @@ onUnmounted(() => {
   .list-head.four,
   .list-row.four {
     grid-template-columns: 1.2fr 0.7fr 0.8fr 1fr;
+  }
+
+  .ratio-body {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .ratio-list {
+    width: 100%;
   }
 }
 </style>

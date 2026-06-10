@@ -135,6 +135,7 @@ import {
   limit,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { runGlobalBusy } from "@/lib/globalBusy";
 
 const messageSectionRef = ref(null);
 
@@ -247,27 +248,29 @@ async function handleSend() {
   const safeMessage = messageText.value.trim().slice(0, 500);
   if (!safeMessage) return;
 
-  isSending.value = true;
+  await runGlobalBusy(async () => {
+    isSending.value = true;
 
-  try {
-    await addDoc(collection(db, "chatMessages"), {
-      message: safeMessage,
-      messageType: "ADMIN",
-      tableNumber: "",
-      nickname: "",
-      senderLabel: "직원",
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      isDeleted: false,
-    });
+    try {
+      await addDoc(collection(db, "chatMessages"), {
+        message: safeMessage,
+        messageType: "ADMIN",
+        tableNumber: "",
+        nickname: "",
+        senderLabel: "직원",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        isDeleted: false,
+      });
 
-    messageText.value = "";
-  } catch (error) {
-    console.error("직원 메시지 전송 실패:", error);
-    alert("메시지 전송 중 문제가 발생했어요.");
-  } finally {
-    isSending.value = false;
-  }
+      messageText.value = "";
+    } catch (error) {
+      console.error("직원 메시지 전송 실패:", error);
+      alert("메시지 전송 중 문제가 발생했어요.");
+    } finally {
+      isSending.value = false;
+    }
+  }, "메시지를 전송하는 중이에요.");
 }
 
 watch(

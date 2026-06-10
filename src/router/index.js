@@ -16,11 +16,22 @@ import AdminDashboardView from "@/views/Admin/AdminDashboardView.vue";
 import AdminSalesView from "@/views/Admin/AdminSalesView.vue";
 import AdminPaymentHistoryView from "@/views/Admin/AdminPaymentHistoryView.vue";
 import AdminLayout from "@/layouts/AdminLayout.vue";
+import { startGlobalBusy } from "@/lib/globalBusy";
 
 const routes = [
   {
     path: "/",
     name: "home",
+    component: HomeView,
+  },
+  {
+    path: "/enter",
+    name: "enter",
+    component: HomeView,
+  },
+  {
+    path: "/entry",
+    name: "entry",
     component: HomeView,
   },
   {
@@ -118,6 +129,31 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(process.env.BASE_URL),
   routes,
+});
+
+let releaseRouteBusy = null;
+
+router.beforeEach(() => {
+  if (releaseRouteBusy) {
+    return false;
+  }
+
+  releaseRouteBusy = startGlobalBusy("화면을 이동하는 중이에요.");
+  return true;
+});
+
+router.afterEach(() => {
+  if (releaseRouteBusy) {
+    releaseRouteBusy();
+    releaseRouteBusy = null;
+  }
+});
+
+router.onError(() => {
+  if (releaseRouteBusy) {
+    releaseRouteBusy();
+    releaseRouteBusy = null;
+  }
 });
 
 export default router;

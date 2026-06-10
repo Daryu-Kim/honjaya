@@ -168,6 +168,7 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { runGlobalBusy } from "@/lib/globalBusy";
 
 const isLoadingCategories = ref(true);
 const isSubmitting = ref(false);
@@ -262,35 +263,40 @@ function validateForm() {
 async function handleSubmit() {
   if (!validateForm() || isSubmitting.value) return;
 
-  isSubmitting.value = true;
+  await runGlobalBusy(async () => {
+    isSubmitting.value = true;
 
-  try {
-    const payload = {
-      name: form.value.name,
-      code: form.value.code,
-      sortOrder: Number(form.value.sortOrder || 0),
-      isActive: form.value.isActive,
-      updatedAt: serverTimestamp(),
-    };
+    try {
+      const payload = {
+        name: form.value.name,
+        code: form.value.code,
+        sortOrder: Number(form.value.sortOrder || 0),
+        isActive: form.value.isActive,
+        updatedAt: serverTimestamp(),
+      };
 
-    if (editingCategoryId.value) {
-      await updateDoc(doc(db, "categories", editingCategoryId.value), payload);
-      alert("카테고리가 수정되었어요.");
-    } else {
-      await addDoc(collection(db, "categories"), {
-        ...payload,
-        createdAt: serverTimestamp(),
-      });
-      alert("카테고리가 등록되었어요.");
+      if (editingCategoryId.value) {
+        await updateDoc(
+          doc(db, "categories", editingCategoryId.value),
+          payload
+        );
+        alert("카테고리가 수정되었어요.");
+      } else {
+        await addDoc(collection(db, "categories"), {
+          ...payload,
+          createdAt: serverTimestamp(),
+        });
+        alert("카테고리가 등록되었어요.");
+      }
+
+      resetForm();
+    } catch (error) {
+      console.error("카테고리 저장 실패:", error);
+      alert("카테고리 저장 중 문제가 발생했어요.");
+    } finally {
+      isSubmitting.value = false;
     }
-
-    resetForm();
-  } catch (error) {
-    console.error("카테고리 저장 실패:", error);
-    alert("카테고리 저장 중 문제가 발생했어요.");
-  } finally {
-    isSubmitting.value = false;
-  }
+  }, "카테고리를 저장하는 중이에요.");
 }
 
 function startEdit(item) {
@@ -304,25 +310,27 @@ function startEdit(item) {
 }
 
 async function toggleCategoryActive(item) {
-  isToggleMap.value = {
-    ...isToggleMap.value,
-    [item.id]: true,
-  };
-
-  try {
-    await updateDoc(doc(db, "categories", item.id), {
-      isActive: !item.isActive,
-      updatedAt: serverTimestamp(),
-    });
-  } catch (error) {
-    console.error("카테고리 상태 변경 실패:", error);
-    alert("카테고리 상태 변경 중 문제가 발생했어요.");
-  } finally {
+  await runGlobalBusy(async () => {
     isToggleMap.value = {
       ...isToggleMap.value,
-      [item.id]: false,
+      [item.id]: true,
     };
-  }
+
+    try {
+      await updateDoc(doc(db, "categories", item.id), {
+        isActive: !item.isActive,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.error("카테고리 상태 변경 실패:", error);
+      alert("카테고리 상태 변경 중 문제가 발생했어요.");
+    } finally {
+      isToggleMap.value = {
+        ...isToggleMap.value,
+        [item.id]: false,
+      };
+    }
+  }, "카테고리 상태를 변경하는 중이에요.");
 }
 
 onMounted(() => {
