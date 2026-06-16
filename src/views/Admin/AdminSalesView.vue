@@ -289,6 +289,14 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import {
+  formatInputDate,
+  getBusinessDate,
+  getCurrentBusinessDateInput,
+  parseBusinessDateEnd,
+  parseBusinessDateStart,
+} from "@/lib/businessDay";
+import { normalizeOrderSheetTags } from "@/lib/orderSheetTags";
 
 const isLoadingSheets = ref(true);
 const isLoadingOrders = ref(true);
@@ -302,22 +310,14 @@ let unsubscribeOrders = null;
 const startDate = ref("");
 const endDate = ref("");
 
-function formatInputDate(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 function setToday() {
-  const now = new Date();
-  const value = formatInputDate(now);
+  const value = getCurrentBusinessDateInput();
   startDate.value = value;
   endDate.value = value;
 }
 
 function setLast7Days() {
-  const now = new Date();
+  const now = getBusinessDate();
   const start = new Date(now);
   start.setDate(now.getDate() - 6);
 
@@ -326,7 +326,7 @@ function setLast7Days() {
 }
 
 function setThisMonth() {
-  const now = new Date();
+  const now = getBusinessDate();
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
 
   startDate.value = formatInputDate(start);
@@ -343,12 +343,12 @@ function convertToDate(value) {
 
 function getStartDateTime() {
   if (!startDate.value) return null;
-  return new Date(`${startDate.value}T00:00:00`);
+  return parseBusinessDateStart(startDate.value);
 }
 
 function getEndDateTime() {
   if (!endDate.value) return null;
-  return new Date(`${endDate.value}T23:59:59.999`);
+  return parseBusinessDateEnd(endDate.value);
 }
 
 function isInSelectedDateRange(value) {
@@ -455,7 +455,7 @@ const dailySalesList = computed(() => {
     const date = convertToDate(item.paidAt || item.updatedAt);
     if (!date) return;
 
-    const key = formatDisplayDate(date);
+    const key = formatDisplayDate(getBusinessDate(date));
     const current = map.get(key) || { date: key, count: 0, amount: 0 };
     current.count += 1;
     current.amount += getRecognizedSheetSalesAmount(item);
@@ -479,9 +479,10 @@ const weekdaySalesList = computed(() => {
   filteredPaidSheets.value.forEach((item) => {
     const date = convertToDate(item.paidAt || item.updatedAt);
     if (!date) return;
+    const businessDate = getBusinessDate(date);
 
     const found = weekdays.find(
-      (weekday) => weekday.dayIndex === date.getDay()
+      (weekday) => weekday.dayIndex === businessDate.getDay()
     );
     if (!found) return;
 
@@ -546,18 +547,6 @@ const tagRatioGroups = [
     description: "체험단, 워크인, 지인 태그 기준 비율입니다.",
     tags: ["릴스체험단", "클립체험단", "블로그체험단", "워크인", "지인"],
   },
-  {
-    key: "gender",
-    title: "성별 구성 비율",
-    description: "남자, 여자, 혼성 태그 기준 비율입니다.",
-    tags: ["남자", "여자", "혼성"],
-  },
-  {
-    key: "age",
-    title: "연령대 비율",
-    description: "20대부터 50대 이상까지의 태그 기준 비율입니다.",
-    tags: ["20대", "30대", "40대", "50대 이상"],
-  },
 ];
 
 const tagRatioCharts = computed(() => {
@@ -578,15 +567,7 @@ const tagRatioCharts = computed(() => {
 });
 
 function normalizeTags(tags) {
-  if (!Array.isArray(tags)) return [];
-
-  return [
-    ...new Set(
-      tags
-        .map((tag) => String(tag || "").trim())
-        .filter((tag) => tag.length > 0)
-    ),
-  ];
+  return normalizeOrderSheetTags(tags);
 }
 
 function buildTagRatioItems(sheets, tags, fallbackLabel = "") {

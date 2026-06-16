@@ -238,6 +238,13 @@ import {
   limit,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import {
+  getBusinessDate,
+  getBusinessDayStart,
+  getBusinessMonthStart,
+  getBusinessWeekStart,
+} from "@/lib/businessDay";
+import { normalizeOrderSheetTags } from "@/lib/orderSheetTags";
 
 const router = useRouter();
 
@@ -254,7 +261,7 @@ let unsubscribePayments = null;
 let unsubscribeOrderSheets = null;
 
 const currentDateText = computed(() => {
-  const now = new Date();
+  const now = getBusinessDate();
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, "0");
   const day = String(now.getDate()).padStart(2, "0");
@@ -317,18 +324,6 @@ const tagRatioGroups = [
     description: "체험단, 워크인, 지인 태그 기준 비율입니다.",
     tags: ["릴스체험단", "클립체험단", "블로그체험단", "워크인", "지인"],
   },
-  {
-    key: "gender",
-    title: "이번 달 성별 구성",
-    description: "남자, 여자, 혼성 태그 기준 비율입니다.",
-    tags: ["남자", "여자", "혼성"],
-  },
-  {
-    key: "age",
-    title: "이번 달 연령대",
-    description: "20대부터 50대 이상까지의 태그 기준 비율입니다.",
-    tags: ["20대", "30대", "40대", "50대 이상"],
-  },
 ];
 
 const tagRatioCharts = computed(() => {
@@ -349,21 +344,15 @@ const tagRatioCharts = computed(() => {
 });
 
 function getTodayStart() {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  return getBusinessDayStart();
 }
 
 function getThisWeekStart() {
-  const now = getTodayStart();
-  const day = now.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  now.setDate(now.getDate() + diff);
-  return now;
+  return getBusinessWeekStart();
 }
 
 function getThisMonthStart() {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+  return getBusinessMonthStart();
 }
 
 function getPaidSheetSalesAmount(startDate) {
@@ -386,15 +375,7 @@ function convertToDate(value) {
 }
 
 function normalizeTags(tags) {
-  if (!Array.isArray(tags)) return [];
-
-  return [
-    ...new Set(
-      tags
-        .map((tag) => String(tag || "").trim())
-        .filter((tag) => tag.length > 0)
-    ),
-  ];
+  return normalizeOrderSheetTags(tags);
 }
 
 function buildTagRatioItems(sheets, tags, fallbackLabel = "") {

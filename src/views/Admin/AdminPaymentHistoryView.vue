@@ -336,6 +336,14 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import {
+  formatInputDate,
+  getBusinessDate,
+  getCurrentBusinessDateInput,
+  parseBusinessDateEnd,
+  parseBusinessDateStart,
+} from "@/lib/businessDay";
+import { normalizeOrderSheetTags } from "@/lib/orderSheetTags";
 
 const PAGE_SIZE = 20;
 
@@ -367,10 +375,7 @@ const weekdayOptions = [
 ];
 
 function normalizeTags(tags) {
-  if (!Array.isArray(tags)) return [];
-  return [
-    ...new Set(tags.map((tag) => String(tag || "").trim()).filter(Boolean)),
-  ];
+  return normalizeOrderSheetTags(tags);
 }
 
 function convertToDate(value) {
@@ -378,13 +383,6 @@ function convertToDate(value) {
   if (typeof value?.toDate === "function") return value.toDate();
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function formatInputDate(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
 }
 
 function getSheetPaidDate(sheet) {
@@ -395,10 +393,13 @@ function isInDateRange(sheet) {
   const date = getSheetPaidDate(sheet);
   if (!date) return false;
 
-  if (startDate.value && date < new Date(`${startDate.value}T00:00:00`)) {
+  const rangeStart = parseBusinessDateStart(startDate.value);
+  const rangeEnd = parseBusinessDateEnd(endDate.value);
+
+  if (rangeStart && date < rangeStart) {
     return false;
   }
-  if (endDate.value && date > new Date(`${endDate.value}T23:59:59.999`)) {
+  if (rangeEnd && date > rangeEnd) {
     return false;
   }
   return true;
@@ -446,7 +447,7 @@ const filteredPaymentSheets = computed(() => {
       }
       if (
         selectedWeekday.value !== "ALL" &&
-        String(date?.getDay()) !== selectedWeekday.value
+        String(getBusinessDate(date)?.getDay()) !== selectedWeekday.value
       ) {
         return false;
       }
@@ -512,13 +513,13 @@ const visiblePages = computed(() => {
 });
 
 function setToday() {
-  const value = formatInputDate(new Date());
+  const value = getCurrentBusinessDateInput();
   startDate.value = value;
   endDate.value = value;
 }
 
 function setThisWeek() {
-  const end = new Date();
+  const end = getBusinessDate();
   const start = new Date(end.getFullYear(), end.getMonth(), end.getDate());
   const day = start.getDay();
   start.setDate(start.getDate() + (day === 0 ? -6 : 1 - day));
@@ -527,7 +528,7 @@ function setThisWeek() {
 }
 
 function setThisMonth() {
-  const end = new Date();
+  const end = getBusinessDate();
   startDate.value = formatInputDate(
     new Date(end.getFullYear(), end.getMonth(), 1)
   );

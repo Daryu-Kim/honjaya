@@ -1323,6 +1323,10 @@ import {
   finalizeOrderSheetCleanup,
 } from "@/lib/orderSheet";
 import { recalculateOrderSheetTotals } from "@/lib/orderSheetTotals";
+import {
+  isDemographicOrderSheetTag,
+  normalizeOrderSheetTags,
+} from "@/lib/orderSheetTags";
 
 const activeTab = ref("tables");
 
@@ -1360,13 +1364,6 @@ const orderSheetTagPresets = [
   "첫방문",
   "재방문",
   "지인",
-  "남자",
-  "여자",
-  "혼성",
-  "20대",
-  "30대",
-  "40대",
-  "50대 이상",
   "진상",
 ];
 
@@ -2134,16 +2131,6 @@ function closeRecipeModal() {
   recipeModalProduct.value = null;
 }
 
-function normalizeOrderSheetTags(tags) {
-  if (!Array.isArray(tags)) return [];
-
-  return [
-    ...new Set(
-      tags.map((tag) => String(tag || "").trim()).filter((tag) => tag)
-    ),
-  ];
-}
-
 function openOrderSheetTagModal(table) {
   if (!table.orderSheetId) return;
 
@@ -2180,6 +2167,10 @@ function toggleOrderSheetTag(tag) {
 function addCustomOrderSheetTag() {
   const tag = String(orderSheetTagModalState.value.customTag || "").trim();
   if (!tag) return;
+  if (isDemographicOrderSheetTag(tag)) {
+    orderSheetTagModalState.value.customTag = "";
+    return;
+  }
 
   if (!orderSheetTagModalState.value.tags.includes(tag)) {
     orderSheetTagModalState.value.tags.push(tag);
