@@ -470,6 +470,15 @@
           </div>
 
           <div class="modal-action-grid">
+            <button
+              v-if="selectedTable.status === 'CLOSED'"
+              type="button"
+              class="activate-next-button"
+              @click="activateNextOrderSheet"
+            >
+              다음 주문서 활성화
+            </button>
+
             <button type="button" @click="openManualAddModal(selectedTable)">
               상품 임의 추가
             </button>
@@ -1321,6 +1330,7 @@ import { runGlobalBusy } from "@/lib/globalBusy";
 import {
   completeOrderSheetPayment,
   finalizeOrderSheetCleanup,
+  getOrCreateOpenOrderSheet,
 } from "@/lib/orderSheet";
 import { recalculateOrderSheetTotals } from "@/lib/orderSheetTotals";
 import {
@@ -2809,6 +2819,36 @@ async function finalizeTableCleanup(table) {
   }, "테이블을 정리하는 중이에요.");
 }
 
+async function activateNextOrderSheet() {
+  const table = selectedTable.value;
+  if (!table) return;
+
+  const tableNumber = String(table.tableNumber || "").trim();
+  if (!tableNumber) return;
+
+  const confirmed = window.confirm(
+    `${
+      table.tableLabel || `${tableNumber}번 테이블`
+    }의 다음 주문서를 새로 열어 활성화할까요?\n기존 마감 주문서 내역은 그대로 유지돼요.`
+  );
+
+  if (!confirmed) return;
+
+  await runGlobalBusy(async () => {
+    try {
+      const result = await getOrCreateOpenOrderSheet(tableNumber);
+
+      closeTableModal();
+      alert(
+        `${tableNumber}번 테이블의 다음 주문서(${result.orderSheetId})가 활성화되었어요.`
+      );
+    } catch (error) {
+      console.error("다음 주문서 활성화 실패:", error);
+      alert("다음 주문서 활성화 중 문제가 발생했어요.");
+    }
+  }, "다음 주문서를 활성화하는 중이에요.");
+}
+
 watch(paymentPayableAmount, (amount) => {
   if (!paymentModalState.value.isOpen) return;
   if (paymentModalState.value.paymentSplits.length !== 1) return;
@@ -3487,6 +3527,15 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+.modal-action-grid .activate-next-button {
+  grid-column: 1 / -1;
+  height: 48px;
+  padding: 0 16px;
+  background: linear-gradient(135deg, #34d399, #10b981);
+  color: #052e16;
+  font-size: 15px;
+  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.3);
 }
 .payment-method-grid {
   display: grid;
