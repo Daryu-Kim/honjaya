@@ -1410,6 +1410,7 @@ import {
   finalizeOrderSheetCleanup,
   getOrCreateOpenOrderSheet,
   getTableNicknameErrorMessage,
+  normalizeTableNumber,
   updateOrderSheetNickname,
 } from "@/lib/orderSheet";
 import { recalculateOrderSheetTotals } from "@/lib/orderSheetTotals";
@@ -1559,9 +1560,13 @@ const tableLayoutList = computed(() => {
       return bTime - aTime;
     })
     .forEach((item) => {
-      const key = String(item.tableNumber || "");
-      if (!latestMap.has(key)) {
-        latestMap.set(key, item);
+      const tableNumber = normalizeTableNumber(item.tableNumber);
+      if (!latestMap.has(tableNumber)) {
+        latestMap.set(tableNumber, {
+          ...item,
+          tableNumber,
+          displayName: tableNumber ? `No.${tableNumber}` : item.displayName,
+        });
       }
     });
 
@@ -2969,7 +2974,7 @@ async function activateNextOrderSheet() {
   const table = selectedTable.value;
   if (!table) return;
 
-  const tableNumber = String(table.tableNumber || "").trim();
+  const tableNumber = normalizeTableNumber(table.tableNumber);
   if (!tableNumber) return;
 
   const confirmed = window.confirm(

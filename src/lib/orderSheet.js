@@ -26,8 +26,37 @@ function formatSequenceNo(sequenceNo) {
   return String(sequenceNo).padStart(6, "0");
 }
 
+export function normalizeTableNumber(value) {
+  const digits = String(value ?? "")
+    .trim()
+    .replace(/[^\d]/g, "");
+
+  return digits.replace(/^0+(?=\d)/, "");
+}
+
 function buildActiveOrderSheetKey(tableNumber) {
-  return `table_${tableNumber}`;
+  return `table_${normalizeTableNumber(tableNumber)}`;
+}
+
+function buildActiveOrderSheetKeyCandidates(tableNumber) {
+  const digits = String(tableNumber ?? "")
+    .trim()
+    .replace(/[^\d]/g, "");
+  const normalized = normalizeTableNumber(digits);
+
+  if (!normalized) {
+    return [];
+  }
+
+  // normalized first, then legacy zero-padded keys (e.g. "01", "001")
+  const variants = new Set([
+    normalized,
+    normalized.padStart(2, "0"),
+    normalized.padStart(3, "0"),
+    digits,
+  ]);
+
+  return [...variants].map((variant) => `table_${variant}`);
 }
 
 function isReusableOrderSheetStatus(status) {
@@ -54,7 +83,7 @@ export function getTableNicknameErrorMessage(nickname) {
 }
 
 export async function getOrCreateOpenOrderSheet(tableNumber) {
-  const safeTableNumber = String(tableNumber || "").trim();
+  const safeTableNumber = normalizeTableNumber(tableNumber);
 
   if (!safeTableNumber) {
     throw new Error("테이블 번호가 없어요.");
@@ -63,39 +92,47 @@ export async function getOrCreateOpenOrderSheet(tableNumber) {
   const businessDate = new Date();
   const displayName = `No.${safeTableNumber}`;
   const activeKey = buildActiveOrderSheetKey(safeTableNumber);
+  const activeKeyCandidates =
+    buildActiveOrderSheetKeyCandidates(safeTableNumber);
 
   const result = await runTransaction(db, async (transaction) => {
-    const activeRef = doc(db, "activeOrderSheets", activeKey);
-    const activeSnap = await transaction.get(activeRef);
+    for (const candidateKey of activeKeyCandidates) {
+      const activeSnap = await transaction.get(
+        doc(db, "activeOrderSheets", candidateKey)
+      );
 
-    if (activeSnap.exists()) {
-      const activeData = activeSnap.data();
-      const currentOrderSheetId = String(activeData.orderSheetId || "").trim();
+      if (!activeSnap.exists()) {
+        continue;
+      }
 
-      if (currentOrderSheetId) {
-        const currentOrderSheetRef = doc(
-          db,
-          "orderSheets",
-          currentOrderSheetId
-        );
-        const currentOrderSheetSnap = await transaction.get(
-          currentOrderSheetRef
-        );
+      const currentOrderSheetId = String(
+        activeSnap.data().orderSheetId || ""
+      ).trim();
 
-        if (currentOrderSheetSnap.exists()) {
-          const currentOrderSheetData = currentOrderSheetSnap.data();
-          const currentStatus = String(currentOrderSheetData.status || "");
+      if (!currentOrderSheetId) {
+        continue;
+      }
 
-          if (isReusableOrderSheetStatus(currentStatus)) {
-            return {
-              orderSheetId: currentOrderSheetId,
-              displayName,
-              tableNickname: String(currentOrderSheetData.tableNickname || ""),
-              reused: true,
-              businessDate,
-            };
-          }
-        }
+      const currentOrderSheetSnap = await transaction.get(
+        doc(db, "orderSheets", currentOrderSheetId)
+      );
+
+      if (!currentOrderSheetSnap.exists()) {
+        continue;
+      }
+
+      const currentOrderSheetData = currentOrderSheetSnap.data();
+
+      if (
+        isReusableOrderSheetStatus(String(currentOrderSheetData.status || ""))
+      ) {
+        return {
+          orderSheetId: currentOrderSheetId,
+          displayName,
+          tableNickname: String(currentOrderSheetData.tableNickname || ""),
+          reused: true,
+          businessDate,
+        };
       }
     }
 
@@ -137,7 +174,7 @@ export async function getOrCreateOpenOrderSheet(tableNumber) {
       updatedAt: serverTimestamp(),
     });
 
-    transaction.set(activeRef, {
+    transaction.set(doc(db, "activeOrderSheets", activeKey), {
       businessDate,
       tableNumber: safeTableNumber,
       displayName,
@@ -159,44 +196,52 @@ export async function getOrCreateOpenOrderSheet(tableNumber) {
 }
 
 export async function getActiveOrderSheetInfo(tableNumber) {
-  const safeTableNumber = String(tableNumber || "").trim();
+  const activeKeyCandidates = buildActiveOrderSheetKeyCandidates(tableNumber);
 
-  if (!safeTableNumber) {
+  if (activeKeyCandidates.length === 0) {
     return null;
   }
 
-  const activeRef = doc(
-    db,
-    "activeOrderSheets",
-    buildActiveOrderSheetKey(safeTableNumber)
-  );
-  const activeSnap = await getDoc(activeRef);
+  let fallbackInfo = null;
 
-  if (!activeSnap.exists()) {
-    return null;
+  for (const activeKey of activeKeyCandidates) {
+    const activeSnap = await getDoc(doc(db, "activeOrderSheets", activeKey));
+
+    if (!activeSnap.exists()) {
+      continue;
+    }
+
+    const orderSheetId = String(activeSnap.data().orderSheetId || "").trim();
+
+    if (!orderSheetId) {
+      continue;
+    }
+
+    const orderSheetSnap = await getDoc(doc(db, "orderSheets", orderSheetId));
+
+    if (!orderSheetSnap.exists()) {
+      continue;
+    }
+
+    const orderSheetData = orderSheetSnap.data();
+    const status = String(orderSheetData.status || "");
+    const info = {
+      orderSheetId,
+      status,
+      isReusable: isReusableOrderSheetStatus(status),
+      tableNickname: String(orderSheetData.tableNickname || ""),
+    };
+
+    if (info.isReusable) {
+      return info;
+    }
+
+    if (!fallbackInfo) {
+      fallbackInfo = info;
+    }
   }
 
-  const orderSheetId = String(activeSnap.data().orderSheetId || "").trim();
-
-  if (!orderSheetId) {
-    return null;
-  }
-
-  const orderSheetSnap = await getDoc(doc(db, "orderSheets", orderSheetId));
-
-  if (!orderSheetSnap.exists()) {
-    return null;
-  }
-
-  const orderSheetData = orderSheetSnap.data();
-  const status = String(orderSheetData.status || "");
-
-  return {
-    orderSheetId,
-    status,
-    isReusable: isReusableOrderSheetStatus(status),
-    tableNickname: String(orderSheetData.tableNickname || ""),
-  };
+  return fallbackInfo;
 }
 
 export async function updateOrderSheetNickname({ orderSheetId, nickname }) {
@@ -232,14 +277,15 @@ export async function completeOrderSheetPayment({
   paymentSplits,
 }) {
   const safeOrderSheetId = String(orderSheetId || "").trim();
-  const safeTableNumber = String(tableNumber || "").trim();
+  const safeTableNumber = normalizeTableNumber(tableNumber);
   const safePaymentMethod = String(paymentMethod || "").trim();
 
   if (!safeOrderSheetId || !safeTableNumber) {
     throw new Error("주문서 정보가 올바르지 않아요.");
   }
 
-  const activeKey = buildActiveOrderSheetKey(safeTableNumber);
+  const activeKeyCandidates =
+    buildActiveOrderSheetKeyCandidates(safeTableNumber);
 
   await updateDoc(doc(db, "orderSheets", safeOrderSheetId), {
     status: "CLOSED",
@@ -265,13 +311,14 @@ export async function completeOrderSheetPayment({
     updatedAt: serverTimestamp(),
   });
 
-  const activeRef = doc(db, "activeOrderSheets", activeKey);
-  const activeSnap = await getDoc(activeRef);
+  for (const activeKey of activeKeyCandidates) {
+    const activeRef = doc(db, "activeOrderSheets", activeKey);
+    const activeSnap = await getDoc(activeRef);
 
-  if (activeSnap.exists()) {
-    const activeData = activeSnap.data();
-
-    if (String(activeData.orderSheetId || "") === safeOrderSheetId) {
+    if (
+      activeSnap.exists() &&
+      String(activeSnap.data().orderSheetId || "") === safeOrderSheetId
+    ) {
       await deleteDoc(activeRef);
     }
   }
@@ -279,26 +326,28 @@ export async function completeOrderSheetPayment({
 
 export async function closeOrderSheet({ orderSheetId, tableNumber }) {
   const safeOrderSheetId = String(orderSheetId || "").trim();
-  const safeTableNumber = String(tableNumber || "").trim();
+  const safeTableNumber = normalizeTableNumber(tableNumber);
 
   if (!safeOrderSheetId || !safeTableNumber) {
     throw new Error("주문서 정보가 올바르지 않아요.");
   }
 
-  const activeKey = buildActiveOrderSheetKey(safeTableNumber);
+  const activeKeyCandidates =
+    buildActiveOrderSheetKeyCandidates(safeTableNumber);
 
   await updateDoc(doc(db, "orderSheets", safeOrderSheetId), {
     status: "CLOSED",
     updatedAt: serverTimestamp(),
   });
 
-  const activeRef = doc(db, "activeOrderSheets", activeKey);
-  const activeSnap = await getDoc(activeRef);
+  for (const activeKey of activeKeyCandidates) {
+    const activeRef = doc(db, "activeOrderSheets", activeKey);
+    const activeSnap = await getDoc(activeRef);
 
-  if (activeSnap.exists()) {
-    const activeData = activeSnap.data();
-
-    if (String(activeData.orderSheetId || "") === safeOrderSheetId) {
+    if (
+      activeSnap.exists() &&
+      String(activeSnap.data().orderSheetId || "") === safeOrderSheetId
+    ) {
       await deleteDoc(activeRef);
     }
   }

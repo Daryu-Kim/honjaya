@@ -75,6 +75,7 @@ import {
   getActiveOrderSheetInfo,
   getOrCreateOpenOrderSheet,
   getTableNicknameErrorMessage,
+  normalizeTableNumber,
   updateOrderSheetNickname,
 } from "@/lib/orderSheet";
 
@@ -138,13 +139,7 @@ function resolveTableNumberFromRoute() {
   const queryTable = String(route.query.table || "").trim();
   const paramsTable = String(route.params.tableNumber || "").trim();
 
-  const resolved = queryTable || paramsTable;
-
-  if (!resolved) {
-    return "";
-  }
-
-  return resolved.replace(/[^\d]/g, "");
+  return normalizeTableNumber(queryTable || paramsTable);
 }
 
 function initializeEntryInfo() {
