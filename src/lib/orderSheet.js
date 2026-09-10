@@ -34,6 +34,25 @@ function isReusableOrderSheetStatus(status) {
   return status === "OPEN" || status === "PAYMENT_REQUESTED";
 }
 
+export const TABLE_NICKNAME_MAX_UNITS = 16;
+
+const HANGUL_CHAR_PATTERN = /[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7A3]/;
+
+export function countTableNicknameUnits(nickname) {
+  return [...String(nickname || "").trim()].reduce(
+    (total, char) => total + (HANGUL_CHAR_PATTERN.test(char) ? 2 : 1),
+    0
+  );
+}
+
+export function getTableNicknameErrorMessage(nickname) {
+  if (countTableNicknameUnits(nickname) > TABLE_NICKNAME_MAX_UNITS) {
+    return "닉네임은 한글 8자(영문·숫자 16자)까지 입력할 수 있어요.";
+  }
+
+  return "";
+}
+
 export async function getOrCreateOpenOrderSheet(tableNumber) {
   const safeTableNumber = String(tableNumber || "").trim();
 
@@ -71,6 +90,7 @@ export async function getOrCreateOpenOrderSheet(tableNumber) {
             return {
               orderSheetId: currentOrderSheetId,
               displayName,
+              tableNickname: String(currentOrderSheetData.tableNickname || ""),
               reused: true,
               businessDate,
             };
@@ -105,6 +125,7 @@ export async function getOrCreateOpenOrderSheet(tableNumber) {
       sequenceNo: nextSequenceNo,
       tableNumber: safeTableNumber,
       displayName,
+      tableNickname: "",
       status: "OPEN", // OPEN, PAYMENT_REQUESTED, CLOSED
       paymentStatus: "UNPAID", // UNPAID, REQUESTED, COMPLETED
       paymentMethod: "",
@@ -128,12 +149,76 @@ export async function getOrCreateOpenOrderSheet(tableNumber) {
     return {
       orderSheetId,
       displayName,
+      tableNickname: "",
       reused: false,
       businessDate,
     };
   });
 
   return result;
+}
+
+export async function getActiveOrderSheetInfo(tableNumber) {
+  const safeTableNumber = String(tableNumber || "").trim();
+
+  if (!safeTableNumber) {
+    return null;
+  }
+
+  const activeRef = doc(
+    db,
+    "activeOrderSheets",
+    buildActiveOrderSheetKey(safeTableNumber)
+  );
+  const activeSnap = await getDoc(activeRef);
+
+  if (!activeSnap.exists()) {
+    return null;
+  }
+
+  const orderSheetId = String(activeSnap.data().orderSheetId || "").trim();
+
+  if (!orderSheetId) {
+    return null;
+  }
+
+  const orderSheetSnap = await getDoc(doc(db, "orderSheets", orderSheetId));
+
+  if (!orderSheetSnap.exists()) {
+    return null;
+  }
+
+  const orderSheetData = orderSheetSnap.data();
+  const status = String(orderSheetData.status || "");
+
+  return {
+    orderSheetId,
+    status,
+    isReusable: isReusableOrderSheetStatus(status),
+    tableNickname: String(orderSheetData.tableNickname || ""),
+  };
+}
+
+export async function updateOrderSheetNickname({ orderSheetId, nickname }) {
+  const safeOrderSheetId = String(orderSheetId || "").trim();
+  const safeNickname = String(nickname || "").trim();
+
+  if (!safeOrderSheetId) {
+    throw new Error("주문서 정보가 올바르지 않아요.");
+  }
+
+  const nicknameErrorMessage = getTableNicknameErrorMessage(safeNickname);
+
+  if (nicknameErrorMessage) {
+    throw new Error(nicknameErrorMessage);
+  }
+
+  await updateDoc(doc(db, "orderSheets", safeOrderSheetId), {
+    tableNickname: safeNickname,
+    updatedAt: serverTimestamp(),
+  });
+
+  return safeNickname;
 }
 
 export async function completeOrderSheetPayment({

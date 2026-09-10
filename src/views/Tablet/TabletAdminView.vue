@@ -57,7 +57,12 @@
             @click="selectTable(table)"
           >
             <div class="table-card-top">
-              <strong>{{ table.tableLabel }}</strong>
+              <div class="table-card-title">
+                <strong>{{ table.tableLabel }}</strong>
+                <span v-if="table.tableNickname" class="table-nickname">
+                  {{ table.tableNickname }}
+                </span>
+              </div>
               <span class="status-badge">
                 {{ convertOrderSheetStatusText(table.status) }}
               </span>
@@ -359,6 +364,21 @@
                 convertPaymentStatusText(selectedTable.paymentStatus)
               }}</strong>
             </div>
+            <div class="modal-info-row">
+              <span>닉네임</span>
+              <div class="modal-nickname-row">
+                <strong>{{
+                  selectedTable.tableNickname || "설정 안 함"
+                }}</strong>
+                <button
+                  type="button"
+                  class="nickname-change-button"
+                  @click="openTableNicknameModal(selectedTable)"
+                >
+                  변경
+                </button>
+              </div>
+            </div>
           </div>
 
           <div
@@ -596,6 +616,64 @@
             @click="saveOrderSheetTags"
           >
             {{ orderSheetTagModalState.isSaving ? "저장 중..." : "태그 저장" }}
+          </button>
+        </div>
+      </div>
+    </transition>
+
+    <!-- 닉네임 변경 모달 -->
+    <transition name="fade">
+      <div
+        v-if="tableNicknameModalState.isOpen"
+        class="modal-overlay"
+        @click.self="closeTableNicknameModal"
+      >
+        <div class="modal-card table-nickname-modal">
+          <div class="modal-head">
+            <div>
+              <h3>닉네임 변경</h3>
+              <p>{{ tableNicknameModalState.displayName }}</p>
+            </div>
+            <button
+              type="button"
+              class="close-button"
+              @click="closeTableNicknameModal"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div class="modal-section">
+            <div class="order-sheet-tag-input-row">
+              <input
+                v-model.trim="tableNicknameModalState.nickname"
+                type="text"
+                placeholder="닉네임을 입력해주세요"
+                @keyup.enter="saveTableNickname"
+              />
+            </div>
+            <p class="table-nickname-modal-helper">
+              한글 8자, 영문·숫자 16자까지 입력할 수 있어요. 비워두면 닉네임이
+              삭제돼요.
+            </p>
+            <p
+              v-if="tableNicknameModalError"
+              class="table-nickname-modal-error"
+            >
+              {{ tableNicknameModalError }}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            class="confirm-button"
+            :disabled="
+              tableNicknameModalState.isSaving ||
+              Boolean(tableNicknameModalError)
+            "
+            @click="saveTableNickname"
+          >
+            {{ tableNicknameModalState.isSaving ? "저장 중..." : "저장" }}
           </button>
         </div>
       </div>
@@ -1331,6 +1409,8 @@ import {
   completeOrderSheetPayment,
   finalizeOrderSheetCleanup,
   getOrCreateOpenOrderSheet,
+  getTableNicknameErrorMessage,
+  updateOrderSheetNickname,
 } from "@/lib/orderSheet";
 import { recalculateOrderSheetTotals } from "@/lib/orderSheetTotals";
 import {
@@ -1384,6 +1464,20 @@ const orderSheetTagModalState = ref({
   tags: [],
   customTag: "",
   isSaving: false,
+});
+
+const tableNicknameModalState = ref({
+  isOpen: false,
+  orderSheetId: "",
+  displayName: "",
+  nickname: "",
+  isSaving: false,
+});
+
+const tableNicknameModalError = computed(() => {
+  if (!tableNicknameModalState.value.isOpen) return "";
+
+  return getTableNicknameErrorMessage(tableNicknameModalState.value.nickname);
 });
 
 const manualAddModalState = ref({
@@ -2225,6 +2319,58 @@ async function saveOrderSheetTags() {
   }, "주문서 태그를 저장하는 중이에요.");
 }
 
+function openTableNicknameModal(table) {
+  if (!table?.orderSheetId) return;
+
+  tableNicknameModalState.value = {
+    isOpen: true,
+    orderSheetId: table.orderSheetId,
+    displayName: table.displayName || table.tableLabel || "",
+    nickname: table.tableNickname || "",
+    isSaving: false,
+  };
+}
+
+function closeTableNicknameModal() {
+  tableNicknameModalState.value = {
+    isOpen: false,
+    orderSheetId: "",
+    displayName: "",
+    nickname: "",
+    isSaving: false,
+  };
+}
+
+async function saveTableNickname() {
+  const state = tableNicknameModalState.value;
+  if (!state.isOpen || !state.orderSheetId || state.isSaving) return;
+  if (tableNicknameModalError.value) return;
+
+  await runGlobalBusy(async () => {
+    state.isSaving = true;
+
+    try {
+      const savedNickname = await updateOrderSheetNickname({
+        orderSheetId: state.orderSheetId,
+        nickname: state.nickname,
+      });
+
+      if (selectedTable.value?.orderSheetId === state.orderSheetId) {
+        selectedTable.value = {
+          ...selectedTable.value,
+          tableNickname: savedNickname,
+        };
+      }
+
+      closeTableNicknameModal();
+    } catch (error) {
+      console.error("닉네임 변경 실패:", error);
+      alert("닉네임 변경 중 문제가 발생했어요.");
+      state.isSaving = false;
+    }
+  }, "닉네임을 변경하는 중이에요.");
+}
+
 function openManualAddModal(table) {
   manualAddModalState.value = {
     isOpen: true,
@@ -3031,6 +3177,24 @@ onUnmounted(() => {
   font-size: 18px;
   font-weight: 800;
 }
+.table-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.table-nickname {
+  max-width: 140px;
+  overflow: hidden;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(96, 165, 250, 0.18);
+  color: #bfdbfe;
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .table-location,
 .list-card-head p,
 .recipe-menu-button-left p,
@@ -3498,6 +3662,24 @@ onUnmounted(() => {
 .table-detail-modal {
   max-width: 640px;
 }
+.modal-nickname-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.nickname-change-button {
+  flex-shrink: 0;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
 .modal-section {
   margin-bottom: 16px;
 }
@@ -3651,6 +3833,21 @@ onUnmounted(() => {
 }
 .order-sheet-tag-modal {
   max-width: 560px;
+}
+.table-nickname-modal {
+  max-width: 480px;
+}
+.table-nickname-modal-helper {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.62);
+}
+.table-nickname-modal-error {
+  margin: 6px 0 0;
+  font-size: 12px;
+  font-weight: 800;
+  color: #fca5a5;
 }
 .order-sheet-tag-preset-list,
 .selected-order-sheet-tag-list {

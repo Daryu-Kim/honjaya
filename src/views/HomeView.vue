@@ -27,6 +27,29 @@
           </div>
         </div>
 
+        <div class="nickname-box">
+          <label class="nickname-label" for="table-nickname-input">
+            닉네임
+          </label>
+          <input
+            id="table-nickname-input"
+            v-model="tableNickname"
+            type="text"
+            class="nickname-input"
+            placeholder="예: 홍길동, 생일팀"
+            autocomplete="off"
+          />
+          <p class="nickname-helper">
+            한글 8자, 영문·숫자 16자까지 입력할 수 있어요.
+          </p>
+          <p class="nickname-notice">
+            비속어나 불쾌감을 주는 닉네임은 안내 없이 강제로 변경될 수 있어요.
+          </p>
+          <p v-if="nicknameErrorMessage" class="nickname-error">
+            {{ nicknameErrorMessage }}
+          </p>
+        </div>
+
         <div v-if="entryErrorMessage" class="error-box">
           {{ entryErrorMessage }}
         </div>
@@ -48,7 +71,12 @@
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { runGlobalBusy } from "@/lib/globalBusy";
-import { getOrCreateOpenOrderSheet } from "@/lib/orderSheet";
+import {
+  getActiveOrderSheetInfo,
+  getOrCreateOpenOrderSheet,
+  getTableNicknameErrorMessage,
+  updateOrderSheetNickname,
+} from "@/lib/orderSheet";
 
 const router = useRouter();
 const route = useRoute();
@@ -56,8 +84,13 @@ const route = useRoute();
 const isMobile = ref(false);
 const tableNumber = ref("");
 const displayName = ref("");
+const tableNickname = ref("");
 const isPreparingEntry = ref(false);
 const entryErrorMessage = ref("");
+
+const nicknameErrorMessage = computed(() => {
+  return getTableNicknameErrorMessage(tableNickname.value);
+});
 
 const tableText = computed(() => {
   return tableNumber.value
@@ -70,22 +103,28 @@ const displayNameText = computed(() => {
 });
 
 const canStart = computed(() => {
+  return hasTableInfo.value && !nicknameErrorMessage.value;
+});
+
+const hasTableInfo = computed(() => {
   return Boolean(tableNumber.value) && Boolean(displayName.value);
 });
 
 const entryTitle = computed(() => {
-  return canStart.value ? "테이블 입장" : "테이블 오더 카드가 필요해요";
+  return hasTableInfo.value ? "테이블 입장" : "테이블 오더 카드가 필요해요";
 });
 
 const entryDescription = computed(() => {
-  return canStart.value
+  return hasTableInfo.value
     ? "테이블 정보를 확인한 뒤 시작해주세요."
     : "만료된 주문서이거나 테이블 정보가 없어요. 자리의 테이블 오더 카드를 다시 접촉해주세요.";
 });
 
 const startButtonText = computed(() => {
   if (isPreparingEntry.value) return "입장 준비 중...";
-  return canStart.value ? "시작하기" : "테이블 오더 카드를 다시 접촉해주세요";
+  return hasTableInfo.value
+    ? "시작하기"
+    : "테이블 오더 카드를 다시 접촉해주세요";
 });
 
 function detectMobile() {
@@ -115,6 +154,20 @@ function initializeEntryInfo() {
   displayName.value = resolvedTableNumber ? `No.${resolvedTableNumber}` : "";
 }
 
+async function prefillTableNickname() {
+  if (!tableNumber.value) return;
+
+  try {
+    const activeInfo = await getActiveOrderSheetInfo(tableNumber.value);
+
+    if (activeInfo?.isReusable) {
+      tableNickname.value = activeInfo.tableNickname || "";
+    }
+  } catch (error) {
+    console.error("닉네임 정보 조회 실패:", error);
+  }
+}
+
 async function handleStart() {
   if (!canStart.value || isPreparingEntry.value) return;
 
@@ -125,12 +178,23 @@ async function handleStart() {
     try {
       const result = await getOrCreateOpenOrderSheet(tableNumber.value);
 
+      const submittedNickname = tableNickname.value.trim();
+      let savedNickname = result.tableNickname || "";
+
+      if (submittedNickname && submittedNickname !== savedNickname) {
+        savedNickname = await updateOrderSheetNickname({
+          orderSheetId: result.orderSheetId,
+          nickname: submittedNickname,
+        });
+      }
+
       sessionStorage.setItem(
         "userEntryInfo",
         JSON.stringify({
           tableNumber: tableNumber.value,
           displayName: result.displayName,
           orderSheetId: result.orderSheetId,
+          tableNickname: savedNickname,
           enteredAt: Date.now(),
         })
       );
@@ -149,6 +213,7 @@ async function handleStart() {
 onMounted(() => {
   detectMobile();
   initializeEntryInfo();
+  prefillTableNickname();
 
   if (!tableNumber.value) {
     entryErrorMessage.value =
@@ -286,6 +351,64 @@ onMounted(() => {
     font-weight: 800;
     text-align: right;
   }
+}
+
+.nickname-box {
+  margin-bottom: 16px;
+  padding: 16px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.nickname-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.nickname-input {
+  width: 100%;
+  height: 48px;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.6);
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 700;
+  outline: none;
+
+  &::placeholder {
+    color: rgba(255, 255, 255, 0.4);
+    font-weight: 500;
+  }
+
+  &:focus {
+    border-color: rgba(255, 255, 255, 0.4);
+  }
+}
+
+.nickname-helper {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.nickname-notice {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(252, 211, 77, 0.85);
+}
+
+.nickname-error {
+  margin: 6px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fca5a5;
 }
 
 .error-box {
