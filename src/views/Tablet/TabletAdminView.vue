@@ -113,6 +113,91 @@
             </div>
           </button>
         </div>
+
+        <div class="maintenance-box">
+          <div class="maintenance-head">
+            <div>
+              <h3>테이블 번호 통일 정리</h3>
+              <p>
+                예전에 01 형태로 저장된 테이블 번호를 1 형태로 한 번에 맞춰요.
+                (주문서 · 주문 · 결제 요청 · 채팅 · 활성 키)
+              </p>
+            </div>
+
+            <div class="maintenance-actions">
+              <button
+                type="button"
+                class="ghost"
+                :disabled="
+                  isTableNumberCleanupScanning || isTableNumberCleanupRunning
+                "
+                @click="handleScanTableNumberCleanup"
+              >
+                {{ isTableNumberCleanupScanning ? "검사 중..." : "대상 검사" }}
+              </button>
+              <button
+                type="button"
+                :disabled="
+                  isTableNumberCleanupScanning || isTableNumberCleanupRunning
+                "
+                @click="handleRunTableNumberCleanup"
+              >
+                {{ isTableNumberCleanupRunning ? "정리 중..." : "정리 실행" }}
+              </button>
+            </div>
+          </div>
+
+          <p v-if="tableNumberCleanupProgress" class="maintenance-progress">
+            {{ tableNumberCleanupProgress }}
+          </p>
+
+          <div v-if="tableNumberCleanupScan" class="maintenance-summary">
+            <strong>검사 결과: 총 {{ tableNumberCleanupScan.total }}건</strong>
+            <ul>
+              <li
+                v-for="item in tableNumberCleanupScan.collections"
+                :key="`scan-${item.key}`"
+              >
+                {{ item.label }} {{ item.count }}건
+              </li>
+            </ul>
+          </div>
+
+          <div v-if="tableNumberCleanupResult" class="maintenance-summary">
+            <strong>
+              정리 결과: 성공 {{ tableNumberCleanupSuccessCount }}건
+              <template v-if="tableNumberCleanupResult.failed.length > 0">
+                / 실패 {{ tableNumberCleanupResult.failed.length }}건
+              </template>
+            </strong>
+            <ul v-if="tableNumberCleanupResult.updated.length > 0">
+              <li
+                v-for="item in tableNumberCleanupResult.updated"
+                :key="`result-${item.key}`"
+              >
+                {{ item.label }} {{ item.count }}건
+              </li>
+            </ul>
+
+            <div
+              v-if="tableNumberCleanupResult.failed.length > 0"
+              class="maintenance-fail"
+            >
+              <p>실패한 항목이에요. "다시 시도"를 누르면 재처리돼요.</p>
+              <ul>
+                <li
+                  v-for="item in tableNumberCleanupResult.failed.slice(0, 20)"
+                  :key="`fail-${item.collection}-${item.id}`"
+                >
+                  {{ item.label }} · {{ item.id }} — {{ item.reason }}
+                </li>
+              </ul>
+              <button type="button" @click="handleRunTableNumberCleanup">
+                다시 시도
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- 주문 탭 -->
@@ -1418,6 +1503,10 @@ import {
   isDemographicOrderSheetTag,
   normalizeOrderSheetTags,
 } from "@/lib/orderSheetTags";
+import {
+  runLegacyTableNumberCleanup,
+  scanLegacyTableNumbers,
+} from "@/lib/tableNumberCleanup";
 
 const activeTab = ref("tables");
 
@@ -1509,6 +1598,19 @@ const tabList = [
   { key: "payments", label: "결제" },
   { key: "recipes", label: "레시피" },
 ];
+
+const isTableNumberCleanupScanning = ref(false);
+const isTableNumberCleanupRunning = ref(false);
+const tableNumberCleanupScan = ref(null);
+const tableNumberCleanupResult = ref(null);
+const tableNumberCleanupProgress = ref("");
+
+const tableNumberCleanupSuccessCount = computed(() =>
+  (tableNumberCleanupResult.value?.updated || []).reduce(
+    (acc, item) => acc + item.count,
+    0
+  )
+);
 
 const isLoadingOrderSheets = ref(true);
 const isLoadingOrders = ref(true);
@@ -3000,6 +3102,88 @@ async function activateNextOrderSheet() {
   }, "다음 주문서를 활성화하는 중이에요.");
 }
 
+async function handleScanTableNumberCleanup() {
+  if (isTableNumberCleanupScanning.value || isTableNumberCleanupRunning.value) {
+    return;
+  }
+
+  const confirmed = window.confirm(
+    "01 형태로 저장된 테이블 번호를 검사할까요?\n검사만 하고 데이터는 바뀌지 않아요."
+  );
+
+  if (!confirmed) return;
+
+  isTableNumberCleanupScanning.value = true;
+  tableNumberCleanupResult.value = null;
+
+  try {
+    const scanResult = await scanLegacyTableNumbers();
+    tableNumberCleanupScan.value = scanResult;
+
+    if (scanResult.total === 0) {
+      alert("정리할 대상이 없어요. 테이블 번호가 이미 모두 통일되어 있어요.");
+    } else {
+      alert(
+        `정리 대상 ${scanResult.total}건을 찾았어요.\n"정리 실행"을 누르면 1 형태로 통일돼요.`
+      );
+    }
+  } catch (error) {
+    console.error("테이블 번호 정리 검사 실패:", error);
+    alert("검사 중 문제가 발생했어요.");
+  } finally {
+    isTableNumberCleanupScanning.value = false;
+  }
+}
+
+async function handleRunTableNumberCleanup() {
+  if (isTableNumberCleanupRunning.value || isTableNumberCleanupScanning.value) {
+    return;
+  }
+
+  const scannedTotal = tableNumberCleanupScan.value?.total;
+  const confirmed = window.confirm(
+    scannedTotal
+      ? `검사된 ${scannedTotal}건의 테이블 번호를 1 형태로 정리할까요?\n주문서 · 주문 · 결제 요청 · 채팅 · 활성 키가 대상이에요.`
+      : "테이블 번호 일괄 정리를 실행할까요?\n주문서 · 주문 · 결제 요청 · 채팅 · 활성 키에서 01 형태를 1 형태로 바꿔요."
+  );
+
+  if (!confirmed) return;
+
+  isTableNumberCleanupRunning.value = true;
+  tableNumberCleanupProgress.value = "정리 대상을 모으는 중이에요.";
+  tableNumberCleanupResult.value = null;
+
+  try {
+    const result = await runLegacyTableNumberCleanup({
+      onProgress: ({ processed, total }) => {
+        tableNumberCleanupProgress.value = `정리하는 중 ${processed} / ${total}건`;
+      },
+    });
+
+    tableNumberCleanupResult.value = result;
+    tableNumberCleanupScan.value = null;
+
+    const successCount = result.updated.reduce(
+      (acc, item) => acc + item.count,
+      0
+    );
+
+    if (result.failed.length === 0) {
+      alert(`테이블 번호 정리가 완료됐어요. (성공 ${successCount}건)`);
+    } else {
+      alert(
+        `정리 작업이 끝났어요.\n성공 ${successCount}건 / 실패 ${result.failed.length}건\n아래 실패 목록을 확인하고 다시 시도해 주세요.`
+      );
+    }
+  } catch (error) {
+    console.error("테이블 번호 정리 실패:", error);
+    alert("정리 중 문제가 발생했어요.");
+  } finally {
+    isTableNumberCleanupRunning.value = false;
+    tableNumberCleanupProgress.value = "";
+  }
+}
+
 watch(paymentPayableAmount, (amount) => {
   if (!paymentModalState.value.isOpen) return;
   if (paymentModalState.value.paymentSplits.length !== 1) return;
@@ -3144,6 +3328,102 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
+}
+.maintenance-box {
+  display: grid;
+  gap: 12px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 18px;
+}
+.maintenance-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.maintenance-head h3 {
+  margin: 0 0 6px;
+  font-size: 17px;
+  font-weight: 800;
+}
+.maintenance-head p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.68);
+}
+.maintenance-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.maintenance-actions button {
+  height: 38px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 12px;
+  background: #fff;
+  color: #111827;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.maintenance-actions button.ghost {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+.maintenance-actions button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.maintenance-progress {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #bfdbfe;
+}
+.maintenance-summary {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+}
+.maintenance-summary strong {
+  font-size: 14px;
+  font-weight: 800;
+  color: #fff;
+}
+.maintenance-summary ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  color: rgba(255, 255, 255, 0.72);
+}
+.maintenance-fail {
+  display: grid;
+  gap: 8px;
+  border-radius: 14px;
+  background: rgba(252, 165, 165, 0.12);
+  padding: 12px;
+  color: #fecaca;
+}
+.maintenance-fail p {
+  margin: 0;
+}
+.maintenance-fail button {
+  justify-self: start;
+  height: 34px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 10px;
+  background: #fff;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
 }
 .table-card {
   border: none;

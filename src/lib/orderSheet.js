@@ -34,7 +34,7 @@ export function normalizeTableNumber(value) {
   return digits.replace(/^0+(?=\d)/, "");
 }
 
-function buildActiveOrderSheetKey(tableNumber) {
+export function buildActiveOrderSheetKey(tableNumber) {
   return `table_${normalizeTableNumber(tableNumber)}`;
 }
 
@@ -59,7 +59,7 @@ function buildActiveOrderSheetKeyCandidates(tableNumber) {
   return [...variants].map((variant) => `table_${variant}`);
 }
 
-function isReusableOrderSheetStatus(status) {
+export function isReusableOrderSheetStatus(status) {
   return status === "OPEN" || status === "PAYMENT_REQUESTED";
 }
 
