@@ -6,6 +6,10 @@ node_modules
 # local env files
 .env.local
 .env.*.local
+.env.migration
+
+# migration artifacts (Firestore export, reports)
+migration-data/
 
 # Log files
 npm-debug.log*
