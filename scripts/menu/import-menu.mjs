@@ -15,6 +15,7 @@
 //       "price": 12000,
 //       "categories": ["인텐스 칵테일", "칵테일"],  // "category": "칵테일" 단일 문자열도 가능
 //       "ingredients": ["진", "드라이 베르무트"],   // optional, 레시피 정보가 비어있을 때만 채움
+//       "optionGroups": [],                          // optional, 지정하면 옵션 구성을 그대로 맞춤(빈 배열 = 옵션 제거)
 //       "description": "진 · 드라이 베르무트\n클래식 칵테일 · Alc 30%"
 //     }
 //   ]
@@ -403,6 +404,7 @@ function buildPlan(menu, existingCategories, existingProducts) {
   const newItems = [];
   const updatedItems = [];
   const matchedIds = new Set();
+  const finalCategoryIdsById = new Map();
   const exposedCategoryIds = new Set();
 
   for (const item of menu.items) {
@@ -450,6 +452,7 @@ function buildPlan(menu, existingCategories, existingProducts) {
     }
 
     matchedIds.add(existing.id);
+    finalCategoryIdsById.set(existing.id, categoryIds);
 
     const existingCategoryIds = Array.isArray(existing.category_ids)
       ? existing.category_ids.filter((id) => id)
@@ -494,6 +497,21 @@ function buildPlan(menu, existingCategories, existingProducts) {
       changes.push(`레시피 정보 추가 (${item.ingredients.length}개 재료)`);
     }
 
+    if (Array.isArray(item.optionGroups)) {
+      const currentGroups = Array.isArray(existing.option_groups)
+        ? existing.option_groups
+        : [];
+
+      if (JSON.stringify(currentGroups) !== JSON.stringify(item.optionGroups)) {
+        patch.option_groups = item.optionGroups;
+        changes.push(
+          item.optionGroups.length === 0
+            ? `옵션 제거 (${currentGroups.length}개 그룹)`
+            : `옵션 ${item.optionGroups.length}개 그룹으로 교체`
+        );
+      }
+    }
+
     if (Number(existing.sort_order ?? 0) !== sortOrder) {
       patch.sort_order = sortOrder;
     }
@@ -532,30 +550,30 @@ function buildPlan(menu, existingCategories, existingProducts) {
   const softDeleted = existingProducts
     .filter((item) => !matchedIds.has(item.id) && !item.deleted_at)
     .map((item) => ({ id: item.id, name: item.product_name }));
-  const softDeletedIds = new Set(softDeleted.map((item) => item.id));
 
   const deactivatedCategories = [];
 
   if (menu.syncCategories) {
+    const visibleCountByCategoryId = new Map();
+
+    for (const categoryIds of finalCategoryIdsById.values()) {
+      for (const id of categoryIds) {
+        visibleCountByCategoryId.set(
+          id,
+          (visibleCountByCategoryId.get(id) || 0) + 1
+        );
+      }
+    }
+
     for (const category of existingCategories) {
       if (category.is_active === false || exposedCategoryIds.has(category.id)) {
         continue;
       }
 
-      const remaining = existingProducts.filter(
-        (product) =>
-          !product.deleted_at &&
-          product.is_active &&
-          !softDeletedIds.has(product.id) &&
-          (product.category_id === category.id ||
-            (Array.isArray(product.category_ids) &&
-              product.category_ids.includes(category.id)))
-      ).length;
-
       deactivatedCategories.push({
         id: category.id,
         name: category.name,
-        remaining,
+        remaining: visibleCountByCategoryId.get(category.id) || 0,
       });
     }
   }
@@ -718,7 +736,7 @@ async function main() {
   );
   const existingProducts = await fetchRows(
     "products",
-    "id,product_name,description,base_price,stock,category_id,category_ids,is_active,sort_order,deleted_at,recipe_text,recipe_info"
+    "id,product_name,description,base_price,stock,category_id,category_ids,is_active,sort_order,deleted_at,recipe_text,recipe_info,option_groups"
   );
 
   const plan = buildPlan(menu, existingCategories, existingProducts);
