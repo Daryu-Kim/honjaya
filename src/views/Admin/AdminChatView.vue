@@ -126,15 +126,13 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import {
-  addDoc,
-  collection,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  limit,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
+  fetchList,
+  insertRow,
+  newId,
+  nowIso,
+  subscribeTable,
+  toTime,
+} from "@/lib/supabase";
 import { runGlobalBusy } from "@/lib/globalBusy";
 
 const messageSectionRef = ref(null);
@@ -198,8 +196,7 @@ function buildSenderLabel(message) {
 function formatDateTime(value) {
   if (!value) return "";
 
-  const date =
-    typeof value?.toDate === "function" ? value.toDate() : new Date(value);
+  const date = new Date(toTime(value));
 
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
@@ -217,29 +214,23 @@ function scrollToBottom() {
   });
 }
 
+async function loadMessages() {
+  try {
+    messageList.value = await fetchList("chatMessages", {
+      order: ["createdAt", "asc"],
+      limit: 300,
+    });
+
+    isLoadingMessages.value = false;
+    scrollToBottom();
+  } catch (error) {
+    console.error("관리자 채팅 조회 실패:", error);
+    isLoadingMessages.value = false;
+  }
+}
+
 function subscribeMessages() {
-  const messagesQuery = query(
-    collection(db, "chatMessages"),
-    orderBy("createdAt", "asc"),
-    limit(300)
-  );
-
-  unsubscribeMessages = onSnapshot(
-    messagesQuery,
-    (snapshot) => {
-      messageList.value = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-
-      isLoadingMessages.value = false;
-      scrollToBottom();
-    },
-    (error) => {
-      console.error("관리자 채팅 조회 실패:", error);
-      isLoadingMessages.value = false;
-    }
-  );
+  unsubscribeMessages = subscribeTable("chatMessages", loadMessages);
 }
 
 async function handleSend() {
@@ -252,18 +243,20 @@ async function handleSend() {
     isSending.value = true;
 
     try {
-      await addDoc(collection(db, "chatMessages"), {
+      await insertRow("chatMessages", {
+        id: newId(),
         message: safeMessage,
         messageType: "ADMIN",
         tableNumber: "",
         nickname: "",
         senderLabel: "직원",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        createdAt: nowIso(),
+        updatedAt: nowIso(),
         isDeleted: false,
       });
 
       messageText.value = "";
+      await loadMessages();
     } catch (error) {
       console.error("직원 메시지 전송 실패:", error);
       alert("메시지 전송 중 문제가 발생했어요.");

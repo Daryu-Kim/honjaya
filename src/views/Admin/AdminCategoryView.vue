@@ -158,16 +158,13 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import {
-  addDoc,
-  collection,
-  doc,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  updateDoc,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
+  fetchList,
+  insertRow,
+  newId,
+  nowIso,
+  subscribeTable,
+  updateRow,
+} from "@/lib/supabase";
 import { runGlobalBusy } from "@/lib/globalBusy";
 
 const isLoadingCategories = ref(true);
@@ -193,26 +190,20 @@ const sortedCategoryList = computed(() => {
   });
 });
 
-function subscribeCategories() {
-  const categoryQuery = query(
-    collection(db, "categories"),
-    orderBy("createdAt", "desc")
-  );
+async function loadCategories() {
+  try {
+    categoryList.value = await fetchList("categories", {
+      order: ["createdAt", "desc"],
+    });
+  } catch (error) {
+    console.error("카테고리 조회 실패:", error);
+  } finally {
+    isLoadingCategories.value = false;
+  }
+}
 
-  unsubscribeCategories = onSnapshot(
-    categoryQuery,
-    (snapshot) => {
-      categoryList.value = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-      isLoadingCategories.value = false;
-    },
-    (error) => {
-      console.error("카테고리 조회 실패:", error);
-      isLoadingCategories.value = false;
-    }
-  );
+function subscribeCategories() {
+  unsubscribeCategories = subscribeTable("categories", loadCategories);
 }
 
 function resetForm() {
@@ -272,24 +263,23 @@ async function handleSubmit() {
         code: form.value.code,
         sortOrder: Number(form.value.sortOrder || 0),
         isActive: form.value.isActive,
-        updatedAt: serverTimestamp(),
+        updatedAt: nowIso(),
       };
 
       if (editingCategoryId.value) {
-        await updateDoc(
-          doc(db, "categories", editingCategoryId.value),
-          payload
-        );
+        await updateRow("categories", editingCategoryId.value, payload);
         alert("카테고리가 수정되었어요.");
       } else {
-        await addDoc(collection(db, "categories"), {
+        await insertRow("categories", {
+          id: newId(),
           ...payload,
-          createdAt: serverTimestamp(),
+          createdAt: nowIso(),
         });
         alert("카테고리가 등록되었어요.");
       }
 
       resetForm();
+      await loadCategories();
     } catch (error) {
       console.error("카테고리 저장 실패:", error);
       alert("카테고리 저장 중 문제가 발생했어요.");
@@ -317,10 +307,11 @@ async function toggleCategoryActive(item) {
     };
 
     try {
-      await updateDoc(doc(db, "categories", item.id), {
+      await updateRow("categories", item.id, {
         isActive: !item.isActive,
-        updatedAt: serverTimestamp(),
+        updatedAt: nowIso(),
       });
+      await loadCategories();
     } catch (error) {
       console.error("카테고리 상태 변경 실패:", error);
       alert("카테고리 상태 변경 중 문제가 발생했어요.");

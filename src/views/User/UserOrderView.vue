@@ -289,8 +289,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { fetchList, subscribeTable, toTime } from "@/lib/supabase";
 import {
   getOrderSheetStatus,
   isBlockedOrderSheetStatus,
@@ -380,15 +379,8 @@ const filteredProductList = computed(() => {
 
       if (aOrder !== bOrder) return aOrder - bOrder;
 
-      const aCreated =
-        typeof a.createdAt?.toDate === "function"
-          ? a.createdAt.toDate().getTime()
-          : 0;
-
-      const bCreated =
-        typeof b.createdAt?.toDate === "function"
-          ? b.createdAt.toDate().getTime()
-          : 0;
+      const aCreated = toTime(a.createdAt);
+      const bCreated = toTime(b.createdAt);
 
       return bCreated - aCreated;
     });
@@ -487,45 +479,34 @@ function saveCart() {
 }
 
 function subscribeCategories() {
-  const categoryQuery = query(
-    collection(db, "categories"),
-    orderBy("sortOrder", "asc")
-  );
-
-  unsubscribeCategories = onSnapshot(
-    categoryQuery,
-    (snapshot) => {
-      categoryList.value = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-    },
-    (error) => {
+  const loadCategories = async () => {
+    try {
+      categoryList.value = await fetchList("categories", {
+        order: ["sortOrder", "asc"],
+      });
+    } catch (error) {
       console.error("카테고리 조회 실패:", error);
     }
-  );
+  };
+
+  unsubscribeCategories = subscribeTable("categories", loadCategories);
 }
 
 function subscribeProducts() {
-  const productQuery = query(
-    collection(db, "products"),
-    orderBy("createdAt", "desc")
-  );
-
-  unsubscribeProducts = onSnapshot(
-    productQuery,
-    (snapshot) => {
-      productList.value = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-      isLoadingProducts.value = false;
-    },
-    (error) => {
+  const loadProducts = async () => {
+    try {
+      productList.value = await fetchList("products", {
+        filters: [["deletedAt", "is", null]],
+        order: ["createdAt", "desc"],
+      });
+    } catch (error) {
       console.error("상품 조회 실패:", error);
+    } finally {
       isLoadingProducts.value = false;
     }
-  );
+  };
+
+  unsubscribeProducts = subscribeTable("products", loadProducts);
 }
 
 function formatPrice(value) {

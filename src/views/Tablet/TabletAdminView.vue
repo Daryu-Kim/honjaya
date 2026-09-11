@@ -1478,17 +1478,14 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import {
-  addDoc,
-  collection,
-  doc,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  updateDoc,
-  where,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
+  fetchList,
+  insertRow,
+  newId,
+  nowIso,
+  subscribeTable,
+  toTime,
+  updateRow,
+} from "@/lib/supabase";
 import { runGlobalBusy } from "@/lib/globalBusy";
 import {
   completeOrderSheetPayment,
@@ -1651,14 +1648,8 @@ const tableLayoutList = computed(() => {
 
   [...orderSheetList.value]
     .sort((a, b) => {
-      const aTime =
-        typeof a.updatedAt?.toDate === "function"
-          ? a.updatedAt.toDate().getTime()
-          : 0;
-      const bTime =
-        typeof b.updatedAt?.toDate === "function"
-          ? b.updatedAt.toDate().getTime()
-          : 0;
+      const aTime = toTime(a.updatedAt);
+      const bTime = toTime(b.updatedAt);
       return bTime - aTime;
     })
     .forEach((item) => {
@@ -1961,11 +1952,8 @@ function formatPrice(value) {
 }
 
 function convertToDate(value) {
-  if (!value) return null;
-  if (typeof value?.toDate === "function") return value.toDate();
-
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  const ms = toTime(value);
+  return ms ? new Date(ms) : null;
 }
 
 function formatDateTime(value) {
@@ -2153,21 +2141,19 @@ function buildCartItemKey(productId, selectedOptions) {
 }
 
 function subscribeOrderSheets() {
-  const q = query(collection(db, "orderSheets"), orderBy("updatedAt", "desc"));
-  unsubscribeOrderSheets = onSnapshot(
-    q,
-    (snapshot) => {
-      orderSheetList.value = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-      isLoadingOrderSheets.value = false;
-    },
-    (error) => {
+  const loadOrderSheets = async () => {
+    try {
+      orderSheetList.value = await fetchList("orderSheets", {
+        order: ["updatedAt", "desc"],
+      });
+    } catch (error) {
       console.error("주문서 구독 실패:", error);
+    } finally {
       isLoadingOrderSheets.value = false;
     }
-  );
+  };
+
+  unsubscribeOrderSheets = subscribeTable("orderSheets", loadOrderSheets);
 }
 
 function playNotificationSound(type, options = {}) {
@@ -2188,14 +2174,11 @@ function playNotificationSound(type, options = {}) {
 }
 
 function subscribeOrders() {
-  const q = query(collection(db, "orders"), orderBy("createdAt", "desc"));
-  unsubscribeOrders = onSnapshot(
-    q,
-    (snapshot) => {
-      const currentOrders = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
+  const loadOrders = async () => {
+    try {
+      const currentOrders = await fetchList("orders", {
+        order: ["createdAt", "desc"],
+      });
       const currentOrderIds = new Set(currentOrders.map((item) => item.id));
 
       if (!isLoadingOrders.value) {
@@ -2209,28 +2192,23 @@ function subscribeOrders() {
 
       previousOrderIds = currentOrderIds;
       orderList.value = currentOrders;
-      isLoadingOrders.value = false;
-    },
-    (error) => {
+    } catch (error) {
       console.error("주문 구독 실패:", error);
+    } finally {
       isLoadingOrders.value = false;
     }
-  );
+  };
+
+  unsubscribeOrders = subscribeTable("orders", loadOrders);
 }
 
 function subscribePaymentRequests() {
-  const q = query(
-    collection(db, "checkoutRequests"),
-    where("status", "in", ["REQUESTED", "CONFIRMED"]),
-    orderBy("createdAt", "desc")
-  );
-  unsubscribePayments = onSnapshot(
-    q,
-    (snapshot) => {
-      const currentRequests = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
+  const loadPaymentRequests = async () => {
+    try {
+      const currentRequests = await fetchList("checkoutRequests", {
+        filters: [["status", "in", ["REQUESTED", "CONFIRMED"]]],
+        order: ["createdAt", "desc"],
+      });
       const currentRequestIds = new Set(currentRequests.map((item) => item.id));
 
       if (!isLoadingPaymentRequests.value) {
@@ -2244,29 +2222,28 @@ function subscribePaymentRequests() {
 
       previousPaymentRequestIds = currentRequestIds;
       paymentRequestList.value = currentRequests;
-      isLoadingPaymentRequests.value = false;
-    },
-    (error) => {
+    } catch (error) {
       console.error("결제 요청 구독 실패:", error);
+    } finally {
       isLoadingPaymentRequests.value = false;
     }
-  );
+  };
+
+  unsubscribePayments = subscribeTable("checkoutRequests", loadPaymentRequests);
 }
 
 function subscribeCategories() {
-  const q = query(collection(db, "categories"), orderBy("sortOrder", "asc"));
-  unsubscribeCategories = onSnapshot(
-    q,
-    (snapshot) => {
-      categoryList.value = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-    },
-    (error) => {
+  const loadCategories = async () => {
+    try {
+      categoryList.value = await fetchList("categories", {
+        order: ["sortOrder", "asc"],
+      });
+    } catch (error) {
       console.error("카테고리 구독 실패:", error);
     }
-  );
+  };
+
+  unsubscribeCategories = subscribeTable("categories", loadCategories);
 }
 
 function getProductCategoryIds(product) {
@@ -2278,21 +2255,20 @@ function getProductCategoryIds(product) {
 }
 
 function subscribeProducts() {
-  const q = query(collection(db, "products"), orderBy("sortOrder", "asc"));
-  unsubscribeProducts = onSnapshot(
-    q,
-    (snapshot) => {
-      productList.value = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-      isLoadingProducts.value = false;
-    },
-    (error) => {
+  const loadProducts = async () => {
+    try {
+      productList.value = await fetchList("products", {
+        filters: [["deletedAt", "is", null]],
+        order: ["sortOrder", "asc"],
+      });
+    } catch (error) {
       console.error("상품 구독 실패:", error);
+    } finally {
       isLoadingProducts.value = false;
     }
-  );
+  };
+
+  unsubscribeProducts = subscribeTable("products", loadProducts);
 }
 
 function selectTable(table) {
@@ -2405,9 +2381,9 @@ async function saveOrderSheetTags() {
     try {
       const internalTags = normalizeOrderSheetTags(state.tags);
 
-      await updateDoc(doc(db, "orderSheets", state.orderSheetId), {
+      await updateRow("orderSheets", state.orderSheetId, {
         internalTags,
-        updatedAt: serverTimestamp(),
+        updatedAt: nowIso(),
       });
 
       if (selectedTable.value?.orderSheetId === state.orderSheetId) {
@@ -2843,7 +2819,8 @@ async function submitManualAddOrder() {
         0
       );
 
-      await addDoc(collection(db, "orders"), {
+      await insertRow("orders", {
+        id: newId(),
         orderSheetId: state.orderSheetId,
         tableNumber: state.tableNumber,
         displayName: state.displayName,
@@ -2852,8 +2829,8 @@ async function submitManualAddOrder() {
         totalCount,
         totalPrice,
         status: "SERVED",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        createdAt: nowIso(),
+        updatedAt: nowIso(),
       });
 
       await recalculateOrderSheetTotals(state.orderSheetId);
@@ -2978,7 +2955,7 @@ async function completePayment() {
   await runGlobalBusy(async () => {
     try {
       if (state.requestId) {
-        await updateDoc(doc(db, "checkoutRequests", state.requestId), {
+        await updateRow("checkoutRequests", state.requestId, {
           status: "DONE",
           paymentMethod,
           originalAmount,
@@ -2986,8 +2963,8 @@ async function completePayment() {
           totalAmount: payableAmount,
           discounts,
           paymentSplits,
-          approvedAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
+          approvedAt: nowIso(),
+          updatedAt: nowIso(),
         });
       }
 
@@ -3037,9 +3014,9 @@ function confirmOrderStatusChange(order, nextStatus) {
 async function updateOrderStatus(order, nextStatus) {
   await runGlobalBusy(async () => {
     try {
-      await updateDoc(doc(db, "orders", order.id), {
+      await updateRow("orders", order.id, {
         status: nextStatus,
-        updatedAt: serverTimestamp(),
+        updatedAt: nowIso(),
       });
 
       await recalculateOrderSheetTotals(order.orderSheetId);

@@ -366,17 +366,14 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
-  addDoc,
-  collection,
-  doc,
-  getDoc,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  updateDoc,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
+  fetchList,
+  fetchRow,
+  insertRow,
+  newId,
+  nowIso,
+  subscribeTable,
+  updateRow,
+} from "@/lib/supabase";
 import { runGlobalBusy } from "@/lib/globalBusy";
 
 const router = useRouter();
@@ -435,25 +432,19 @@ function formatPrice(value) {
 }
 
 function subscribeCategories() {
-  const categoryQuery = query(
-    collection(db, "categories"),
-    orderBy("sortOrder", "asc")
-  );
+  const loadCategories = async () => {
+    try {
+      const categories = await fetchList("categories", {
+        order: ["sortOrder", "asc"],
+      });
 
-  unsubscribeCategories = onSnapshot(
-    categoryQuery,
-    (snapshot) => {
-      categoryList.value = snapshot.docs
-        .map((docSnap) => ({
-          id: docSnap.id,
-          ...docSnap.data(),
-        }))
-        .filter((item) => item.isActive !== false);
-    },
-    (error) => {
+      categoryList.value = categories.filter((item) => item.isActive !== false);
+    } catch (error) {
       console.error("카테고리 조회 실패:", error);
     }
-  );
+  };
+
+  unsubscribeCategories = subscribeTable("categories", loadCategories);
 }
 
 function addOptionGroup() {
@@ -592,15 +583,15 @@ async function loadProduct() {
 
   try {
     const productId = String(route.params.productId);
-    const snapshot = await getDoc(doc(db, "products", productId));
+    const product = await fetchRow("products", productId);
 
-    if (!snapshot.exists()) {
+    if (!product || product.deletedAt) {
       alert("상품 정보를 찾을 수 없어요.");
       router.replace("/admin/products");
       return;
     }
 
-    const data = snapshot.data();
+    const data = product;
 
     form.value = {
       productName: data.productName || "",
@@ -646,18 +637,19 @@ async function handleSubmit() {
         isActive: form.value.isActive,
         isSoldOut: form.value.isSoldOut,
         optionGroups: normalizeOptionGroups(),
-        updatedAt: serverTimestamp(),
+        updatedAt: nowIso(),
         sortOrder: Number(form.value.sortOrder || 0),
       };
 
       if (isEditMode.value) {
         const productId = String(route.params.productId);
-        await updateDoc(doc(db, "products", productId), payload);
+        await updateRow("products", productId, payload);
         alert("상품이 수정되었어요.");
       } else {
-        await addDoc(collection(db, "products"), {
+        await insertRow("products", {
+          id: newId(),
           ...payload,
-          createdAt: serverTimestamp(),
+          createdAt: nowIso(),
         });
         alert("상품이 등록되었어요.");
       }

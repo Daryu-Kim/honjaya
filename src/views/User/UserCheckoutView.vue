@@ -129,17 +129,14 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import {
-  addDoc,
-  collection,
-  doc,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  updateDoc,
-  where,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
+  fetchList,
+  insertRow,
+  newId,
+  nowIso,
+  subscribeTable,
+  toTime,
+  updateRow,
+} from "@/lib/supabase";
 import { runGlobalBusy } from "@/lib/globalBusy";
 import {
   getOrderSheetStatus,
@@ -226,31 +223,28 @@ function subscribeActivePaymentRequest() {
     return;
   }
 
-  const requestQuery = query(
-    collection(db, "checkoutRequests"),
-    where("orderSheetId", "==", orderSheetId.value),
-    orderBy("createdAt", "desc")
-  );
-
-  unsubscribePaymentRequest = onSnapshot(
-    requestQuery,
-    (snapshot) => {
-      const allRequests = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
+  const loadActivePaymentRequest = async () => {
+    try {
+      const allRequests = await fetchList("checkoutRequests", {
+        filters: [["orderSheetId", orderSheetId.value]],
+        order: ["createdAt", "desc"],
+      });
 
       activePaymentRequest.value =
         allRequests.find((item) =>
           ["REQUESTED", "CONFIRMED"].includes(String(item.status || ""))
         ) || null;
-
-      isLoadingRequest.value = false;
-    },
-    (error) => {
+    } catch (error) {
       console.error("결제 요청 조회 실패:", error);
+    } finally {
       isLoadingRequest.value = false;
     }
+  };
+
+  unsubscribePaymentRequest = subscribeTable(
+    "checkoutRequests",
+    loadActivePaymentRequest,
+    { filter: ["orderSheetId", orderSheetId.value] }
   );
 }
 
@@ -260,26 +254,22 @@ function subscribeOrders() {
     return;
   }
 
-  const ordersQuery = query(
-    collection(db, "orders"),
-    where("orderSheetId", "==", orderSheetId.value),
-    orderBy("createdAt", "desc")
-  );
-
-  unsubscribeOrders = onSnapshot(
-    ordersQuery,
-    (snapshot) => {
-      orderList.value = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-      isLoadingOrders.value = false;
-    },
-    (error) => {
+  const loadOrders = async () => {
+    try {
+      orderList.value = await fetchList("orders", {
+        filters: [["orderSheetId", orderSheetId.value]],
+        order: ["createdAt", "desc"],
+      });
+    } catch (error) {
       console.error("주문 내역 조회 실패:", error);
+    } finally {
       isLoadingOrders.value = false;
     }
-  );
+  };
+
+  unsubscribeOrders = subscribeTable("orders", loadOrders, {
+    filter: ["orderSheetId", orderSheetId.value],
+  });
 }
 
 function convertStatusText(status) {
@@ -296,9 +286,9 @@ function canCancelRequest(request) {
 
 function convertToDate(value) {
   if (!value) return null;
-  if (typeof value?.toDate === "function") return value.toDate();
 
-  const parsed = new Date(value);
+  const parsed = new Date(toTime(value));
+
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
@@ -329,19 +319,20 @@ async function createCheckoutRequest() {
     isSubmitting.value = true;
 
     try {
-      await addDoc(collection(db, "checkoutRequests"), {
+      await insertRow("checkoutRequests", {
+        id: newId(),
         orderSheetId: orderSheetId.value,
         tableNumber: tableNumber.value,
         displayName: displayName.value,
         status: "REQUESTED",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        createdAt: nowIso(),
+        updatedAt: nowIso(),
       });
 
-      await updateDoc(doc(db, "orderSheets", orderSheetId.value), {
+      await updateRow("orderSheets", orderSheetId.value, {
         status: "PAYMENT_REQUESTED",
         paymentStatus: "REQUESTED",
-        updatedAt: serverTimestamp(),
+        updatedAt: nowIso(),
       });
 
       alert("결제 요청이 접수되었어요.");
@@ -361,18 +352,15 @@ async function cancelCheckoutRequest() {
     isSubmitting.value = true;
 
     try {
-      await updateDoc(
-        doc(db, "checkoutRequests", activePaymentRequest.value.id),
-        {
-          status: "CANCELLED",
-          updatedAt: serverTimestamp(),
-        }
-      );
+      await updateRow("checkoutRequests", activePaymentRequest.value.id, {
+        status: "CANCELLED",
+        updatedAt: nowIso(),
+      });
 
-      await updateDoc(doc(db, "orderSheets", orderSheetId.value), {
+      await updateRow("orderSheets", orderSheetId.value, {
         status: "OPEN",
         paymentStatus: "UNPAID",
-        updatedAt: serverTimestamp(),
+        updatedAt: nowIso(),
       });
     } catch (error) {
       console.error("결제 요청 취소 실패:", error);

@@ -128,14 +128,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import {
-  collection,
-  onSnapshot,
-  orderBy,
-  query,
-  where,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { fetchList, subscribeTable, toTime } from "@/lib/supabase";
 
 const router = useRouter();
 
@@ -198,26 +191,22 @@ function subscribeOrders() {
     return;
   }
 
-  const ordersQuery = query(
-    collection(db, "orders"),
-    where("orderSheetId", "==", orderSheetId.value),
-    orderBy("createdAt", "desc")
-  );
-
-  unsubscribeOrders = onSnapshot(
-    ordersQuery,
-    (snapshot) => {
-      orderList.value = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-      isLoading.value = false;
-    },
-    (error) => {
+  const loadOrders = async () => {
+    try {
+      orderList.value = await fetchList("orders", {
+        filters: [["orderSheetId", orderSheetId.value]],
+        order: ["createdAt", "desc"],
+      });
+    } catch (error) {
       console.error("주문 내역 조회 실패:", error);
+    } finally {
       isLoading.value = false;
     }
-  );
+  };
+
+  unsubscribeOrders = subscribeTable("orders", loadOrders, {
+    filter: ["orderSheetId", orderSheetId.value],
+  });
 }
 
 function convertOrderStatusText(status) {
@@ -230,9 +219,9 @@ function convertOrderStatusText(status) {
 
 function convertToDate(value) {
   if (!value) return null;
-  if (typeof value?.toDate === "function") return value.toDate();
 
-  const parsed = new Date(value);
+  const parsed = new Date(toTime(value));
+
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 

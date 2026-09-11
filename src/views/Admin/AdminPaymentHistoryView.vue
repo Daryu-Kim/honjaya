@@ -334,8 +334,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { fetchList, subscribeTable, toTime } from "@/lib/supabase";
 import {
   formatInputDate,
   getBusinessDate,
@@ -380,8 +379,7 @@ function normalizeTags(tags) {
 
 function convertToDate(value) {
   if (!value) return null;
-  if (typeof value?.toDate === "function") return value.toDate();
-  const parsed = new Date(value);
+  const parsed = new Date(toTime(value));
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
@@ -589,38 +587,34 @@ function matchesPaymentMethod(sheet, method) {
 }
 
 function subscribeOrderSheets() {
-  const q = query(collection(db, "orderSheets"), orderBy("updatedAt", "desc"));
-
-  unsubscribeSheets = onSnapshot(
-    q,
-    (snapshot) => {
-      orderSheetList.value = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-      isLoadingSheets.value = false;
-    },
-    () => {
+  const loadOrderSheets = async () => {
+    try {
+      orderSheetList.value = await fetchList("orderSheets", {
+        order: ["updatedAt", "desc"],
+      });
+    } catch (error) {
+      console.error("주문서 조회 실패:", error);
+    } finally {
       isLoadingSheets.value = false;
     }
-  );
+  };
+
+  unsubscribeSheets = subscribeTable("orderSheets", loadOrderSheets);
 }
 
 function subscribeOrders() {
-  const q = query(collection(db, "orders"), orderBy("createdAt", "desc"));
-
-  unsubscribeOrders = onSnapshot(
-    q,
-    (snapshot) => {
-      orderList.value = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-    },
-    () => {
+  const loadOrders = async () => {
+    try {
+      orderList.value = await fetchList("orders", {
+        order: ["createdAt", "desc"],
+      });
+    } catch (error) {
+      console.error("주문 조회 실패:", error);
       orderList.value = [];
     }
-  );
+  };
+
+  unsubscribeOrders = subscribeTable("orders", loadOrders);
 }
 
 watch(

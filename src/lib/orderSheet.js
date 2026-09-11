@@ -1,12 +1,12 @@
 import {
-  deleteDoc,
-  doc,
-  getDoc,
-  runTransaction,
-  serverTimestamp,
-  updateDoc,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
+  deleteRow,
+  fetchRow,
+  insertRow,
+  nowIso,
+  reserveSequenceNo,
+  updateRow,
+  upsertRow,
+} from "@/lib/supabase";
 
 export async function finalizeOrderSheetCleanup({ orderSheetId }) {
   const safeOrderSheetId = String(orderSheetId || "").trim();
@@ -15,11 +15,48 @@ export async function finalizeOrderSheetCleanup({ orderSheetId }) {
     throw new Error("orderSheetId가 비어 있어요.");
   }
 
-  await updateDoc(doc(db, "orderSheets", safeOrderSheetId), {
+  await updateRow("orderSheets", safeOrderSheetId, {
     status: "CLOSED",
-    closedAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+    closedAt: nowIso(),
+    updatedAt: nowIso(),
   });
+}
+
+async function findReusableActiveOrderSheet(activeKeyCandidates) {
+  for (const candidateKey of activeKeyCandidates) {
+    const activeRow = await fetchRow("activeOrderSheets", candidateKey);
+    const currentOrderSheetId = String(activeRow?.orderSheetId || "").trim();
+
+    if (!currentOrderSheetId) {
+      continue;
+    }
+
+    const currentOrderSheet = await fetchRow(
+      "orderSheets",
+      currentOrderSheetId
+    );
+
+    if (
+      currentOrderSheet &&
+      isReusableOrderSheetStatus(String(currentOrderSheet.status || ""))
+    ) {
+      return currentOrderSheet;
+    }
+  }
+
+  return null;
+}
+
+async function removeActiveOrderSheetForSheet({ tableNumber, orderSheetId }) {
+  const activeKeyCandidates = buildActiveOrderSheetKeyCandidates(tableNumber);
+
+  for (const activeKey of activeKeyCandidates) {
+    const activeRow = await fetchRow("activeOrderSheets", activeKey);
+
+    if (String(activeRow?.orderSheetId || "") === orderSheetId) {
+      await deleteRow("activeOrderSheets", activeKey);
+    }
+  }
 }
 
 function formatSequenceNo(sequenceNo) {
@@ -89,110 +126,64 @@ export async function getOrCreateOpenOrderSheet(tableNumber) {
     throw new Error("테이블 번호가 없어요.");
   }
 
-  const businessDate = new Date();
+  const now = nowIso();
+  const businessDate = now;
   const displayName = `No.${safeTableNumber}`;
   const activeKey = buildActiveOrderSheetKey(safeTableNumber);
   const activeKeyCandidates =
     buildActiveOrderSheetKeyCandidates(safeTableNumber);
+  const reusableOrderSheet = await findReusableActiveOrderSheet(
+    activeKeyCandidates
+  );
 
-  const result = await runTransaction(db, async (transaction) => {
-    for (const candidateKey of activeKeyCandidates) {
-      const activeSnap = await transaction.get(
-        doc(db, "activeOrderSheets", candidateKey)
-      );
-
-      if (!activeSnap.exists()) {
-        continue;
-      }
-
-      const currentOrderSheetId = String(
-        activeSnap.data().orderSheetId || ""
-      ).trim();
-
-      if (!currentOrderSheetId) {
-        continue;
-      }
-
-      const currentOrderSheetSnap = await transaction.get(
-        doc(db, "orderSheets", currentOrderSheetId)
-      );
-
-      if (!currentOrderSheetSnap.exists()) {
-        continue;
-      }
-
-      const currentOrderSheetData = currentOrderSheetSnap.data();
-
-      if (
-        isReusableOrderSheetStatus(String(currentOrderSheetData.status || ""))
-      ) {
-        return {
-          orderSheetId: currentOrderSheetId,
-          displayName,
-          tableNickname: String(currentOrderSheetData.tableNickname || ""),
-          reused: true,
-          businessDate,
-        };
-      }
-    }
-
-    const counterRef = doc(db, "counters", "orderSheet");
-    const counterSnap = await transaction.get(counterRef);
-
-    const lastSequenceNo = counterSnap.exists()
-      ? Number(counterSnap.data().lastSequenceNo || 0)
-      : 0;
-
-    const nextSequenceNo = lastSequenceNo + 1;
-    const orderSheetId = formatSequenceNo(nextSequenceNo);
-    const orderSheetRef = doc(db, "orderSheets", orderSheetId);
-
-    transaction.set(
-      counterRef,
-      {
-        lastSequenceNo: nextSequenceNo,
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true }
-    );
-
-    transaction.set(orderSheetRef, {
-      orderSheetId,
-      businessDate,
-      sequenceNo: nextSequenceNo,
-      tableNumber: safeTableNumber,
-      displayName,
-      tableNickname: "",
-      status: "OPEN", // OPEN, PAYMENT_REQUESTED, CLOSED
-      paymentStatus: "UNPAID", // UNPAID, REQUESTED, COMPLETED
-      paymentMethod: "",
-      totalAmount: 0,
-      orderCount: 0,
-      latestOrderItemsPreview: [],
-      latestOrderSummaryText: "",
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-
-    transaction.set(doc(db, "activeOrderSheets", activeKey), {
-      businessDate,
-      tableNumber: safeTableNumber,
-      displayName,
-      orderSheetId,
-      status: "OPEN",
-      updatedAt: serverTimestamp(),
-    });
-
+  if (reusableOrderSheet) {
     return {
-      orderSheetId,
+      orderSheetId: reusableOrderSheet.id,
       displayName,
-      tableNickname: "",
-      reused: false,
+      tableNickname: String(reusableOrderSheet.tableNickname || ""),
+      reused: true,
       businessDate,
     };
+  }
+
+  const nextSequenceNo = await reserveSequenceNo("orderSheet");
+  const orderSheetId = formatSequenceNo(nextSequenceNo);
+
+  await insertRow("orderSheets", {
+    id: orderSheetId,
+    businessDate,
+    sequenceNo: nextSequenceNo,
+    tableNumber: safeTableNumber,
+    displayName,
+    tableNickname: "",
+    status: "OPEN", // OPEN, PAYMENT_REQUESTED, CLOSED
+    paymentStatus: "UNPAID", // UNPAID, REQUESTED, COMPLETED
+    paymentMethod: "",
+    totalAmount: 0,
+    orderCount: 0,
+    latestOrderItemsPreview: [],
+    latestOrderSummaryText: "",
+    createdAt: now,
+    updatedAt: now,
   });
 
-  return result;
+  await upsertRow("activeOrderSheets", {
+    id: activeKey,
+    businessDate,
+    tableNumber: safeTableNumber,
+    displayName,
+    orderSheetId,
+    status: "OPEN",
+    updatedAt: now,
+  });
+
+  return {
+    orderSheetId,
+    displayName,
+    tableNickname: "",
+    reused: false,
+    businessDate,
+  };
 }
 
 export async function getActiveOrderSheetInfo(tableNumber) {
@@ -205,25 +196,19 @@ export async function getActiveOrderSheetInfo(tableNumber) {
   let fallbackInfo = null;
 
   for (const activeKey of activeKeyCandidates) {
-    const activeSnap = await getDoc(doc(db, "activeOrderSheets", activeKey));
-
-    if (!activeSnap.exists()) {
-      continue;
-    }
-
-    const orderSheetId = String(activeSnap.data().orderSheetId || "").trim();
+    const activeRow = await fetchRow("activeOrderSheets", activeKey);
+    const orderSheetId = String(activeRow?.orderSheetId || "").trim();
 
     if (!orderSheetId) {
       continue;
     }
 
-    const orderSheetSnap = await getDoc(doc(db, "orderSheets", orderSheetId));
+    const orderSheetData = await fetchRow("orderSheets", orderSheetId);
 
-    if (!orderSheetSnap.exists()) {
+    if (!orderSheetData) {
       continue;
     }
 
-    const orderSheetData = orderSheetSnap.data();
     const status = String(orderSheetData.status || "");
     const info = {
       orderSheetId,
@@ -258,9 +243,9 @@ export async function updateOrderSheetNickname({ orderSheetId, nickname }) {
     throw new Error(nicknameErrorMessage);
   }
 
-  await updateDoc(doc(db, "orderSheets", safeOrderSheetId), {
+  await updateRow("orderSheets", safeOrderSheetId, {
     tableNickname: safeNickname,
-    updatedAt: serverTimestamp(),
+    updatedAt: nowIso(),
   });
 
   return safeNickname;
@@ -284,10 +269,9 @@ export async function completeOrderSheetPayment({
     throw new Error("주문서 정보가 올바르지 않아요.");
   }
 
-  const activeKeyCandidates =
-    buildActiveOrderSheetKeyCandidates(safeTableNumber);
+  const now = nowIso();
 
-  await updateDoc(doc(db, "orderSheets", safeOrderSheetId), {
+  await updateRow("orderSheets", safeOrderSheetId, {
     status: "CLOSED",
     paymentStatus: "COMPLETED",
     paymentMethod: safePaymentMethod,
@@ -306,22 +290,15 @@ export async function completeOrderSheetPayment({
     ...(paymentSplits !== undefined
       ? { paymentSplits: Array.isArray(paymentSplits) ? paymentSplits : [] }
       : {}),
-    paidAt: serverTimestamp(),
-    closedAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+    paidAt: now,
+    closedAt: now,
+    updatedAt: now,
   });
 
-  for (const activeKey of activeKeyCandidates) {
-    const activeRef = doc(db, "activeOrderSheets", activeKey);
-    const activeSnap = await getDoc(activeRef);
-
-    if (
-      activeSnap.exists() &&
-      String(activeSnap.data().orderSheetId || "") === safeOrderSheetId
-    ) {
-      await deleteDoc(activeRef);
-    }
-  }
+  await removeActiveOrderSheetForSheet({
+    tableNumber: safeTableNumber,
+    orderSheetId: safeOrderSheetId,
+  });
 }
 
 export async function closeOrderSheet({ orderSheetId, tableNumber }) {
@@ -332,23 +309,13 @@ export async function closeOrderSheet({ orderSheetId, tableNumber }) {
     throw new Error("주문서 정보가 올바르지 않아요.");
   }
 
-  const activeKeyCandidates =
-    buildActiveOrderSheetKeyCandidates(safeTableNumber);
-
-  await updateDoc(doc(db, "orderSheets", safeOrderSheetId), {
+  await updateRow("orderSheets", safeOrderSheetId, {
     status: "CLOSED",
-    updatedAt: serverTimestamp(),
+    updatedAt: nowIso(),
   });
 
-  for (const activeKey of activeKeyCandidates) {
-    const activeRef = doc(db, "activeOrderSheets", activeKey);
-    const activeSnap = await getDoc(activeRef);
-
-    if (
-      activeSnap.exists() &&
-      String(activeSnap.data().orderSheetId || "") === safeOrderSheetId
-    ) {
-      await deleteDoc(activeRef);
-    }
-  }
+  await removeActiveOrderSheetForSheet({
+    tableNumber: safeTableNumber,
+    orderSheetId: safeOrderSheetId,
+  });
 }

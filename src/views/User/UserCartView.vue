@@ -162,8 +162,7 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { insertRow, newId, nowIso } from "@/lib/supabase";
 import { runGlobalBusy } from "@/lib/globalBusy";
 import { recalculateOrderSheetTotals } from "@/lib/orderSheetTotals";
 import {
@@ -350,15 +349,18 @@ async function submitOrder() {
         totalCount: totalCartCount.value,
         totalPrice: totalCartPrice.value,
         status: "REQUESTED",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        createdAt: nowIso(),
+        updatedAt: nowIso(),
       };
 
-      const orderRef = await addDoc(collection(db, "orders"), orderPayload);
+      const order = await insertRow("orders", {
+        id: newId(),
+        ...orderPayload,
+      });
 
       await recalculateOrderSheetTotals(orderSheetId.value);
 
-      sessionStorage.setItem("lastRequestedOrderId", orderRef.id);
+      sessionStorage.setItem("lastRequestedOrderId", order.id);
       sessionStorage.removeItem("userCart");
       sessionStorage.removeItem("userCartRequestMessage");
 
@@ -368,7 +370,7 @@ async function submitOrder() {
       router.push({
         path: "/user/order-complete",
         query: {
-          orderId: orderRef.id,
+          orderId: order.id,
         },
       });
     } catch (error) {

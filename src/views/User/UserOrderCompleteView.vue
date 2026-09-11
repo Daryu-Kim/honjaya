@@ -131,8 +131,7 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { fetchRow } from "@/lib/supabase";
 
 const router = useRouter();
 const route = useRoute();
@@ -192,19 +191,14 @@ async function loadOrder() {
   }
 
   try {
-    const snapshot = await getDoc(doc(db, "orders", orderId));
+    const order = await fetchRow("orders", orderId);
 
-    if (!snapshot.exists()) {
+    if (!order) {
       orderInfo.value = null;
       return;
     }
 
-    const data = snapshot.data();
-
-    orderInfo.value = {
-      id: snapshot.id,
-      ...data,
-    };
+    orderInfo.value = order;
   } catch (error) {
     console.error("주문 조회 실패:", error);
     orderInfo.value = null;

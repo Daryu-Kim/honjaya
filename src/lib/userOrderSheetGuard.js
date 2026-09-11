@@ -1,5 +1,4 @@
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { fetchRow } from "@/lib/supabase";
 
 export function isBlockedOrderSheetStatus(status) {
   const safeStatus = String(status || "").trim();
@@ -22,18 +21,15 @@ export async function getOrderSheetStatus(orderSheetId) {
     };
   }
 
-  const ref = doc(db, "orderSheets", safeOrderSheetId);
-  const snap = await getDoc(ref);
+  const data = await fetchRow("orderSheets", safeOrderSheetId);
 
-  if (!snap.exists()) {
+  if (!data) {
     return {
       exists: false,
       status: "",
       data: null,
     };
   }
-
-  const data = snap.data();
 
   return {
     exists: true,

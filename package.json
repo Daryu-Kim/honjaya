@@ -10,8 +10,8 @@
     "migrate:import": "node scripts/migration/import-supabase.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.116.0",
     "core-js": "^3.8.3",
-    "firebase": "^12.11.0",
     "register-service-worker": "^1.7.2",
     "vue": "^3.2.13",
     "vue-router": "^4.0.3"

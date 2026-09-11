@@ -1,13 +1,4 @@
-import {
-  collection,
-  doc,
-  getDocs,
-  query,
-  serverTimestamp,
-  updateDoc,
-  where,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { fetchList, nowIso, updateRow } from "@/lib/supabase";
 
 function normalizeNumber(value) {
   return Number(value || 0);
@@ -88,17 +79,9 @@ export async function recalculateOrderSheetTotals(orderSheetId) {
     throw new Error("orderSheetId가 비어 있어요.");
   }
 
-  const ordersQuery = query(
-    collection(db, "orders"),
-    where("orderSheetId", "==", safeOrderSheetId)
-  );
-
-  const snapshot = await getDocs(ordersQuery);
-
-  const allOrders = snapshot.docs.map((docSnap) => ({
-    id: docSnap.id,
-    ...docSnap.data(),
-  }));
+  const allOrders = await fetchList("orders", {
+    filters: [["orderSheetId", safeOrderSheetId]],
+  });
 
   const validOrders =
     sortOrdersByCreatedAtAsc(allOrders).filter(isCountableOrder);
@@ -110,12 +93,12 @@ export async function recalculateOrderSheetTotals(orderSheetId) {
   const latestOrderItemsPreview = buildLatestOrderItemsPreview(validOrders);
   const latestOrderSummaryText = buildLatestOrderSummaryText(validOrders);
 
-  await updateDoc(doc(db, "orderSheets", safeOrderSheetId), {
+  await updateRow("orderSheets", safeOrderSheetId, {
     totalAmount,
     orderCount: validOrders.length,
     latestOrderItemsPreview,
     latestOrderSummaryText,
-    updatedAt: serverTimestamp(),
+    updatedAt: nowIso(),
   });
 
   return {

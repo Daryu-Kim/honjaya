@@ -216,16 +216,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
-import {
-  collection,
-  doc,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  updateDoc,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { fetchList, nowIso, subscribeTable, updateRow } from "@/lib/supabase";
 import { runGlobalBusy } from "@/lib/globalBusy";
 
 const searchText = ref("");
@@ -419,7 +410,7 @@ async function handleSubmit() {
       const payload = {
         recipeText: String(form.value.recipeText || "").trim(),
         recipeInfo: recipeInfo,
-        updatedAt: serverTimestamp(),
+        updatedAt: nowIso(),
       };
 
       if (
@@ -433,7 +424,7 @@ async function handleSubmit() {
         payload.recipeText = "";
       }
 
-      await updateDoc(doc(db, "products", selectedProduct.value.id), payload);
+      await updateRow("products", selectedProduct.value.id, payload);
 
       const updated = {
         ...selectedProduct.value,
@@ -465,10 +456,10 @@ async function clearRecipe() {
     isSaving.value = true;
 
     try {
-      await updateDoc(doc(db, "products", selectedProduct.value.id), {
+      await updateRow("products", selectedProduct.value.id, {
         recipeText: "",
         recipeInfo: {},
-        updatedAt: serverTimestamp(),
+        updatedAt: nowIso(),
       });
 
       selectedProduct.value = {
@@ -493,31 +484,26 @@ async function clearRecipe() {
 }
 
 function subscribeCategories() {
-  const q = query(collection(db, "categories"), orderBy("sortOrder", "asc"));
-  unsubscribeCategories = onSnapshot(
-    q,
-    (snapshot) => {
-      categoryList.value = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-    },
-    (error) => {
+  const loadCategories = async () => {
+    try {
+      categoryList.value = await fetchList("categories", {
+        order: ["sortOrder", "asc"],
+      });
+    } catch (error) {
       console.error("카테고리 구독 실패:", error);
     }
-  );
+  };
+
+  unsubscribeCategories = subscribeTable("categories", loadCategories);
 }
 
 function subscribeProducts() {
-  const q = query(collection(db, "products"), orderBy("sortOrder", "asc"));
-  unsubscribeProducts = onSnapshot(
-    q,
-    (snapshot) => {
-      productList.value = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-      isLoadingProducts.value = false;
+  const loadProducts = async () => {
+    try {
+      productList.value = await fetchList("products", {
+        filters: [["deletedAt", "is", null]],
+        order: ["sortOrder", "asc"],
+      });
 
       if (selectedProduct.value) {
         const updated = productList.value.find(
@@ -525,12 +511,14 @@ function subscribeProducts() {
         );
         if (updated) selectedProduct.value = updated;
       }
-    },
-    (error) => {
+    } catch (error) {
       console.error("상품 구독 실패:", error);
+    } finally {
       isLoadingProducts.value = false;
     }
-  );
+  };
+
+  unsubscribeProducts = subscribeTable("products", loadProducts);
 }
 
 onMounted(() => {

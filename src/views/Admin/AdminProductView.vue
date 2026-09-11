@@ -229,17 +229,14 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  updateDoc,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
+  fetchList,
+  insertRow,
+  newId,
+  nowIso,
+  subscribeTable,
+  toTime,
+  updateRow,
+} from "@/lib/supabase";
 import { runGlobalBusy } from "@/lib/globalBusy";
 
 const router = useRouter();
@@ -291,69 +288,50 @@ const filteredProductList = computed(() => {
 
       if (aOrder !== bOrder) return aOrder - bOrder;
 
-      const aCreated =
-        typeof a.createdAt?.toDate === "function"
-          ? a.createdAt.toDate().getTime()
-          : 0;
-
-      const bCreated =
-        typeof b.createdAt?.toDate === "function"
-          ? b.createdAt.toDate().getTime()
-          : 0;
+      const aCreated = toTime(a.createdAt);
+      const bCreated = toTime(b.createdAt);
 
       return bCreated - aCreated;
     });
 });
 
+async function loadProducts() {
+  try {
+    const list = await fetchList("products", {
+      filters: [["deletedAt", "is", null]],
+      order: ["createdAt", "desc"],
+    });
+
+    productList.value = list;
+
+    const nextSortMap = {};
+    list.forEach((item) => {
+      nextSortMap[item.id] = Number(item.sortOrder ?? 0);
+    });
+    sortOrderMap.value = nextSortMap;
+  } catch (error) {
+    console.error("상품 조회 실패:", error);
+  } finally {
+    isLoadingProducts.value = false;
+  }
+}
+
 function subscribeProducts() {
-  const productQuery = query(
-    collection(db, "products"),
-    orderBy("createdAt", "desc")
-  );
-
-  unsubscribeProducts = onSnapshot(
-    productQuery,
-    (snapshot) => {
-      const list = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-
-      productList.value = list;
-
-      const nextSortMap = {};
-      list.forEach((item) => {
-        nextSortMap[item.id] = Number(item.sortOrder ?? 0);
-      });
-      sortOrderMap.value = nextSortMap;
-
-      isLoadingProducts.value = false;
-    },
-    (error) => {
-      console.error("상품 조회 실패:", error);
-      isLoadingProducts.value = false;
-    }
-  );
+  unsubscribeProducts = subscribeTable("products", loadProducts);
 }
 
 function subscribeCategories() {
-  const categoryQuery = query(
-    collection(db, "categories"),
-    orderBy("sortOrder", "asc")
-  );
-
-  unsubscribeCategories = onSnapshot(
-    categoryQuery,
-    (snapshot) => {
-      categoryList.value = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-    },
-    (error) => {
+  const loadCategories = async () => {
+    try {
+      categoryList.value = await fetchList("categories", {
+        order: ["sortOrder", "asc"],
+      });
+    } catch (error) {
       console.error("카테고리 조회 실패:", error);
     }
-  );
+  };
+
+  unsubscribeCategories = subscribeTable("categories", loadCategories);
 }
 
 function getProductCategoryIds(product) {
@@ -445,12 +423,13 @@ async function duplicateProduct(item) {
         optionGroups: Array.isArray(item.optionGroups)
           ? JSON.parse(JSON.stringify(item.optionGroups))
           : [],
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        createdAt: nowIso(),
+        updatedAt: nowIso(),
       };
 
-      await addDoc(collection(db, "products"), payload);
+      await insertRow("products", { id: newId(), ...payload });
       alert("상품이 복제되었어요.");
+      await loadProducts();
     } catch (error) {
       console.error("상품 복제 실패:", error);
       alert("상품 복제 중 문제가 발생했어요.");
@@ -467,8 +446,9 @@ async function deleteProduct(item) {
 
   await runGlobalBusy(async () => {
     try {
-      await deleteDoc(doc(db, "products", item.id));
+      await updateRow("products", item.id, { deletedAt: nowIso() });
       alert("상품이 삭제되었어요.");
+      await loadProducts();
     } catch (error) {
       console.error("상품 삭제 실패:", error);
       alert("상품 삭제 중 문제가 발생했어요.");
@@ -491,10 +471,11 @@ async function saveSortOrder(item) {
   };
 
   try {
-    await updateDoc(doc(db, "products", item.id), {
+    await updateRow("products", item.id, {
       sortOrder: nextSortOrder,
-      updatedAt: serverTimestamp(),
+      updatedAt: nowIso(),
     });
+    await loadProducts();
   } catch (error) {
     console.error("정렬 순서 저장 실패:", error);
     alert("정렬 순서 저장 중 문제가 발생했어요.");
@@ -514,10 +495,11 @@ async function toggleProductActive(item) {
   };
 
   try {
-    await updateDoc(doc(db, "products", item.id), {
+    await updateRow("products", item.id, {
       isActive: item.isActive === false ? true : false,
-      updatedAt: serverTimestamp(),
+      updatedAt: nowIso(),
     });
+    await loadProducts();
   } catch (error) {
     console.error("상품 노출 상태 변경 실패:", error);
     alert("노출 상태 변경 중 문제가 발생했어요.");
@@ -536,10 +518,11 @@ async function toggleProductSoldOut(item) {
   };
 
   try {
-    await updateDoc(doc(db, "products", item.id), {
+    await updateRow("products", item.id, {
       isSoldOut: item.isSoldOut === true ? false : true,
-      updatedAt: serverTimestamp(),
+      updatedAt: nowIso(),
     });
+    await loadProducts();
   } catch (error) {
     console.error("상품 품절 상태 변경 실패:", error);
     alert("품절 상태 변경 중 문제가 발생했어요.");

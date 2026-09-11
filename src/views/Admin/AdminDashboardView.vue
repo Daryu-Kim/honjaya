@@ -229,15 +229,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import {
-  collection,
-  onSnapshot,
-  orderBy,
-  query,
-  where,
-  limit,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { fetchList, subscribeTable, toTime } from "@/lib/supabase";
 import {
   getBusinessDate,
   getBusinessDayStart,
@@ -368,9 +360,9 @@ function getPaidSheetSalesAmount(startDate) {
 
 function convertToDate(value) {
   if (!value) return null;
-  if (typeof value?.toDate === "function") return value.toDate();
 
-  const parsed = new Date(value);
+  const parsed = new Date(toTime(value));
+
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
@@ -482,66 +474,54 @@ function goPage(path) {
 }
 
 function subscribeOrders() {
-  const q = query(
-    collection(db, "orders"),
-    orderBy("createdAt", "desc"),
-    limit(20)
-  );
-
-  unsubscribeOrders = onSnapshot(
-    q,
-    (snapshot) => {
-      orderList.value = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-      isLoadingOrders.value = false;
-    },
-    () => {
+  const loadOrders = async () => {
+    try {
+      orderList.value = await fetchList("orders", {
+        order: ["createdAt", "desc"],
+        limit: 20,
+      });
+    } catch (error) {
+      console.error("주문 조회 실패:", error);
+    } finally {
       isLoadingOrders.value = false;
     }
-  );
+  };
+
+  unsubscribeOrders = subscribeTable("orders", loadOrders);
 }
 
 function subscribePayments() {
-  const q = query(
-    collection(db, "checkoutRequests"),
-    where("status", "in", ["REQUESTED", "CONFIRMED"]),
-    orderBy("createdAt", "desc"),
-    limit(20)
-  );
-
-  unsubscribePayments = onSnapshot(
-    q,
-    (snapshot) => {
-      paymentRequestList.value = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-      isLoadingPayments.value = false;
-    },
-    () => {
+  const loadPayments = async () => {
+    try {
+      paymentRequestList.value = await fetchList("checkoutRequests", {
+        filters: [["status", "in", ["REQUESTED", "CONFIRMED"]]],
+        order: ["createdAt", "desc"],
+        limit: 20,
+      });
+    } catch (error) {
+      console.error("결제 요청 조회 실패:", error);
+    } finally {
       isLoadingPayments.value = false;
     }
-  );
+  };
+
+  unsubscribePayments = subscribeTable("checkoutRequests", loadPayments);
 }
 
 function subscribeOrderSheets() {
-  const q = query(collection(db, "orderSheets"), orderBy("updatedAt", "desc"));
-
-  unsubscribeOrderSheets = onSnapshot(
-    q,
-    (snapshot) => {
-      orderSheetList.value = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data(),
-      }));
-      isLoadingOrderSheets.value = false;
-    },
-    () => {
+  const loadOrderSheets = async () => {
+    try {
+      orderSheetList.value = await fetchList("orderSheets", {
+        order: ["updatedAt", "desc"],
+      });
+    } catch (error) {
+      console.error("주문서 조회 실패:", error);
+    } finally {
       isLoadingOrderSheets.value = false;
     }
-  );
+  };
+
+  unsubscribeOrderSheets = subscribeTable("orderSheets", loadOrderSheets);
 }
 
 onMounted(() => {

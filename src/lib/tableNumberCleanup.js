@@ -1,17 +1,11 @@
 import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  limit,
-  query,
-  setDoc,
-  startAfter,
-  updateDoc,
-  where,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
+  deleteRow,
+  fetchList,
+  fetchRow,
+  toTime,
+  updateRow,
+  upsertRow,
+} from "@/lib/supabase";
 import {
   buildActiveOrderSheetKey,
   isReusableOrderSheetStatus,
@@ -59,41 +53,37 @@ function buildFieldUpdate(data) {
   return update;
 }
 
-async function fetchLeadingZeroDocs(collectionName) {
-  const baseQuery = query(
-    collection(db, collectionName),
-    where("tableNumber", ">=", LEADING_ZERO_LOWER),
-    where("tableNumber", "<", LEADING_ZERO_UPPER)
-  );
-
+async function fetchLeadingZeroRows(collectionName) {
   const result = [];
-  let cursor = null;
+  let offset = 0;
   let hasMore = true;
 
   while (hasMore) {
-    const pageQuery = cursor
-      ? query(baseQuery, startAfter(cursor), limit(PAGE_SIZE))
-      : query(baseQuery, limit(PAGE_SIZE));
-    const snapshot = await getDocs(pageQuery);
+    const pageRows = await fetchList(collectionName, {
+      filters: [
+        ["tableNumber", "gte", LEADING_ZERO_LOWER],
+        ["tableNumber", "lt", LEADING_ZERO_UPPER],
+      ],
+      order: ["tableNumber", "asc"],
+      limit: PAGE_SIZE,
+      offset,
+    });
 
-    snapshot.docs.forEach((item) => result.push(item));
+    pageRows.forEach((row) => result.push(row));
 
-    hasMore = snapshot.size === PAGE_SIZE;
-
-    if (hasMore) {
-      cursor = snapshot.docs[snapshot.docs.length - 1];
-    }
+    hasMore = pageRows.length === PAGE_SIZE;
+    offset += pageRows.length;
   }
 
   return result;
 }
 
 async function fetchActiveOrderSheetTargets() {
-  const snapshot = await getDocs(collection(db, ACTIVE_COLLECTION));
+  const rows = await fetchList(ACTIVE_COLLECTION);
   const targets = [];
 
-  snapshot.docs.forEach((item) => {
-    const rawId = item.id;
+  rows.forEach((row) => {
+    const rawId = String(row.id || "");
     const idNumber = rawId.startsWith(ACTIVE_KEY_PREFIX)
       ? rawId.slice(ACTIVE_KEY_PREFIX.length)
       : "";
@@ -101,7 +91,7 @@ async function fetchActiveOrderSheetTargets() {
     const needsKeyMove =
       Boolean(normalizedIdNumber) && normalizedIdNumber !== idNumber;
 
-    if (!needsKeyMove && !buildFieldUpdate(item.data())) {
+    if (!needsKeyMove && !buildFieldUpdate(row)) {
       return;
     }
 
@@ -118,11 +108,7 @@ async function fetchActiveOrderSheetTargets() {
 }
 
 function getTimeValue(value) {
-  if (typeof value?.toDate === "function") {
-    return value.toDate().getTime();
-  }
-
-  return 0;
+  return toTime(value);
 }
 
 async function getActiveDocReuseScore(data) {
@@ -132,15 +118,13 @@ async function getActiveDocReuseScore(data) {
     return -1;
   }
 
-  const snapshot = await getDoc(doc(db, "orderSheets", orderSheetId));
+  const orderSheet = await fetchRow("orderSheets", orderSheetId);
 
-  if (!snapshot.exists()) {
+  if (!orderSheet) {
     return -1;
   }
 
-  return isReusableOrderSheetStatus(String(snapshot.data().status || ""))
-    ? 1
-    : 0;
+  return isReusableOrderSheetStatus(String(orderSheet.status || "")) ? 1 : 0;
 }
 
 async function shouldSourceWinMigration(sourceData, targetData) {
@@ -159,51 +143,50 @@ async function shouldSourceWinMigration(sourceData, targetData) {
 }
 
 async function migrateActiveOrderSheet(target) {
-  const sourceRef = doc(db, ACTIVE_COLLECTION, target.id);
-  const sourceSnap = await getDoc(sourceRef);
+  const sourceData = await fetchRow(ACTIVE_COLLECTION, target.id);
 
-  if (!sourceSnap.exists()) {
+  if (!sourceData) {
     return;
   }
 
-  const sourceData = sourceSnap.data() || {};
   const sourceUpdate = buildFieldUpdate(sourceData);
 
   if (!target.needsKeyMove) {
     if (sourceUpdate) {
-      await updateDoc(sourceRef, sourceUpdate);
+      await updateRow(ACTIVE_COLLECTION, target.id, sourceUpdate);
     }
     return;
   }
 
-  const targetRef = doc(db, ACTIVE_COLLECTION, target.targetKey);
-  const targetSnap = await getDoc(targetRef);
+  const targetData = await fetchRow(ACTIVE_COLLECTION, target.targetKey);
 
-  if (targetSnap.exists()) {
-    const targetData = targetSnap.data() || {};
-
+  if (targetData) {
     if (!(await shouldSourceWinMigration(sourceData, targetData))) {
-      await deleteDoc(sourceRef);
+      await deleteRow(ACTIVE_COLLECTION, target.id);
 
       const targetUpdate = buildFieldUpdate(targetData);
 
       if (targetUpdate) {
-        await updateDoc(targetRef, targetUpdate);
+        await updateRow(ACTIVE_COLLECTION, target.targetKey, targetUpdate);
       }
       return;
     }
   }
 
-  await setDoc(targetRef, { ...sourceData, ...(sourceUpdate || {}) });
-  await deleteDoc(sourceRef);
+  await upsertRow(ACTIVE_COLLECTION, {
+    ...sourceData,
+    id: target.targetKey,
+    ...(sourceUpdate || {}),
+  });
+  await deleteRow(ACTIVE_COLLECTION, target.id);
 }
 
 export async function scanLegacyTableNumbers() {
   const collections = [];
 
   for (const target of CLEANUP_COLLECTIONS) {
-    const docs = await fetchLeadingZeroDocs(target.key);
-    const count = docs.filter((item) => buildFieldUpdate(item.data())).length;
+    const rows = await fetchLeadingZeroRows(target.key);
+    const count = rows.filter((row) => buildFieldUpdate(row)).length;
 
     collections.push({ key: target.key, label: target.label, count });
   }
@@ -226,13 +209,13 @@ export async function runLegacyTableNumberCleanup({ onProgress } = {}) {
   const jobs = [];
 
   for (const target of CLEANUP_COLLECTIONS) {
-    const docs = await fetchLeadingZeroDocs(target.key);
+    const rows = await fetchLeadingZeroRows(target.key);
 
-    docs.forEach((item) => {
-      const update = buildFieldUpdate(item.data());
+    rows.forEach((row) => {
+      const update = buildFieldUpdate(row);
 
       if (update) {
-        jobs.push({ key: target.key, id: item.id, update });
+        jobs.push({ key: target.key, id: row.id, update });
       }
     });
   }
@@ -258,7 +241,7 @@ export async function runLegacyTableNumberCleanup({ onProgress } = {}) {
       if (job.activeTarget) {
         await migrateActiveOrderSheet(job.activeTarget);
       } else {
-        await updateDoc(doc(db, job.key, job.id), job.update);
+        await updateRow(job.key, job.id, job.update);
       }
 
       updatedCounts.set(job.key, (updatedCounts.get(job.key) || 0) + 1);

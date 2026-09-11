@@ -43,7 +43,8 @@ create table if not exists public.products (
   recipe_text text not null default '',
   recipe_info jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz -- soft delete: rows stay, the app filters deleted_at is null
 );
 
 create table if not exists public.order_sheets (
@@ -226,14 +227,25 @@ create policy "counters: app all"
   using (true) with check (true);
 
 -- ---------------------------------------------------------------------------
--- Realtime (run when the app starts using postgres_changes subscriptions)
+-- Realtime (postgres_changes subscriptions used by every list view)
 -- ---------------------------------------------------------------------------
--- alter publication supabase_realtime add table
---   public.order_sheets,
---   public.orders,
---   public.checkout_requests,
---   public.active_order_sheets,
---   public.chat_messages,
---   public.products,
---   public.categories,
---   public.counters;
+
+alter publication supabase_realtime add table
+  public.order_sheets,
+  public.orders,
+  public.checkout_requests,
+  public.active_order_sheets,
+  public.chat_messages,
+  public.products,
+  public.categories,
+  public.counters;
+
+-- DELETE events only carry the filterable columns with replica identity full
+alter table public.order_sheets replica identity full;
+alter table public.orders replica identity full;
+alter table public.checkout_requests replica identity full;
+alter table public.active_order_sheets replica identity full;
+alter table public.chat_messages replica identity full;
+alter table public.products replica identity full;
+alter table public.categories replica identity full;
+alter table public.counters replica identity full;

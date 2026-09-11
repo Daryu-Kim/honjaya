@@ -1,20 +1,21 @@
 /**
- * Firestore -> JSON export (read-only)
+ * Firestore -> JSON export (read-only, legacy source DB)
  *
  * Discovers root collections via Firestore REST API and dumps every document
  * to migration-data/firestore-export.json so it can be imported into Supabase.
  *
- * Auth model: uses the public web apiKey from src/lib/firebase.js (or env
- * overrides) exactly like the app does. Requires the deployed Firestore rules
- * to allow unauthenticated reads for the app collections.
+ * Auth model: uses the public web apiKey of the old Firebase project. Requires
+ * the deployed Firestore rules to allow unauthenticated reads for the app
+ * collections.
  *
  * Usage:
- *   node scripts/migration/export-firestore.mjs
+ *   1. Fill .env.migration with FIREBASE_PROJECT_ID and FIREBASE_API_KEY.
+ *   2. node scripts/migration/export-firestore.mjs
  *
- * Env overrides (optional):
+ * Env overrides (optional, take precedence over .env.migration):
  *   FIREBASE_PROJECT_ID, FIREBASE_API_KEY
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +24,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..");
 const outputDir = path.join(repoRoot, "migration-data");
 const outputFile = path.join(outputDir, "firestore-export.json");
+const envPath = path.join(repoRoot, ".env.migration");
 
 const PAGE_SIZE = 300;
 
@@ -39,23 +41,54 @@ const DEFAULT_COLLECTIONS = [
   "chatMessages",
 ];
 
-function readFirebaseConfigFromSource() {
-  let source = "";
-  try {
-    source = readFileSync(path.join(repoRoot, "src", "lib", "firebase.js"), "utf8");
-  } catch {
+function loadEnvFile(filePath) {
+  if (!existsSync(filePath)) {
     return {};
   }
 
-  const readField = (key) => {
-    const match = source.match(new RegExp(`${key}\\s*:\\s*"([^"]+)"`));
-    return match ? match[1] : undefined;
-  };
+  const result = {};
 
-  return {
-    projectId: readField("projectId"),
-    apiKey: readField("apiKey"),
-  };
+  for (const line of readFileSync(filePath, "utf8").split(/\r?\n/)) {
+    const trimmed = line.trim();
+
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+
+    const eq = trimmed.indexOf("=");
+
+    if (eq === -1) {
+      continue;
+    }
+
+    const key = trimmed.slice(0, eq).trim();
+    let value = trimmed.slice(eq + 1).trim();
+
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+
+    result[key] = value;
+  }
+
+  return result;
+}
+
+const fileEnv = loadEnvFile(envPath);
+
+function pickEnv(names) {
+  for (const name of names) {
+    const value = String(process.env[name] || fileEnv[name] || "").trim();
+
+    if (value) {
+      return value;
+    }
+  }
+
+  return "";
 }
 
 function decodeValue(value) {
@@ -160,13 +193,12 @@ async function exportCollection(projectId, apiKey, collectionId) {
 }
 
 async function main() {
-  const fromSource = readFirebaseConfigFromSource();
-  const projectId = process.env.FIREBASE_PROJECT_ID || fromSource.projectId;
-  const apiKey = process.env.FIREBASE_API_KEY || fromSource.apiKey;
+  const projectId = pickEnv(["FIREBASE_PROJECT_ID"]);
+  const apiKey = pickEnv(["FIREBASE_API_KEY"]);
 
   if (!projectId || !apiKey) {
     throw new Error(
-      "Firebase 설정을 찾지 못했어요. src/lib/firebase.js를 확인하거나 FIREBASE_PROJECT_ID/FIREBASE_API_KEY 환경변수를 설정해주세요."
+      `Firebase 설정이 없어요. ${envPath} 파일에 FIREBASE_PROJECT_ID/FIREBASE_API_KEY를 추가하거나 같은 이름의 환경변수를 설정해주세요.`
     );
   }
 
