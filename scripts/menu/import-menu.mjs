@@ -7,17 +7,25 @@
 // Input JSON:
 // {
 //   "source": "메뉴판 2026-09",
-//   "categories": [{ "name": "칵테일", "code": "cocktail" }],   // optional
+//   "syncCategories": true,                                    // optional
+//   "categories": [{ "name": "칵테일", "code": "cocktail" }],   // optional, 배열 순서 = 노출 순서
 //   "items": [
-//     { "name": "마티니", "price": 12000, "category": "칵테일" }
+//     {
+//       "name": "마티니",
+//       "price": 12000,
+//       "categories": ["인텐스 칵테일", "칵테일"],  // "category": "칵테일" 단일 문자열도 가능
+//       "ingredients": ["진", "드라이 베르무트"],   // optional, 레시피 정보가 비어있을 때만 채움
+//       "description": "진 · 드라이 베르무트\n클래식 칵테일 · Alc 30%"
+//     }
 //   ]
 // }
 //
 // Matching policy:
-//   - 같은 이름(공백/대소문자 무시)의 기존 상품: 가격/카테고리/정렬만 갱신하고 되살립니다.
+//   - 같은 이름(공백/대소문자 무시)의 기존 상품: 가격/카테고리/설명/정렬을 갱신하고 되살립니다.
 //   - 메뉴 파일에 없는 기존 상품: 소프트 삭제합니다(deleted_at + is_active=false).
 //   - 새 이름: 새 상품으로 추가합니다(사진은 빈 값 — 촬영 후 어드민에서 등록).
 //   - 재고가 0 이하인 기존 상품은 기본 재고로 복구합니다(재고 0 = 품절 처리 때문).
+//   - syncCategories=true 이면 메뉴 파일에 없는 카테고리 중 남는 상품이 없는 것을 비활성화합니다.
 
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -215,14 +223,25 @@ function readMenuFile(path) {
     process.exit(1);
   }
 
-  const categoryNames = [];
+  const categories = [];
+  const categoryKeys = new Set();
+
+  const addCategory = (name, code) => {
+    const key = normalizeName(name);
+
+    if (!key || categoryKeys.has(key)) {
+      return;
+    }
+
+    categoryKeys.add(key);
+    categories.push({ name, code: String(code || "").trim() });
+  };
 
   for (const entry of Array.isArray(parsed.categories) ? parsed.categories : []) {
-    const name = String((entry && entry.name) || "").trim();
-
-    if (name && !categoryNames.includes(name)) {
-      categoryNames.push(name);
-    }
+    addCategory(
+      String((entry && entry.name) || "").trim(),
+      entry && entry.code
+    );
   }
 
   const items = [];
@@ -231,9 +250,6 @@ function readMenuFile(path) {
 
   rawItems.forEach((raw, index) => {
     const name = String((raw && raw.name) || "").trim();
-    const categoryName = String(
-      (raw && (raw.category || raw.categoryName)) || ""
-    ).trim();
 
     if (!name) {
       console.warn(`  ! ${index + 1}번째 항목에 이름이 없어 건너뜁니다.`);
@@ -249,15 +265,32 @@ function readMenuFile(path) {
 
     seen.add(key);
 
-    if (categoryName && !categoryNames.includes(categoryName)) {
+    const rawCategoryNames = Array.isArray(raw && raw.categories)
+      ? raw.categories
+      : [raw && (raw.category || raw.categoryName)];
+    const categoryNames = [];
+
+    for (const entry of rawCategoryNames) {
+      const categoryName = String(entry || "").trim();
+
+      if (!categoryName || categoryNames.includes(categoryName)) {
+        continue;
+      }
+
       categoryNames.push(categoryName);
+      addCategory(categoryName, "");
     }
 
     items.push({
       name,
       key,
-      categoryName,
-      description: String((raw && raw.description) || ""),
+      categoryNames,
+      description: String((raw && raw.description) || "").trim(),
+      ingredients: Array.isArray(raw && raw.ingredients)
+        ? raw.ingredients
+            .map((entry) => String(entry || "").trim())
+            .filter((entry) => entry)
+        : [],
       price: toPrice(raw && (raw.price ?? raw.basePrice)),
       stock: Number.isFinite(Number(raw && raw.stock))
         ? Math.trunc(Number(raw.stock))
@@ -276,7 +309,8 @@ function readMenuFile(path) {
 
   return {
     source: String(parsed.source || path),
-    categoryNames,
+    syncCategories: parsed.syncCategories === true,
+    categories,
     items,
   };
 }
@@ -287,6 +321,13 @@ function readMenuFile(path) {
 
 const CATEGORY_ORDER_STEP = 1000;
 
+function isEmptyRecipeInfo(value) {
+  return (
+    !value ||
+    (typeof value === "object" && Object.keys(value).length === 0)
+  );
+}
+
 function buildPlan(menu, existingCategories, existingProducts) {
   const categoryByName = new Map(
     existingCategories.map((item) => [normalizeName(item.name), item])
@@ -294,44 +335,78 @@ function buildPlan(menu, existingCategories, existingProducts) {
   const productByName = new Map(
     existingProducts.map((item) => [normalizeName(item.product_name), item])
   );
+  const categoryNameById = new Map(
+    existingCategories.map((item) => [item.id, item.name])
+  );
 
   const newCategories = [];
+  const updatedCategories = [];
   const categoryIdByName = new Map();
+  const categoryIndexByName = new Map();
 
-  menu.categoryNames.forEach((name, index) => {
-    const key = normalizeName(name);
+  menu.categories.forEach((definition, index) => {
+    const key = normalizeName(definition.name);
+    const sortOrder = (index + 1) * CATEGORY_ORDER_STEP;
+
+    categoryIndexByName.set(key, index);
+
     const found = categoryByName.get(key);
 
-    if (found) {
-      categoryIdByName.set(key, found.id);
+    if (!found) {
+      const created = {
+        id: randomUUID(),
+        name: definition.name,
+        code: definition.code,
+        sort_order: sortOrder,
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      newCategories.push(created);
+      categoryIdByName.set(key, created.id);
+      categoryNameById.set(created.id, created.name);
       return;
     }
 
-    const created = {
-      id: randomUUID(),
-      name,
-      code: "",
-      sort_order: (index + 1) * CATEGORY_ORDER_STEP,
-      is_active: true,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
+    categoryIdByName.set(key, found.id);
 
-    newCategories.push(created);
-    categoryIdByName.set(key, created.id);
+    const patch = {};
+    const changes = [];
+
+    if (definition.code && String(found.code || "") !== definition.code) {
+      patch.code = definition.code;
+      changes.push(`코드 ${found.code || "(없음)"} → ${definition.code}`);
+    }
+
+    if (Number(found.sort_order ?? 0) !== sortOrder) {
+      patch.sort_order = sortOrder;
+    }
+
+    if (found.is_active === false) {
+      patch.is_active = true;
+      changes.push("다시 노출");
+    }
+
+    if (Object.keys(patch).length > 0) {
+      updatedCategories.push({
+        id: found.id,
+        name: found.name,
+        patch,
+        changes,
+      });
+    }
   });
 
-  const categoryIndexByName = new Map(
-    menu.categoryNames.map((name, index) => [normalizeName(name), index])
-  );
   const itemCountByCategory = new Map();
 
   const newItems = [];
   const updatedItems = [];
   const matchedIds = new Set();
+  const exposedCategoryIds = new Set();
 
   for (const item of menu.items) {
-    const categoryKey = normalizeName(item.categoryName);
+    const categoryKey = normalizeName(item.categoryNames[0] || "");
     const categoryIndex = categoryIndexByName.has(categoryKey)
       ? categoryIndexByName.get(categoryKey)
       : 0;
@@ -340,7 +415,19 @@ function buildPlan(menu, existingCategories, existingProducts) {
     itemCountByCategory.set(categoryKey, ordinal);
 
     const sortOrder = (categoryIndex + 1) * CATEGORY_ORDER_STEP + ordinal;
-    const categoryId = categoryIdByName.get(categoryKey) || "";
+    const categoryIds = item.categoryNames
+      .map((name) => categoryIdByName.get(normalizeName(name)) || "")
+      .filter((id) => id);
+    const categoryId = categoryIds[0] || "";
+    const recipeInfo =
+      item.ingredients.length > 0
+        ? { description: "", ingredients: item.ingredients }
+        : {};
+
+    for (const id of categoryIds) {
+      exposedCategoryIds.add(id);
+    }
+
     const existing = productByName.get(item.key);
 
     if (!existing) {
@@ -349,7 +436,7 @@ function buildPlan(menu, existingCategories, existingProducts) {
         product_name: item.name,
         description: item.description,
         category_id: categoryId,
-        category_ids: categoryId ? [categoryId] : [],
+        category_ids: categoryIds,
         base_price: item.price,
         stock: item.stock === null ? DEFAULT_STOCK : item.stock,
         image_url: "",
@@ -357,12 +444,16 @@ function buildPlan(menu, existingCategories, existingProducts) {
         is_sold_out: false,
         sort_order: sortOrder,
         option_groups: item.optionGroups || [],
+        recipe_info: recipeInfo,
       });
       continue;
     }
 
     matchedIds.add(existing.id);
 
+    const existingCategoryIds = Array.isArray(existing.category_ids)
+      ? existing.category_ids.filter((id) => id)
+      : [];
     const patch = {};
     const changes = [];
 
@@ -373,10 +464,34 @@ function buildPlan(menu, existingCategories, existingProducts) {
       );
     }
 
-    if (String(existing.category_id || "") !== categoryId) {
+    if (
+      String(existing.category_id || "") !== categoryId ||
+      existingCategoryIds.join(",") !== categoryIds.join(",")
+    ) {
       patch.category_id = categoryId;
-      patch.category_ids = categoryId ? [categoryId] : [];
-      changes.push("카테고리 변경");
+      patch.category_ids = categoryIds;
+      const before = existingCategoryIds
+        .map((id) => categoryNameById.get(id) || id)
+        .join(" + ");
+      const after = categoryIds
+        .map((id) => categoryNameById.get(id) || id)
+        .join(" + ");
+
+      changes.push(`카테고리 ${before || "(없음)"} → ${after || "(없음)"}`);
+    }
+
+    if (String(existing.description || "").trim() !== item.description) {
+      patch.description = item.description;
+      changes.push("설명 변경");
+    }
+
+    if (
+      item.ingredients.length > 0 &&
+      !String(existing.recipe_text || "").trim() &&
+      isEmptyRecipeInfo(existing.recipe_info)
+    ) {
+      patch.recipe_info = recipeInfo;
+      changes.push(`레시피 정보 추가 (${item.ingredients.length}개 재료)`);
     }
 
     if (Number(existing.sort_order ?? 0) !== sortOrder) {
@@ -417,8 +532,42 @@ function buildPlan(menu, existingCategories, existingProducts) {
   const softDeleted = existingProducts
     .filter((item) => !matchedIds.has(item.id) && !item.deleted_at)
     .map((item) => ({ id: item.id, name: item.product_name }));
+  const softDeletedIds = new Set(softDeleted.map((item) => item.id));
 
-  return { newCategories, newItems, updatedItems, softDeleted };
+  const deactivatedCategories = [];
+
+  if (menu.syncCategories) {
+    for (const category of existingCategories) {
+      if (category.is_active === false || exposedCategoryIds.has(category.id)) {
+        continue;
+      }
+
+      const remaining = existingProducts.filter(
+        (product) =>
+          !product.deleted_at &&
+          product.is_active &&
+          !softDeletedIds.has(product.id) &&
+          (product.category_id === category.id ||
+            (Array.isArray(product.category_ids) &&
+              product.category_ids.includes(category.id)))
+      ).length;
+
+      deactivatedCategories.push({
+        id: category.id,
+        name: category.name,
+        remaining,
+      });
+    }
+  }
+
+  return {
+    newCategories,
+    updatedCategories,
+    deactivatedCategories,
+    newItems,
+    updatedItems,
+    softDeleted,
+  };
 }
 
 function printList(label, rows, format) {
@@ -445,7 +594,28 @@ function printPlan(menu, existingCategories, existingProducts, plan) {
   console.log("");
 
   if (plan.newCategories.length > 0) {
-    printList("카테고리 추가", plan.newCategories, (row) => row.name);
+    printList(
+      "카테고리 추가",
+      plan.newCategories,
+      (row) => `${row.name} (${row.code || "코드 없음"})`
+    );
+  }
+
+  if (plan.updatedCategories.length > 0) {
+    printList(
+      "카테고리 갱신",
+      plan.updatedCategories,
+      (row) =>
+        `${row.name}: ${row.changes.length > 0 ? row.changes.join(", ") : "정렬 순서 변경"}`
+    );
+  }
+
+  if (plan.deactivatedCategories.length > 0) {
+    printList(
+      "카테고리 비활성화",
+      plan.deactivatedCategories,
+      (row) => `${row.name} (남는 노출 상품 ${row.remaining}개)`
+    );
   }
 
   printList(
@@ -475,6 +645,25 @@ async function applyPlan(plan) {
   if (plan.newCategories.length > 0) {
     console.log(`카테고리 ${plan.newCategories.length}개 추가...`);
     await insertRows("categories", plan.newCategories);
+  }
+
+  if (plan.updatedCategories.length > 0) {
+    console.log(`카테고리 ${plan.updatedCategories.length}개 갱신...`);
+
+    for (const item of plan.updatedCategories) {
+      await updateRow("categories", item.id, { ...item.patch, updated_at: now });
+    }
+  }
+
+  if (plan.deactivatedCategories.length > 0) {
+    console.log(`카테고리 ${plan.deactivatedCategories.length}개 비활성화...`);
+
+    for (const item of plan.deactivatedCategories) {
+      await updateRow("categories", item.id, {
+        is_active: false,
+        updated_at: now,
+      });
+    }
   }
 
   if (plan.updatedItems.length > 0) {
@@ -523,10 +712,13 @@ async function main() {
   }
 
   const menu = readMenuFile(dataPath);
-  const existingCategories = await fetchRows("categories", "id,name,code");
+  const existingCategories = await fetchRows(
+    "categories",
+    "id,name,code,sort_order,is_active"
+  );
   const existingProducts = await fetchRows(
     "products",
-    "id,product_name,base_price,stock,category_id,is_active,sort_order,deleted_at"
+    "id,product_name,description,base_price,stock,category_id,category_ids,is_active,sort_order,deleted_at,recipe_text,recipe_info"
   );
 
   const plan = buildPlan(menu, existingCategories, existingProducts);
@@ -545,10 +737,14 @@ async function main() {
     "id,is_active,deleted_at,category_id"
   );
   const exposed = after.filter((item) => item.is_active && !item.deleted_at);
+  const afterCategories = await fetchRows("categories", "id,is_active");
 
   console.log("");
   console.log(
     `완료: 상품 ${after.length}개 (노출 ${exposed.length} / 소프트삭제 ${after.filter((item) => item.deleted_at).length})`
+  );
+  console.log(
+    `완료: 카테고리 ${afterCategories.length}개 (노출 ${afterCategories.filter((item) => item.is_active).length})`
   );
 }
 

@@ -4695,6 +4695,9 @@ onUnmounted(() => {
 .recipe-menu-button-left p {
   overflow-wrap: anywhere;
 }
+.recipe-menu-button-left p {
+  white-space: pre-line;
+}
 .recipe-menu-button.active {
   background: #fff;
   color: #111827;

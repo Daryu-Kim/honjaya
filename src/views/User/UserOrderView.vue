@@ -1066,6 +1066,7 @@ onUnmounted(() => {
   color: rgba(255, 255, 255, 0.68);
   text-align: left;
   word-break: keep-all;
+  white-space: pre-line;
 }
 
 .product-bottom {
@@ -1216,6 +1217,7 @@ onUnmounted(() => {
     font-size: 14px;
     line-height: 1.6;
     color: rgba(255, 255, 255, 0.72);
+    white-space: pre-line;
   }
 }
 

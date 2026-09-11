@@ -49,7 +49,7 @@ pnpm lint
 
 ### Menu import
 
-PDF 메뉴판을 `products`에 반영하는 도구입니다. 이름이 같은 상품은 갱신·되살리고, 메뉴판에 없는 상품은 소프트 삭제합니다.
+PDF 메뉴판을 `products` / `categories`에 반영하는 도구입니다. 이름이 같은 상품은 가격·카테고리·설명을 갱신하고 되살리며, 메뉴판에 없는 상품은 소프트 삭제합니다. 카테고리 순서·코드도 메뉴판 기준으로 맞추고, 메뉴판에 없는 카테고리는 비활성화합니다.
 
 ```
 pnpm menu:import -- --file menu-data/menu.json           # 미리보기
