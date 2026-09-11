@@ -70,7 +70,7 @@
         <button type="button" class="menu-card" @click="goChat">
           <div class="menu-icon">💬</div>
           <div class="menu-text">
-            <strong>오픈채팅</strong>
+            <strong>채팅</strong>
             <p>전체 채팅과 1:1 채팅으로 다른 테이블과 대화할 수 있어요.</p>
           </div>
         </button>
@@ -103,6 +103,19 @@
         >
           <span class="link-icon">⭐</span>
           <span class="link-text">리뷰 쓰러가기</span>
+        </a>
+
+        <a
+          href="https://open.kakao.com/o/pwJYvVMi"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="external-link-button kakao"
+        >
+          <span class="link-icon">💛</span>
+          <span class="link-text">카카오톡 오픈채팅</span>
+          <span class="link-description">
+            가게 소식과 기존 이용자들과의 친목을 위한 공간이에요.
+          </span>
         </a>
       </section>
 
@@ -554,6 +567,23 @@ onMounted(() => {
   font-size: 13px;
   font-weight: 800;
   text-align: center;
+}
+
+.external-link-button.kakao {
+  grid-column: 1 / -1;
+  background: rgba(254, 229, 0, 0.12);
+
+  &:hover {
+    background: rgba(254, 229, 0, 0.2);
+  }
+}
+
+.link-description {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.72);
 }
 
 .nickname-editor-overlay {
