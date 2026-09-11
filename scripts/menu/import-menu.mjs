@@ -3,6 +3,8 @@
 // Usage:
 //   node scripts/menu/import-menu.mjs --file menu-data/menu.json           (preview only)
 //   node scripts/menu/import-menu.mjs --file menu-data/menu.json --apply    (write changes)
+//   node scripts/menu/import-menu.mjs --file menu-data/menu.json --recipes-only [--apply]
+//                                                                     (레시피(recipeInfo)만 반영)
 //
 // Input JSON:
 // {
@@ -15,6 +17,12 @@
 //       "price": 12000,
 //       "categories": ["인텐스 칵테일", "칵테일"],  // "category": "칵테일" 단일 문자열도 가능
 //       "ingredients": ["진", "드라이 베르무트"],   // optional, 레시피 정보가 비어있을 때만 채움
+//       "recipeInfo": {                              // optional, 지정하면 레시피를 그대로 교체
+//         "description": "마티니잔 · 스터",
+//         "ingredients": [{ "name": "바톤 진", "amount": "2 oz" }],
+//         "steps": ["잔에 얼음 칠링"],
+//         "tips": ["가니쉬: 레몬 필"]
+//       },
 //       "optionGroups": [],                          // optional, 지정하면 옵션 구성을 그대로 맞춤(빈 배열 = 옵션 제거)
 //       "description": "진 · 드라이 베르무트\n클래식 칵테일 · Alc 30%"
 //     }
@@ -27,6 +35,7 @@
 //   - 새 이름: 새 상품으로 추가합니다(사진은 빈 값 — 촬영 후 어드민에서 등록).
 //   - 재고가 0 이하인 기존 상품은 기본 재고로 복구합니다(재고 0 = 품절 처리 때문).
 //   - syncCategories=true 이면 메뉴 파일에 없는 카테고리 중 남는 상품이 없는 것을 비활성화합니다.
+//   - --recipes-only 는 recipeInfo 가 있는 항목의 레시피만 갱신합니다(카테고리/가격/재고/삭제는 건드리지 않음).
 
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -38,6 +47,7 @@ const args = process.argv.slice(2);
 const fileIndex = args.indexOf("--file");
 const dataPath = fileIndex === -1 ? "" : args[fileIndex + 1];
 const APPLY = args.includes("--apply");
+const RECIPES_ONLY = args.includes("--recipes-only");
 const stockArg = args.find((item) => item.startsWith("--stock="));
 const DEFAULT_STOCK = stockArg ? Number(stockArg.split("=")[1]) : 99999;
 const BATCH_SIZE = 200;
@@ -299,6 +309,7 @@ function readMenuFile(path) {
       optionGroups: Array.isArray(raw && raw.optionGroups)
         ? raw.optionGroups
         : null,
+      recipeInfo: normalizeRecipeInfo(raw && raw.recipeInfo),
     });
   });
 
@@ -329,6 +340,63 @@ function isEmptyRecipeInfo(value) {
   );
 }
 
+// recipeInfo 키가 없으면 null을 돌려주고, 있으면 화면/DB가 쓰는 형태로 정규화한다.
+function normalizeRecipeInfo(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const ingredients = (Array.isArray(value.ingredients) ? value.ingredients : [])
+    .map((entry) => {
+      if (typeof entry === "string") {
+        return { name: entry.trim(), amount: "" };
+      }
+
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+
+      return {
+        name: String(entry.name || "").trim(),
+        amount: String(entry.amount || "").trim(),
+      };
+    })
+    .filter((entry) => entry && entry.name);
+
+  const toTextList = (input) =>
+    (Array.isArray(input) ? input : [])
+      .map((entry) => String(entry || "").trim())
+      .filter((entry) => entry);
+
+  return {
+    description: String(value.description || "").trim(),
+    ingredients,
+    steps: toTextList(value.steps),
+    tips: toTextList(value.tips),
+  };
+}
+
+// Postgres(jsonb)는 객체 키 순서를 바꿔서 돌려주므로, 키 순서에 상관없이 비교한다.
+function stableStringify(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+
+  if (value && typeof value === "object") {
+    const keys = Object.keys(value).sort();
+
+    return `{${keys
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+      .join(",")}}`;
+  }
+
+  return JSON.stringify(value === undefined ? null : value);
+}
+
+function isSameRecipeInfo(current, next) {
+  return stableStringify(current || {}) === stableStringify(next || {});
+}
+
 function buildPlan(menu, existingCategories, existingProducts) {
   const categoryByName = new Map(
     existingCategories.map((item) => [normalizeName(item.name), item])
@@ -339,6 +407,46 @@ function buildPlan(menu, existingCategories, existingProducts) {
   const categoryNameById = new Map(
     existingCategories.map((item) => [item.id, item.name])
   );
+
+  if (RECIPES_ONLY) {
+    const updatedItems = [];
+
+    for (const item of menu.items) {
+      if (!item.recipeInfo) {
+        continue;
+      }
+
+      const existing = productByName.get(item.key);
+
+      if (!existing) {
+        console.warn(`  ! ${item.name}: DB에 없는 상품이라 레시피를 건너뜁니다.`);
+        continue;
+      }
+
+      if (isSameRecipeInfo(existing.recipe_info, item.recipeInfo)) {
+        continue;
+      }
+
+      updatedItems.push({
+        id: existing.id,
+        name: existing.product_name,
+        patch: { recipe_info: item.recipeInfo },
+        changes: [
+          `레시피 교체 (재료 ${item.recipeInfo.ingredients.length}개 / 순서 ${item.recipeInfo.steps.length}개)`,
+        ],
+      });
+    }
+
+    return {
+      recipesOnly: true,
+      newCategories: [],
+      updatedCategories: [],
+      deactivatedCategories: [],
+      newItems: [],
+      updatedItems,
+      softDeleted: [],
+    };
+  }
 
   const newCategories = [];
   const updatedCategories = [];
@@ -422,9 +530,10 @@ function buildPlan(menu, existingCategories, existingProducts) {
       .filter((id) => id);
     const categoryId = categoryIds[0] || "";
     const recipeInfo =
-      item.ingredients.length > 0
+      item.recipeInfo ||
+      (item.ingredients.length > 0
         ? { description: "", ingredients: item.ingredients }
-        : {};
+        : {});
 
     for (const id of categoryIds) {
       exposedCategoryIds.add(id);
@@ -488,7 +597,14 @@ function buildPlan(menu, existingCategories, existingProducts) {
       changes.push("설명 변경");
     }
 
-    if (
+    if (item.recipeInfo) {
+      if (!isSameRecipeInfo(existing.recipe_info, item.recipeInfo)) {
+        patch.recipe_info = item.recipeInfo;
+        changes.push(
+          `레시피 교체 (재료 ${item.recipeInfo.ingredients.length}개 / 순서 ${item.recipeInfo.steps.length}개)`
+        );
+      }
+    } else if (
       item.ingredients.length > 0 &&
       !String(existing.recipe_text || "").trim() &&
       isEmptyRecipeInfo(existing.recipe_info)
@@ -610,6 +726,13 @@ function printPlan(menu, existingCategories, existingProducts, plan) {
   );
   console.log(`메뉴 파일 항목: ${menu.items.length}개`);
   console.log("");
+
+  if (plan.recipesOnly) {
+    console.log(
+      "레시피만 반영 모드(--recipes-only): 카테고리/가격/재고/삭제는 건드리지 않습니다."
+    );
+    console.log("");
+  }
 
   if (plan.newCategories.length > 0) {
     printList(
