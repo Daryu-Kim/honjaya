@@ -7,6 +7,18 @@
       </div>
 
       <div class="header-right">
+        <button
+          type="button"
+          class="header-chat-button"
+          :class="{ alerting: totalChatAlertCount > 0 }"
+          @click="openChatPanel"
+        >
+          <span>💬 테이블 채팅</span>
+          <span v-if="totalChatAlertCount > 0" class="header-chat-badge">
+            {{ totalChatAlertCount }}
+          </span>
+        </button>
+
         <div class="header-summary">
           <span>{{ currentDateText }}</span>
         </div>
@@ -283,6 +295,10 @@
               </div>
             </div>
 
+            <div v-if="order.isGift" class="gift-badge">
+              🎁 {{ resolveGiftTargetLabel(order) }} 선물
+            </div>
+
             <div v-if="order.requestMessage" class="request-message-box">
               <span>요청사항</span>
               <p>{{ order.requestMessage }}</p>
@@ -497,6 +513,9 @@
                 <div class="table-order-head">
                   <div>
                     <strong>{{ formatDateTime(order.createdAt) }}</strong>
+                    <p v-if="order.isGift" class="gift-order-tag">
+                      🎁 {{ resolveGiftTargetLabel(order) }} 선물 주문
+                    </p>
                     <p v-if="order.requestMessage">
                       {{ order.requestMessage }}
                     </p>
@@ -1472,6 +1491,108 @@
         </div>
       </div>
     </transition>
+
+    <!-- 테이블 채팅 · 호출 모달 -->
+    <transition name="fade">
+      <div
+        v-if="chatPanelState.isOpen"
+        class="modal-overlay"
+        @click.self="closeChatPanel"
+      >
+        <div class="modal-card chat-modal">
+          <div class="modal-head">
+            <div>
+              <h3>테이블 채팅 · 호출</h3>
+              <p>손님이 보낸 호출과 메시지에 바로 답장할 수 있어요.</p>
+            </div>
+            <button type="button" class="close-button" @click="closeChatPanel">
+              ✕
+            </button>
+          </div>
+
+          <div class="chat-room-row">
+            <button
+              v-for="room in chatRoomList"
+              :key="room.roomKey"
+              type="button"
+              class="chat-room-chip"
+              :class="{
+                active: chatPanelState.roomKey === room.roomKey,
+                alerting: room.alertCount > 0,
+              }"
+              @click="selectChatRoom(room.roomKey)"
+            >
+              <span>{{ room.label }}</span>
+              <span v-if="room.alertCount > 0" class="chat-room-count">
+                {{ room.alertCount }}
+              </span>
+            </button>
+          </div>
+
+          <div class="chat-thread">
+            <p v-if="filteredChatMessages.length === 0" class="chat-empty">
+              아직 주고받은 메시지가 없어요.
+            </p>
+
+            <div
+              v-for="message in filteredChatMessages"
+              :key="message.id"
+              class="chat-row"
+              :class="{
+                mine: message.messageType === 'ADMIN',
+                alarm: isAlertMessage(message),
+              }"
+            >
+              <div class="chat-row-head">
+                <strong>{{ buildChatSenderLabel(message) }}</strong>
+                <span>{{ formatChatTime(message.createdAt) }}</span>
+              </div>
+              <p class="chat-row-text">{{ message.message }}</p>
+            </div>
+          </div>
+
+          <div class="chat-compose">
+            <div
+              v-if="activeChatRoom && activeChatRoom.tableNumber"
+              class="chat-quick-row"
+            >
+              <button
+                v-for="phrase in QUICK_PHRASES"
+                :key="phrase"
+                type="button"
+                class="chat-quick-button"
+                :disabled="chatPanelState.isSending"
+                @click="sendQuickReply(phrase)"
+              >
+                {{ phrase }}
+              </button>
+            </div>
+
+            <div class="chat-input-row">
+              <input
+                v-model="chatPanelState.draft"
+                type="text"
+                :placeholder="chatComposerPlaceholder"
+                :disabled="chatPanelState.isSending"
+                @keyup.enter="sendChatReply"
+              />
+              <button
+                type="button"
+                class="confirm-button"
+                :disabled="
+                  chatPanelState.isSending || !chatPanelState.draft.trim()
+                "
+                @click="sendChatReply"
+              >
+                보내기
+              </button>
+            </div>
+
+            <p v-if="chatFeedback" class="chat-feedback">{{ chatFeedback }}</p>
+          </div>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -1504,6 +1625,19 @@ import {
   runLegacyTableNumberCleanup,
   scanLegacyTableNumbers,
 } from "@/lib/tableNumberCleanup";
+import {
+  buildStaffRoomKey,
+  CHAT_MESSAGE_TYPE,
+  CHAT_ROOM_TYPE,
+  formatTableLabel,
+  getRoomLastReadAt,
+  GLOBAL_ROOM_KEY,
+  isAlertMessage,
+  markRoomRead,
+  QUICK_PHRASES,
+  sendChatMessage,
+  STAFF_LABEL,
+} from "@/lib/chat";
 
 const activeTab = ref("tables");
 
@@ -1981,6 +2115,21 @@ function convertOrderStatusText(status) {
   if (status === "SERVED") return "제공완료";
   if (status === "CANCELLED") return "취소";
   return "알 수 없음";
+}
+
+function resolveGiftTargetLabel(order) {
+  const targetTable = String(order?.giftToTableNumber || "").trim();
+  const targetNickname = String(order?.giftToNickname || "").trim();
+
+  if (targetTable && targetNickname) {
+    return `${targetNickname}(${targetTable}번)`;
+  }
+
+  if (targetTable) {
+    return `${targetTable}번 테이블`;
+  }
+
+  return "다른 테이블";
 }
 
 function convertPaymentRequestStatusText(status) {
@@ -3168,12 +3317,331 @@ watch(paymentPayableAmount, (amount) => {
   paymentModalState.value.paymentSplits[0].amount = amount;
 });
 
+// ── 테이블 채팅 · 호출 ─────────────────────────────────────────────
+const chatPanelState = ref({
+  isOpen: false,
+  roomKey: GLOBAL_ROOM_KEY,
+  draft: "",
+  isSending: false,
+});
+const chatMessageList = ref([]);
+const chatActiveTableList = ref([]);
+const chatFeedback = ref("");
+let unsubscribeChatMessages = null;
+let unsubscribeChatTables = null;
+let chatFeedbackTimer = null;
+// Tracks alert ids so a new call rings even while the panel is closed.
+let knownChatAlertIds = new Set();
+let isChatAlertSoundReady = false;
+
+const chatRoomStats = computed(() => {
+  const stats = {};
+
+  chatMessageList.value.forEach((message) => {
+    if (message.isDeleted) return;
+
+    const roomKey = message.roomKey || GLOBAL_ROOM_KEY;
+    if (!stats[roomKey]) {
+      stats[roomKey] = { lastAt: "" };
+    }
+
+    stats[roomKey].lastAt = message.createdAt || stats[roomKey].lastAt;
+  });
+
+  return stats;
+});
+
+// 호출 건수는 마지막으로 확인한 시각 이후의 알림만 센다 (배지가 계속 남지 않게).
+const chatReadMap = ref({});
+
+function syncChatReadMap(roomKeys) {
+  const next = { ...chatReadMap.value };
+  let hasNewRoom = false;
+
+  roomKeys.forEach((roomKey) => {
+    if (roomKey in next) return;
+
+    next[roomKey] = getRoomLastReadAt(roomKey);
+    hasNewRoom = true;
+  });
+
+  if (hasNewRoom) {
+    chatReadMap.value = next;
+  }
+}
+
+function markChatRoomRead(roomKey) {
+  if (!roomKey) return;
+
+  markRoomRead(roomKey);
+  chatReadMap.value = {
+    ...chatReadMap.value,
+    [roomKey]: getRoomLastReadAt(roomKey),
+  };
+}
+
+function countUnreadAlerts(roomKey) {
+  const readAt = toTime(chatReadMap.value[roomKey]);
+
+  return chatMessageList.value.filter((message) => {
+    return (
+      !message.isDeleted &&
+      (message.roomKey || GLOBAL_ROOM_KEY) === roomKey &&
+      isAlertMessage(message) &&
+      toTime(message.createdAt) > readAt
+    );
+  }).length;
+}
+
+const chatRoomList = computed(() => {
+  const stats = chatRoomStats.value;
+  const tableRooms = chatActiveTableList.value.map((table) => {
+    const roomKey = buildStaffRoomKey(table.tableNumber);
+    const stat = stats[roomKey] || { lastAt: "" };
+
+    return {
+      roomKey,
+      label: formatTableLabel(table.tableNumber, table.nickname),
+      tableNumber: table.tableNumber,
+      alertCount: countUnreadAlerts(roomKey),
+      lastAt: stat.lastAt,
+    };
+  });
+
+  tableRooms.sort((a, b) => {
+    if (b.alertCount !== a.alertCount) return b.alertCount - a.alertCount;
+    return toTime(b.lastAt) - toTime(a.lastAt);
+  });
+
+  return [
+    {
+      roomKey: GLOBAL_ROOM_KEY,
+      label: "전체 채팅",
+      tableNumber: "",
+      alertCount: countUnreadAlerts(GLOBAL_ROOM_KEY),
+      lastAt: (stats[GLOBAL_ROOM_KEY] || {}).lastAt || "",
+    },
+    ...tableRooms,
+  ];
+});
+
+const totalChatAlertCount = computed(() =>
+  chatRoomList.value.reduce((acc, room) => acc + room.alertCount, 0)
+);
+
+const activeChatRoom = computed(
+  () =>
+    chatRoomList.value.find(
+      (room) => room.roomKey === chatPanelState.value.roomKey
+    ) || null
+);
+
+const filteredChatMessages = computed(() =>
+  chatMessageList.value.filter(
+    (message) =>
+      !message.isDeleted &&
+      (message.roomKey || GLOBAL_ROOM_KEY) === chatPanelState.value.roomKey
+  )
+);
+
+const chatComposerPlaceholder = computed(() =>
+  activeChatRoom.value && activeChatRoom.value.tableNumber
+    ? `${activeChatRoom.value.label} 테이블에 답장하기`
+    : "전체 채팅에 보낼 메시지"
+);
+
+async function loadChatMessages() {
+  try {
+    // 최신 500건을 받아 화면 표시용으로 오래된 순으로 뒤집는다.
+    const recentMessages = await fetchList("chatMessages", {
+      order: ["createdAt", "desc"],
+      limit: 500,
+    });
+    const messages = [...recentMessages].reverse();
+
+    const alertIds = new Set(
+      messages.filter((item) => isAlertMessage(item)).map((item) => item.id)
+    );
+
+    if (isChatAlertSoundReady) {
+      for (const id of alertIds) {
+        if (!knownChatAlertIds.has(id)) {
+          playNotificationSound("payment");
+          break;
+        }
+      }
+    }
+
+    knownChatAlertIds = alertIds;
+    isChatAlertSoundReady = true;
+    chatMessageList.value = messages;
+    syncChatReadMap(
+      new Set(messages.map((item) => item.roomKey || GLOBAL_ROOM_KEY))
+    );
+
+    if (chatPanelState.value.isOpen) {
+      markChatRoomRead(chatPanelState.value.roomKey);
+    }
+  } catch (error) {
+    console.error("채팅 구독 실패:", error);
+  }
+}
+
+async function loadChatTables() {
+  try {
+    const activeSheets = await fetchList("activeOrderSheets", {});
+    const seatedSheets = activeSheets.filter((sheet) => sheet.orderSheetId);
+    const nicknameMap = {};
+
+    if (seatedSheets.length > 0) {
+      const sheetRows = await fetchList("orderSheets", {
+        filters: [
+          ["id", "in", seatedSheets.map((sheet) => sheet.orderSheetId)],
+        ],
+      });
+
+      sheetRows.forEach((row) => {
+        nicknameMap[row.orderSheetId] = row.tableNickname || "";
+      });
+    }
+
+    chatActiveTableList.value = seatedSheets
+      .map((sheet) => ({
+        tableNumber: normalizeTableNumber(sheet.tableNumber),
+        nickname: nicknameMap[sheet.orderSheetId] || "",
+      }))
+      .filter((table) => table.tableNumber);
+  } catch (error) {
+    console.error("채팅 테이블 조회 실패:", error);
+  }
+}
+
+function subscribeChat() {
+  unsubscribeChatMessages = subscribeTable("chatMessages", loadChatMessages);
+  unsubscribeChatTables = subscribeTable("activeOrderSheets", loadChatTables, {
+    pollMs: 60000,
+  });
+  loadChatMessages();
+  loadChatTables();
+}
+
+function openChatPanel() {
+  // 호출이 들어온 테이블이 있으면 그 방을 먼저 보여준다.
+  const alertRoom = chatRoomList.value.find((room) => room.alertCount > 0);
+  const roomKey = alertRoom ? alertRoom.roomKey : chatPanelState.value.roomKey;
+
+  chatPanelState.value = {
+    ...chatPanelState.value,
+    isOpen: true,
+    roomKey,
+  };
+
+  markChatRoomRead(roomKey);
+  loadChatMessages();
+  loadChatTables();
+}
+
+function closeChatPanel() {
+  chatPanelState.value = { ...chatPanelState.value, isOpen: false };
+}
+
+function selectChatRoom(roomKey) {
+  chatPanelState.value = { ...chatPanelState.value, roomKey };
+  markChatRoomRead(roomKey);
+}
+
+function buildChatSenderLabel(message) {
+  if (message.messageType === CHAT_MESSAGE_TYPE.ADMIN) {
+    return STAFF_LABEL;
+  }
+
+  if (message.messageType === CHAT_MESSAGE_TYPE.SYSTEM) {
+    return message.senderLabel || "시스템";
+  }
+
+  const nickname = String(message.nickname || "").trim();
+  const tableLabel = nickname
+    ? formatTableLabel(message.tableNumber, nickname)
+    : `${message.tableNumber || "-"}번`;
+  const tag = String(message.senderLabel || "").trim();
+
+  // 호출/이벤트 요청은 senderLabel에 요청 종류가 담겨 있어요.
+  return tag ? `${tableLabel} · ${tag}` : tableLabel;
+}
+
+function formatChatTime(value) {
+  const time = toTime(value);
+
+  if (!time) return "";
+
+  return new Date(time).toLocaleTimeString("ko-KR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function showChatFeedback(text) {
+  chatFeedback.value = text;
+
+  if (chatFeedbackTimer) {
+    clearTimeout(chatFeedbackTimer);
+  }
+
+  chatFeedbackTimer = setTimeout(() => {
+    chatFeedback.value = "";
+  }, 3000);
+}
+
+async function sendChatMessageToRoom(text) {
+  const room = activeChatRoom.value;
+
+  if (!room || !text) return;
+
+  chatPanelState.value = { ...chatPanelState.value, isSending: true };
+
+  try {
+    await sendChatMessage({
+      roomType: room.tableNumber ? CHAT_ROOM_TYPE.STAFF : CHAT_ROOM_TYPE.GLOBAL,
+      roomKey: room.roomKey,
+      message: text,
+      sender: { tableNumber: "", nickname: "" },
+      messageType: CHAT_MESSAGE_TYPE.ADMIN,
+      senderLabel: STAFF_LABEL,
+    });
+
+    await loadChatMessages();
+
+    if (room.tableNumber) {
+      showChatFeedback(`${room.label} 테이블에 답장을 보냈어요.`);
+    }
+  } catch (error) {
+    console.error("채팅 전송 실패:", error);
+    alert(error.message || "메시지를 보내지 못했어요.");
+  } finally {
+    chatPanelState.value = { ...chatPanelState.value, isSending: false };
+  }
+}
+
+async function sendChatReply() {
+  const text = chatPanelState.value.draft.trim();
+
+  if (!text) return;
+
+  await sendChatMessageToRoom(text);
+  chatPanelState.value = { ...chatPanelState.value, draft: "" };
+}
+
+async function sendQuickReply(phrase) {
+  await sendChatMessageToRoom(phrase);
+}
+
 onMounted(() => {
   subscribeOrderSheets();
   subscribeOrders();
   subscribePaymentRequests();
   subscribeCategories();
   subscribeProducts();
+  subscribeChat();
 });
 
 onUnmounted(() => {
@@ -3182,6 +3650,9 @@ onUnmounted(() => {
   if (unsubscribePayments) unsubscribePayments();
   if (unsubscribeCategories) unsubscribeCategories();
   if (unsubscribeProducts) unsubscribeProducts();
+  if (unsubscribeChatMessages) unsubscribeChatMessages();
+  if (unsubscribeChatTables) unsubscribeChatTables();
+  if (chatFeedbackTimer) clearTimeout(chatFeedbackTimer);
 });
 </script>
 
@@ -3646,6 +4117,20 @@ onUnmounted(() => {
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
+}
+.gift-badge {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(250, 204, 21, 0.18);
+  color: #fde68a;
+  font-size: 12px;
+  font-weight: 700;
+}
+.gift-order-tag {
+  color: #fde68a !important;
+  font-weight: 700;
 }
 .request-message-box {
   margin-top: 12px;
@@ -4583,5 +5068,198 @@ onUnmounted(() => {
     max-width: 100%;
     text-align: left;
   }
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.header-chat-button {
+  height: 48px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 14px;
+  background: rgba(96, 165, 250, 0.2);
+  color: #dbeafe;
+  font-size: 14px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.header-chat-button.alerting {
+  background: rgba(251, 191, 36, 0.24);
+  color: #fde68a;
+}
+.header-chat-badge {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #f97316;
+  color: #1f2937;
+  font-size: 12px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.chat-modal {
+  max-width: 900px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: hidden;
+}
+.chat-room-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.chat-room-chip {
+  flex: 0 0 auto;
+  height: 40px;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 13px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.chat-room-chip.active {
+  border-color: rgba(96, 165, 250, 0.6);
+  background: rgba(96, 165, 250, 0.22);
+  color: #fff;
+}
+.chat-room-chip.alerting {
+  border-color: rgba(251, 191, 36, 0.65);
+  color: #fde68a;
+}
+.chat-room-count {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #f97316;
+  color: #1f2937;
+  font-size: 11px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.chat-thread {
+  flex: 1 1 auto;
+  min-height: 280px;
+  max-height: 46vh;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.6);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.chat-empty {
+  margin: auto;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+}
+.chat-row {
+  max-width: 78%;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.chat-row.mine {
+  margin-left: auto;
+  background: rgba(96, 165, 250, 0.18);
+}
+.chat-row.alarm {
+  background: rgba(251, 191, 36, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.5);
+}
+.chat-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.chat-row-head strong {
+  font-size: 12px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.85);
+}
+.chat-row-head span {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+}
+.chat-row-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.chat-compose {
+  display: grid;
+  gap: 10px;
+}
+.chat-quick-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chat-quick-button {
+  height: 34px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.chat-quick-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.chat-input-row {
+  display: flex;
+  gap: 10px;
+}
+.chat-input-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 44px;
+  padding: 0 14px;
+  border: none;
+  outline: none;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 14px;
+}
+.chat-input-row input::placeholder {
+  color: rgba(255, 255, 255, 0.45);
+}
+.chat-input-row .confirm-button {
+  width: auto;
+  min-width: 96px;
+  padding: 0 18px;
+}
+.chat-feedback {
+  margin: 0;
+  font-size: 12px;
+  color: #86efac;
 }
 </style>

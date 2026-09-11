@@ -66,6 +66,9 @@
                 <div class="order-time">
                   <span class="order-time-label">주문 시간</span>
                   <strong>{{ formatDateTime(order.createdAt) }}</strong>
+                  <p v-if="order.isGift" class="gift-order-tag">
+                    🎁 {{ resolveGiftTargetLabel(order) }}에 보낸 선물
+                  </p>
                 </div>
                 <span class="status-badge" :class="order.status">
                   {{ convertOrderStatusText(order.status) }}
@@ -239,6 +242,21 @@ function formatDateTime(value) {
 
 function formatPrice(value) {
   return Number(value || 0).toLocaleString("ko-KR");
+}
+
+function resolveGiftTargetLabel(order) {
+  const targetTable = String(order?.giftToTableNumber || "").trim();
+  const targetNickname = String(order?.giftToNickname || "").trim();
+
+  if (targetTable && targetNickname) {
+    return `${targetNickname}(${targetTable}번)`;
+  }
+
+  if (targetTable) {
+    return `${targetTable}번 테이블`;
+  }
+
+  return "다른 테이블";
 }
 
 function goBack() {
@@ -477,6 +495,13 @@ onUnmounted(() => {
 .order-time strong {
   font-size: 14px;
   font-weight: 800;
+}
+
+.gift-order-tag {
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fde68a;
 }
 
 .status-badge {

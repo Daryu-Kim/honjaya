@@ -66,6 +66,22 @@
             <p>직원에게 결제 요청을 보낼 수 있어요.</p>
           </div>
         </button>
+
+        <button type="button" class="menu-card" @click="goChat">
+          <div class="menu-icon">💬</div>
+          <div class="menu-text">
+            <strong>오픈채팅</strong>
+            <p>전체 채팅과 1:1 채팅으로 다른 테이블과 대화할 수 있어요.</p>
+          </div>
+        </button>
+
+        <button type="button" class="menu-card" @click="goGift">
+          <div class="menu-icon">🎁</div>
+          <div class="menu-text">
+            <strong>선물 보내기</strong>
+            <p>다른 테이블에 메뉴를 선물할 수 있어요.</p>
+          </div>
+        </button>
       </section>
 
       <section class="external-links-section">
@@ -299,6 +315,14 @@ function goOrderHistory() {
 
 function goCheckout() {
   router.push("/user/checkout");
+}
+
+function goChat() {
+  router.push("/user/chat");
+}
+
+function goGift() {
+  router.push("/user/gift");
 }
 
 onMounted(() => {

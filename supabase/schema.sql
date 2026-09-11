@@ -82,6 +82,11 @@ create table if not exists public.orders (
   total_count integer not null default 0,
   total_price integer not null default 0,
   status text not null default 'REQUESTED', -- REQUESTED | SERVED | CANCELLED
+  -- gift orders: the row stays on the sender's sheet (sender pays) and records
+  -- which table the item has to be delivered to
+  is_gift boolean not null default false,
+  gift_to_table_number text not null default '',
+  gift_to_nickname text not null default '',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -121,6 +126,11 @@ create table if not exists public.chat_messages (
   nickname text not null default '',
   sender_label text not null default '',
   is_deleted boolean not null default false,
+  -- chat rooms: 'global' (all tables), 'staff_<table>' (table <-> staff),
+  -- 'dm_<a>_<b>' (table <-> table, numbers sorted ascending)
+  room_type text not null default 'GLOBAL', -- GLOBAL | STAFF | DIRECT
+  room_key text not null default 'global',
+  recipient_table_number text not null default '',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -161,6 +171,9 @@ create index if not exists checkout_requests_order_sheet_id_idx
 
 create index if not exists chat_messages_created_at_idx
   on public.chat_messages (created_at);
+
+create index if not exists chat_messages_room_key_created_at_idx
+  on public.chat_messages (room_key, created_at);
 
 create unique index if not exists active_order_sheets_table_number_idx
   on public.active_order_sheets (table_number);
