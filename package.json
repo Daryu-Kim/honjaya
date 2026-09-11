@@ -7,7 +7,8 @@
     "build": "vue-cli-service build",
     "lint": "vue-cli-service lint",
     "migrate:export": "node scripts/migration/export-firestore.mjs",
-    "migrate:import": "node scripts/migration/import-supabase.mjs"
+    "migrate:import": "node scripts/migration/import-supabase.mjs",
+    "menu:import": "node scripts/menu/import-menu.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",

@@ -42,8 +42,21 @@ pnpm lint
 - [supabase/schema.sql](supabase/schema.sql) — 새 프로젝트용 전체 스키마 (테이블/RLS/Realtime)
 - [supabase/patch-001-soft-delete-realtime.sql](supabase/patch-001-soft-delete-realtime.sql) — 이미 만들어진 프로젝트용 소프트 삭제 + Realtime 패치
 - [supabase/patch-002-chat-gift.sql](supabase/patch-002-chat-gift.sql) — 채팅방(`room_type`/`room_key`/`recipient_table_number`) + 선물 주문(`is_gift`/`gift_to_table_number`/`gift_to_nickname`) 패치
+- [supabase/patch-003-disable-all-products.sql](supabase/patch-003-disable-all-products.sql) — 메뉴판을 새로 넣기 전 전체 상품 비노출 처리 (데이터 전용, 필요할 때만)
 
 > `patch-001` → `patch-002` 순서로 Supabase SQL Editor에서 실행하세요. 두 패치는 여러 번 실행해도 안전합니다.
+> `patch-003`은 스키마가 아니라 데이터만 바꾸는 선택 패치라서, 메뉴를 전면 교체할 때만 실행하면 됩니다.
+
+### Menu import
+
+PDF 메뉴판을 `products`에 반영하는 도구입니다. 이름이 같은 상품은 갱신·되살리고, 메뉴판에 없는 상품은 소프트 삭제합니다.
+
+```
+pnpm menu:import -- --file menu-data/menu.json           # 미리보기
+pnpm menu:import -- --file menu-data/menu.json --apply    # 반영
+```
+
+자세한 형식과 규칙은 [scripts/menu/README.md](scripts/menu/README.md)를 참고하세요.
 
 ### Table chat & gift
 

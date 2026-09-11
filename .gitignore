@@ -11,6 +11,9 @@ node_modules
 # migration artifacts (Firestore export, reports)
 migration-data/
 
+# menu import source (PDF parse output)
+menu-data/
+
 # Log files
 npm-debug.log*
 yarn-debug.log*
