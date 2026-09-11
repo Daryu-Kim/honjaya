@@ -80,22 +80,14 @@
 
         <div class="category-chip-row">
           <button
-            type="button"
-            class="category-chip"
-            :class="{ active: activeCategoryId === '' }"
-            @click="activeCategoryId = ''"
-          >
-            전체
-          </button>
-          <button
-            v-for="category in categoryList"
+            v-for="category in categoryTabList"
             :key="category.id"
             type="button"
             class="category-chip"
             :class="{ active: activeCategoryId === category.id }"
             @click="activeCategoryId = category.id"
           >
-            {{ category.categoryName }}
+            {{ category.name }}
           </button>
         </div>
 
@@ -347,6 +339,22 @@ const normalizedTableNumber = computed(() =>
   normalizeTableNumber(tableNumber.value)
 );
 
+const categoryTabList = computed(() =>
+  [...categoryList.value]
+    .filter((item) => item.isActive !== false)
+    .sort((a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0))
+);
+
+function syncActiveCategory() {
+  const firstCategoryId = categoryTabList.value[0]?.id || "";
+
+  if (
+    !categoryTabList.value.some((item) => item.id === activeCategoryId.value)
+  ) {
+    activeCategoryId.value = firstCategoryId;
+  }
+}
+
 const filteredProductList = computed(() => {
   const sorted = [...productList.value].sort(
     (a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0)
@@ -545,6 +553,7 @@ function subscribeCategories() {
       categoryList.value = await fetchList("categories", {
         order: ["sortOrder", "asc"],
       });
+      syncActiveCategory();
     } catch (error) {
       console.error("카테고리 조회 실패:", error);
     }

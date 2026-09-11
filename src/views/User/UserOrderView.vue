@@ -333,17 +333,24 @@ const orderSheetIdText = computed(() => {
 });
 
 const categoryTabList = computed(() => {
-  return [
-    { id: "all", name: "전체" },
-    ...categoryList.value
-      .filter((item) => item.isActive !== false)
-      .sort((a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0))
-      .map((item) => ({
-        id: item.id,
-        name: item.name,
-      })),
-  ];
+  return categoryList.value
+    .filter((item) => item.isActive !== false)
+    .sort((a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0))
+    .map((item) => ({
+      id: item.id,
+      name: item.name,
+    }));
 });
+
+function syncSelectedCategory() {
+  const firstCategoryId = categoryTabList.value[0]?.id || "all";
+
+  if (
+    !categoryTabList.value.some((item) => item.id === selectedCategory.value)
+  ) {
+    selectedCategory.value = firstCategoryId;
+  }
+}
 
 const filteredProductList = computed(() => {
   const keyword = searchText.value.toLowerCase();
@@ -484,6 +491,7 @@ function subscribeCategories() {
       categoryList.value = await fetchList("categories", {
         order: ["sortOrder", "asc"],
       });
+      syncSelectedCategory();
     } catch (error) {
       console.error("카테고리 조회 실패:", error);
     }

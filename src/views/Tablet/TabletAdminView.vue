@@ -1813,17 +1813,28 @@ const recipeProductList = computed(() => {
 });
 
 const categoryFilterList = computed(() => {
-  return [
-    { id: "all", name: "전체" },
-    ...categoryList.value
-      .filter((item) => item.isActive !== false)
-      .sort((a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0))
-      .map((item) => ({
-        id: item.id,
-        name: item.name || "이름 없음",
-      })),
-  ];
+  return categoryList.value
+    .filter((item) => item.isActive !== false)
+    .sort((a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0))
+    .map((item) => ({
+      id: item.id,
+      name: item.name || "이름 없음",
+    }));
 });
+
+function firstCategoryId() {
+  return categoryFilterList.value[0]?.id || "all";
+}
+
+function syncSelectedRecipeCategory() {
+  if (
+    !categoryFilterList.value.some(
+      (item) => item.id === selectedRecipeCategory.value
+    )
+  ) {
+    selectedRecipeCategory.value = firstCategoryId();
+  }
+}
 
 const filteredRecipeProductList = computed(() => {
   const keyword = String(recipeKeyword.value || "")
@@ -2387,6 +2398,7 @@ function subscribeCategories() {
       categoryList.value = await fetchList("categories", {
         order: ["sortOrder", "asc"],
       });
+      syncSelectedRecipeCategory();
     } catch (error) {
       console.error("카테고리 구독 실패:", error);
     }
@@ -2611,7 +2623,7 @@ function openManualAddModal(table) {
     displayName: table.displayName || `No.${table.tableNumber}`,
     cartItems: [],
     keyword: "",
-    categoryId: "all",
+    categoryId: firstCategoryId(),
     customPrice: "",
   };
 }
