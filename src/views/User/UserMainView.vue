@@ -62,7 +62,12 @@
         <button type="button" class="menu-card" @click="goChat">
           <div class="menu-icon">💬</div>
           <div class="menu-text">
-            <strong>채팅</strong>
+            <strong>
+              채팅
+              <span v-if="unreadChatCount > 0" class="menu-badge">
+                {{ unreadChatCount > 99 ? "99+" : unreadChatCount }}
+              </span>
+            </strong>
             <p>전체 채팅과 1:1 채팅으로 다른 테이블과 대화할 수 있어요.</p>
           </div>
         </button>
@@ -179,6 +184,7 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
+import { totalUnread } from "@/lib/chatAlerts";
 import { runGlobalBusy } from "@/lib/globalBusy";
 import {
   getActiveOrderSheetInfo,
@@ -202,6 +208,8 @@ const tableText = computed(() => {
     ? `${tableNumber.value}번 테이블`
     : "테이블 정보 없음";
 });
+
+const unreadChatCount = computed(() => totalUnread.value);
 
 const displayNameText = computed(() => {
   return displayName.value || "표시명 없음";
@@ -494,6 +502,22 @@ onMounted(() => {
   justify-content: center;
   font-size: 26px;
   flex-shrink: 0;
+}
+
+.menu-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  margin-left: 6px;
+  padding: 0 7px;
+  border-radius: 11px;
+  background: #ff4d6d;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  vertical-align: middle;
 }
 
 .menu-text {

@@ -18,11 +18,37 @@
       </div>
     </div>
   </transition>
+
+  <ChatAlertHost />
 </template>
 
 <script setup>
-import { onMounted, onUnmounted } from "vue";
+import { onMounted, onUnmounted, watch } from "vue";
+import { useRoute } from "vue-router";
+import ChatAlertHost from "@/components/ChatAlertHost.vue";
+import { startChatAlerts, stopChatAlerts } from "@/lib/chatAlerts";
 import { globalBusyMessage, isGlobalBusy } from "@/lib/globalBusy";
+
+const route = useRoute();
+
+function isCustomerPath(path) {
+  return path === "/" || path.startsWith("/user");
+}
+
+// Customer pages keep the chat subscription alive so new global/1:1 messages
+// still raise a toast while the customer is ordering.
+watch(
+  () => route.path,
+  (path) => {
+    if (isCustomerPath(path)) {
+      startChatAlerts();
+      return;
+    }
+
+    stopChatAlerts();
+  },
+  { immediate: true }
+);
 
 function blockEventWhileBusy(event) {
   if (!isGlobalBusy.value) return;
@@ -57,6 +83,8 @@ onUnmounted(() => {
   ].forEach((eventName) => {
     window.removeEventListener(eventName, blockEventWhileBusy, true);
   });
+
+  stopChatAlerts();
 });
 </script>
 
