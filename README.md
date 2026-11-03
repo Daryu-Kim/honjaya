@@ -45,11 +45,14 @@ pnpm lint
 - [supabase/patch-003-disable-all-products.sql](supabase/patch-003-disable-all-products.sql) — 메뉴판을 새로 넣기 전 전체 상품 비노출 처리 (데이터 전용, 필요할 때만)
 - [supabase/patch-004-remove-cocktail-category.sql](supabase/patch-004-remove-cocktail-category.sql) — 메뉴판 개편으로 쓰지 않게 된 '칵테일' 카테고리 행 삭제 (임포터는 비활성화까지만 처리)
 - [supabase/patch-005-remove-payment-request.sql](supabase/patch-005-remove-payment-request.sql) — 고객 결제 요청 기능 제거: `checkout_requests` 테이블 삭제 + 레거시 `PAYMENT_REQUESTED`/`REQUESTED` 상태 정리
+- [supabase/patch-006-web-push.sql](supabase/patch-006-web-push.sql) — Web Push 구독 테이블(`push_subscriptions`) + 런타임 설정(`app_settings`)
+- [supabase/patch-007-web-push-trigger.sql](supabase/patch-007-web-push-trigger.sql) — 새 채팅 메시지를 `send-chat-push` Edge Function으로 넘기는 `pg_net` 트리거
 
 > `patch-001` → `patch-002` 순서로 Supabase SQL Editor에서 실행하세요. 두 패치는 여러 번 실행해도 안전합니다.
 > `patch-003`은 스키마가 아니라 데이터만 바꾸는 선택 패치라서, 메뉴를 전면 교체할 때만 실행하면 됩니다.
 > `patch-004`도 데이터 전용이며, 이미 실행된 데이터베이스에서는 다시 실행해도 안전합니다.
 > `patch-005`는 결제 요청 기능을 걷어낸 뒤 한 번 실행하면 되고, 여러 번 실행해도 안전합니다.
+> `patch-006` → `patch-007`은 Web Push를 켤 때 순서대로 실행하세요. `patch-007`은 아래 배포 절차를 마친 뒤에 실행합니다.
 
 ### Menu import
 
@@ -72,6 +75,34 @@ pnpm menu:import -- --file menu-data/menu.json --apply    # 반영
 - 관리자 `/admin/chat` — 채팅방(전체/직원/1:1) 목록에서 방을 선택해 확인·답장, `호출·이벤트` 필터와 메시지 숨김/복구
 - 태블릿 운영판 — 헤더의 `💬 테이블 채팅` 버튼으로 테이블별 호출/메시지 확인·답장(호출이 오면 배지 + 알림음)
 - `chat_messages`는 `room_key`로 방을 구분합니다: `global`, `staff_3`, `dm_3_7`
+
+### Web push notifications
+
+손님 폰이 앱을 닫아도(백그라운드/잠금 화면) 전체 채팅·1:1 채팅·직원 답장을 받을 수 있게 하는 Web Push 구성입니다.
+고객 메인 화면의 `채팅 알림` 카드에서 알림을 켜고 끌 수 있고, iOS는 16.4 이상 + 홈 화면에 추가한 상태에서만 지원합니다.
+
+1. Supabase SQL Editor에서 `patch-006` 실행 (구독 테이블 + 설정 테이블)
+2. VAPID 키 생성 후 Edge Function 시크릿 등록
+
+```
+npx web-push generate-vapid-keys
+npx supabase secrets set VAPID_PUBLIC_KEY=<publicKey> VAPID_PRIVATE_KEY=<privateKey> VAPID_SUBJECT=mailto:admin@honjaya.co.kr
+```
+
+3. Edge Function 배포 (프로젝트 연결 후)
+
+```
+npx supabase functions deploy send-chat-push --project-ref <PROJECT_REF>
+```
+
+4. `app_settings`의 `web_push` 행에 공개키·함수 URL·anon 키 저장
+   - `vapidPublicKey`: 위에서 만든 **공개키**
+   - `pushEndpoint`: `https://<PROJECT_REF>.supabase.co/functions/v1/send-chat-push`
+   - `anonKey`: 프로젝트 anon(publishable) 키
+   - `patch-007` 파일 상단의 `<VAPID_PUBLIC_KEY>`·`<PROJECT_REF>`·`<ANON_KEY>` 자리표시자를 바꿔 실행하면 이 값들이 한 번에 저장됩니다.
+5. `patch-007` 실행 (새 메시지 → Edge Function 트리거)
+
+> 서비스 워커는 프로덕션 빌드에서만 등록되므로, 알림 수신 테스트는 `pnpm build` 후 배포본(HTTPS)에서 진행하세요.
 
 ### Data migration
 

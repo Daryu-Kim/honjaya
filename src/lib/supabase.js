@@ -40,6 +40,10 @@ const TABLE_MAPS = {
   chatMessages: "chat_messages",
   chat_messages: "chat_messages",
   counters: "counters",
+  pushSubscriptions: "push_subscriptions",
+  push_subscriptions: "push_subscriptions",
+  appSettings: "app_settings",
+  app_settings: "app_settings",
 };
 
 // app field name -> postgres column name (keys that match are omitted)
@@ -120,6 +124,15 @@ const FIELD_MAPS = {
   },
   counters: {
     lastSequenceNo: "last_sequence_no",
+    updatedAt: "updated_at",
+  },
+  push_subscriptions: {
+    tableNumber: "table_number",
+    userAgent: "user_agent",
+    createdAt: "created_at",
+    updatedAt: "updated_at",
+  },
+  app_settings: {
     updatedAt: "updated_at",
   },
 };

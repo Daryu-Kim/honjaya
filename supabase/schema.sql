@@ -231,3 +231,45 @@ alter table public.chat_messages replica identity full;
 alter table public.products replica identity full;
 alter table public.categories replica identity full;
 alter table public.counters replica identity full;
+
+-- ---------------------------------------------------------------------------
+-- Web Push (patch-006 / patch-007)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.push_subscriptions (
+  id text primary key,
+  table_number text not null,
+  endpoint text not null,
+  p256dh text not null,
+  auth text not null,
+  user_agent text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists push_subscriptions_endpoint_idx
+  on public.push_subscriptions (endpoint);
+
+create index if not exists push_subscriptions_table_idx
+  on public.push_subscriptions (table_number);
+
+-- public runtime config (VAPID public key), readable by the app
+create table if not exists public.app_settings (
+  id text primary key,
+  value jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.push_subscriptions enable row level security;
+alter table public.app_settings enable row level security;
+
+grant select, insert, update, delete on public.push_subscriptions to anon, authenticated;
+grant select on public.app_settings to anon, authenticated;
+
+create policy "push_subscriptions: app all"
+  on public.push_subscriptions for all to anon, authenticated
+  using (true) with check (true);
+
+create policy "app_settings: app read"
+  on public.app_settings for select to anon, authenticated
+  using (true);

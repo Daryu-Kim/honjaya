@@ -116,6 +116,8 @@
         </a>
       </section>
 
+      <PushNotificationToggle />
+
       <div class="session-card" style="margin-top: 20px">
         <div class="session-row">
           <span>WIFI 이름</span>
@@ -184,6 +186,7 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
+import PushNotificationToggle from "@/components/PushNotificationToggle.vue";
 import { totalUnread } from "@/lib/chatAlerts";
 import { runGlobalBusy } from "@/lib/globalBusy";
 import {

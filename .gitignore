@@ -7,9 +7,15 @@ node_modules
 .env.local
 .env.*.local
 .env.migration
+# generated Web Push keypair (never commit)
+.vapid.local.json
 
 # migration artifacts (Firestore export, reports)
 migration-data/
+# locally filled SQL (contains project ref / keys, never commit)
+supabase/*.local.sql
+# supabase CLI scratch directory
+supabase/.temp/
 
 # menu import source (PDF parse output)
 menu-data/
