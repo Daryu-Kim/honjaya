@@ -80,6 +80,8 @@
               class="seat"
               :class="{
                 'is-empty': !slot.seat,
+                'is-stool': slot.furniture === 'stool',
+                'is-gap-before': slot.gapBefore,
                 'has-bubble': Boolean(bubbles[slot.tableNumber]),
               }"
               :style="slot.style"
@@ -118,9 +120,9 @@
                   focusable="false"
                 >
                   <use
-                    v-for="part in furnitureParts[zone.furniture]"
+                    v-for="part in furnitureParts[slot.furniture]"
                     :key="part.tone"
-                    :href="`#tv-${zone.furniture}-${part.tone}`"
+                    :href="`#tv-${slot.furniture}-${part.tone}`"
                     :class="`furniture-${part.tone}`"
                   />
                 </svg>
@@ -226,10 +228,12 @@ import { normalizeTableNumber } from "@/lib/orderSheet";
 
 const DESIGN_WIDTH = 1920;
 const DESIGN_HEIGHT = 1080;
-// 1~12번은 바 카운터 좌석, 13번부터는 홀 테이블입니다(실제 매장 배치 기준).
-const BAR_TABLE_MAX = 12;
-const BAR_SEAT_LIMIT = 12;
-const HALL_SEAT_LIMIT = 20;
+// 실제 매장 배치(사진) 기준 좌석 번호입니다. 배열 순서 = 화면 왼쪽 → 오른쪽.
+// 바 카운터는 3~12번, 홀은 1~2번 · 13~24번 · 26~32번이고 25번 테이블은 없습니다.
+const BAR_TABLE_NUMBERS = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3];
+const HALL_BACK_TABLE_NUMBERS = [23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13];
+const HALL_FRONT_TABLE_NUMBERS = [24, 26, 27, 28, 29, 30, 31, 32];
+const SIDE_TABLE_NUMBERS = [2, 1];
 const PANEL_LIMIT = 6;
 const BUBBLE_DURATION_MS = 6000;
 const BANNER_DURATION_MS = 9000;
@@ -382,33 +386,48 @@ const stageStyle = computed(() => ({
   transform: `scale(${stageScale.value})`,
 }));
 
+const BAR_TABLE_SET = new Set(BAR_TABLE_NUMBERS.map(String));
+const HALL_TABLE_SET = new Set(
+  [
+    ...SIDE_TABLE_NUMBERS,
+    ...HALL_BACK_TABLE_NUMBERS,
+    ...HALL_FRONT_TABLE_NUMBERS,
+  ].map(String)
+);
+
 const barSeats = computed(() => {
-  return seats.value.filter(
-    (seat) => Number(seat.tableNumber) <= BAR_TABLE_MAX
+  return seats.value.filter((seat) =>
+    BAR_TABLE_SET.has(String(seat.tableNumber))
   );
 });
 
 const hallSeats = computed(() => {
-  return seats.value.filter((seat) => Number(seat.tableNumber) > BAR_TABLE_MAX);
-});
-
-const seatOverflow = computed(() => {
-  return (
-    Math.max(0, barSeats.value.length - BAR_SEAT_LIMIT) +
-    Math.max(0, hallSeats.value.length - HALL_SEAT_LIMIT)
+  return seats.value.filter((seat) =>
+    HALL_TABLE_SET.has(String(seat.tableNumber))
   );
 });
 
-function buildZoneSlots(from, to, occupiedMap) {
-  const slots = [];
+// 배치에 없는 번호(예: 사라진 25번)의 주문은 좌석 대신 인원 집계로만 표시합니다.
+const seatOverflow = computed(() => {
+  return seats.value.filter((seat) => {
+    const key = String(seat.tableNumber);
 
-  for (let tableNumber = from; tableNumber <= to; tableNumber += 1) {
+    return !BAR_TABLE_SET.has(key) && !HALL_TABLE_SET.has(key);
+  }).length;
+});
+
+function buildTableSlots(tableNumbers, occupiedMap, furniture, options = {}) {
+  return tableNumbers.map((tableNumber, index) => {
     const key = String(tableNumber);
+    const slot = {
+      tableNumber: key,
+      seat: occupiedMap.get(key) || null,
+      furniture,
+      gapBefore: Boolean(options.gapBefore) && index === 0,
+    };
 
-    slots.push({ tableNumber: key, seat: occupiedMap.get(key) || null });
-  }
-
-  return slots.map((slot) => ({ ...slot, style: seatStyle(slot) }));
+    return { ...slot, style: seatStyle(slot) };
+  });
 }
 
 const occupiedTableMap = computed(() => {
@@ -420,22 +439,29 @@ const occupiedTableMap = computed(() => {
 });
 
 // 빈자리도 항상 그려야 해서 좌석은 고정 슬롯입니다.
-const hallSlots = computed(() =>
-  buildZoneSlots(
-    BAR_TABLE_MAX + 1,
-    BAR_TABLE_MAX + HALL_SEAT_LIMIT,
-    occupiedTableMap.value
-  )
+// 사진처럼 홀 안쪽 줄 → 홀 바깥 줄(1·2번 테이블 + 24·26~32번) → 바 카운터 순서입니다.
+const hallBackSlots = computed(() =>
+  buildTableSlots(HALL_BACK_TABLE_NUMBERS, occupiedTableMap.value, "table")
 );
+
+const hallFrontSlots = computed(() => [
+  ...buildTableSlots(SIDE_TABLE_NUMBERS, occupiedTableMap.value, "table"),
+  ...buildTableSlots(
+    HALL_FRONT_TABLE_NUMBERS,
+    occupiedTableMap.value,
+    "stool",
+    { gapBefore: true }
+  ),
+]);
 
 const barSlots = computed(() =>
-  buildZoneSlots(1, BAR_TABLE_MAX, occupiedTableMap.value)
+  buildTableSlots(BAR_TABLE_NUMBERS, occupiedTableMap.value, "stool")
 );
 
-// 홀(테이블)을 위쪽에, 바(카운터)를 카운터 바로 위에 배치합니다.
 const seatZones = computed(() => [
-  { key: "hall", furniture: "table", slots: hallSlots.value },
-  { key: "bar", furniture: "stool", slots: barSlots.value },
+  { key: "hall-back", slots: hallBackSlots.value },
+  { key: "hall-front", slots: hallFrontSlots.value },
+  { key: "bar", slots: barSlots.value },
 ]);
 
 const announcementSize = computed(() => {
@@ -915,7 +941,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 12px;
   overflow: hidden;
   background: linear-gradient(180deg, #1d1740 0%, #241a4d 46%, #2c1f57 100%);
   box-shadow: inset 0 0 0 6px #0d0a1c;
@@ -959,7 +985,7 @@ onUnmounted(() => {
   position: relative;
   z-index: 2;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: flex-end;
   justify-content: center;
   gap: 6px 8px;
@@ -971,16 +997,13 @@ onUnmounted(() => {
   --wood-dark: #6b3f2a;
 }
 
-/* 홀은 10개씩 2줄로 고정 배치합니다(테이블 13~32번). */
-.scene-zone.is-hall {
-  display: grid;
-  grid-template-columns: repeat(10, max-content);
-  align-items: end;
-  justify-content: center;
+/* 홀은 사진처럼 두 줄입니다. 안쪽 줄 23~13번, 바깥 줄 1·2번 + 24·26~32번. */
+.scene-zone.is-hall-back,
+.scene-zone.is-hall-front {
+  gap: 6px 8px;
 }
 
 .scene-zone.is-bar {
-  flex-wrap: nowrap;
   gap: 8px;
   --avatar: 88px;
   --name-size: 18px;
@@ -1040,9 +1063,13 @@ onUnmounted(() => {
 }
 
 /* 바 스툴은 캐릭터 다리만 가리도록 더 낮게 그립니다. */
-.scene-zone.is-bar .seat-furniture {
+.seat.is-stool .seat-furniture {
   width: 76%;
   height: calc(var(--avatar) * 0.26);
+}
+
+.seat.is-gap-before {
+  margin-left: 46px;
 }
 
 .seat.is-empty .seat-furniture {
