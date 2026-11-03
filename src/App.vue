@@ -27,7 +27,20 @@ import { onMounted, onUnmounted, watch } from "vue";
 import { useRoute } from "vue-router";
 import ChatAlertHost from "@/components/ChatAlertHost.vue";
 import { startChatAlerts, stopChatAlerts } from "@/lib/chatAlerts";
+import { ensureChatMessagesClearedForToday } from "@/lib/chat";
 import { globalBusyMessage, isGlobalBusy } from "@/lib/globalBusy";
+
+const CHAT_PURGE_CHECK_MS = 10 * 60 * 1000;
+
+let chatPurgeTimer = null;
+
+// 영업일(KST 15:00)이 바뀌면 지난 채팅을 비웁니다. 앱을 계속 켜 둔 기기에서도
+// 하루가 지나면 정리되도록 주기적으로 확인합니다.
+function runChatPurge() {
+  ensureChatMessagesClearedForToday().catch((error) => {
+    console.error("[chat] 채팅 정리 확인 실패", error);
+  });
+}
 
 const route = useRoute();
 
@@ -70,6 +83,9 @@ onMounted(() => {
   ].forEach((eventName) => {
     window.addEventListener(eventName, blockEventWhileBusy, true);
   });
+
+  runChatPurge();
+  chatPurgeTimer = setInterval(runChatPurge, CHAT_PURGE_CHECK_MS);
 });
 
 onUnmounted(() => {
@@ -83,6 +99,11 @@ onUnmounted(() => {
   ].forEach((eventName) => {
     window.removeEventListener(eventName, blockEventWhileBusy, true);
   });
+
+  if (chatPurgeTimer) {
+    clearInterval(chatPurgeTimer);
+    chatPurgeTimer = null;
+  }
 
   stopChatAlerts();
 });

@@ -1572,7 +1572,9 @@ import {
   buildStaffRoomKey,
   CHAT_MESSAGE_TYPE,
   CHAT_ROOM_TYPE,
+  clearDirectChatMessagesForTable,
   formatTableLabel,
+  getChatDayStartIso,
   getRoomLastReadAt,
   GLOBAL_ROOM_KEY,
   isAlertMessage,
@@ -2992,6 +2994,13 @@ async function completePayment() {
         paymentSplits,
       });
 
+      // 손님이 결제하고 나가면 이 테이블의 1:1 채팅을 모두 정리합니다.
+      try {
+        await clearDirectChatMessagesForTable(state.tableNumber);
+      } catch (chatError) {
+        console.error("1:1 채팅 정리 실패:", chatError);
+      }
+
       paymentCompleteModalState.value = {
         isOpen: true,
         displayName: state.displayName,
@@ -3050,6 +3059,13 @@ async function finalizeTableCleanup(table) {
       await finalizeOrderSheetCleanup({
         orderSheetId: table.orderSheetId,
       });
+
+      // 손님이 떠난 테이블의 1:1 채팅도 함께 정리합니다.
+      try {
+        await clearDirectChatMessagesForTable(table.tableNumber);
+      } catch (chatError) {
+        console.error("1:1 채팅 정리 실패:", chatError);
+      }
 
       closeTableModal();
       alert("테이블 정리가 완료되었어요.");
@@ -3316,6 +3332,7 @@ async function loadChatMessages() {
   try {
     // 최신 500건을 받아 화면 표시용으로 오래된 순으로 뒤집는다.
     const recentMessages = await fetchList("chatMessages", {
+      filters: [["createdAt", "gte", getChatDayStartIso()]],
       order: ["createdAt", "desc"],
       limit: 500,
     });

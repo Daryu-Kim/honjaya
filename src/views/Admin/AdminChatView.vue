@@ -182,6 +182,7 @@ import {
   GLOBAL_ROOM_KEY,
   buildStaffRoomKey,
   formatTableLabel,
+  getChatDayStartIso,
   isAlertMessage,
   parseDirectRoomKey,
   parseStaffRoomKey,
@@ -407,6 +408,7 @@ async function loadMessages() {
   try {
     // 최신 500건만 받아 표시용으로 오래된 순으로 뒤집는다.
     const recentMessages = await fetchList("chatMessages", {
+      filters: [["createdAt", "gte", getChatDayStartIso()]],
       order: ["createdAt", "desc"],
       limit: 500,
     });

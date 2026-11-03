@@ -274,6 +274,7 @@ import {
   countUnreadMessages,
   formatTableLabel,
   getBlockedTableNumbers,
+  getChatDayStartIso,
   isBlockedTableNumber,
   isOwnMessage,
   markRoomRead,
@@ -543,6 +544,7 @@ async function loadMessages() {
       filters: [
         ["roomKey", "in", buildRoomKeys()],
         ["isDeleted", "eq", false],
+        ["createdAt", "gte", getChatDayStartIso()],
       ],
       order: ["createdAt", "desc"],
       limit: 400,

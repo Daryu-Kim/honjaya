@@ -14,6 +14,7 @@ import {
   buildStaffRoomKey,
   countUnreadMessages,
   formatTableLabel,
+  getChatDayStartIso,
   isAlertMessage,
   isOwnMessage,
   parseDirectRoomKey,
@@ -346,7 +347,10 @@ async function loadMessages() {
 
   try {
     const rows = await fetchList("chatMessages", {
-      filters: [["isDeleted", "eq", false]],
+      filters: [
+        ["isDeleted", "eq", false],
+        ["createdAt", "gte", getChatDayStartIso()],
+      ],
       order: ["createdAt", "desc"],
       limit: MESSAGE_LIMIT,
     });

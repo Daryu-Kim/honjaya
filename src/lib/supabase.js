@@ -467,6 +467,22 @@ export async function deleteRow(table, id) {
   }
 }
 
+// 여러 행을 조건으로 한 번에 삭제합니다. (예: 영업일이 지난 채팅 정리)
+export async function deleteWhere(table, filters) {
+  const tableName = resolveTable(table);
+  let builder = supabase.from(tableName).delete();
+
+  builder = applyFilters(builder, tableName, filters);
+
+  const { data, error } = await builder.select("id");
+
+  if (error) {
+    throw buildError("삭제하지 못했어요", error);
+  }
+
+  return (data || []).map((row) => row.id);
+}
+
 // Realtime replacement for onSnapshot():
 //   * loads once immediately,
 //   * reloads on every postgres_changes event for the table,

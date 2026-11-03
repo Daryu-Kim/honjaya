@@ -4,7 +4,18 @@
 //   global            -> every table shares one lounge chat
 //   staff_3           -> table 3 <-> staff (admin)
 //   dm_3_7            -> table 3 <-> table 7 (numbers sorted ascending)
-import { insertRow, newId, nowIso, toTime } from "@/lib/supabase";
+import {
+  deleteWhere,
+  fetchList,
+  insertRow,
+  newId,
+  nowIso,
+  toTime,
+} from "@/lib/supabase";
+import {
+  getBusinessDayStartIso,
+  getCurrentBusinessDateInput,
+} from "@/lib/businessDay";
 import { normalizeTableNumber } from "@/lib/orderSheet";
 
 export const CHAT_ROOM_TYPE = {
@@ -25,6 +36,7 @@ export const CHAT_MESSAGE_MAX_LENGTH = 300;
 
 const CHAT_READ_STORAGE_KEY = "honjaya.chat.readAt";
 const CHAT_BLOCK_STORAGE_KEY = "honjaya.chat.blockedTables";
+const CHAT_PURGE_STORAGE_KEY = "honjaya.chat.purgedBusinessDate";
 
 export const QUICK_PHRASES = [
   "안녕하세요! 🍻",
@@ -421,4 +433,88 @@ export function isBlockedTableNumber(tableNumber, blockedList) {
   }
 
   return (blockedList || []).includes(safeTableNumber);
+}
+
+// ---- 영업일 채팅 정리 -------------------------------------------------
+// 채팅은 영업일(KST 15:00 ~ 익일 14:59:59) 안에서만 유지합니다.
+
+let purgedBusinessDate = "";
+
+// 지금 영업일이 시작된 시각(ISO). 이 시각 이전 메시지는 지난 영업일 것입니다.
+export function getChatDayStartIso(date = new Date()) {
+  return getBusinessDayStartIso(date);
+}
+
+// 지난 영업일 채팅(전체/직원/1:1)을 모두 삭제합니다.
+export async function clearChatMessagesBeforeToday(date = new Date()) {
+  const removedIds = await deleteWhere("chatMessages", [
+    ["createdAt", "lt", getChatDayStartIso(date)],
+  ]);
+
+  return removedIds.length;
+}
+
+// 앱이 켜져 있을 때 호출합니다. 기기마다 영업일당 한 번만 정리합니다.
+export async function ensureChatMessagesClearedForToday() {
+  const todayInput = getCurrentBusinessDateInput();
+
+  if (purgedBusinessDate === todayInput) {
+    return 0;
+  }
+
+  try {
+    if (localStorage.getItem(CHAT_PURGE_STORAGE_KEY) === todayInput) {
+      purgedBusinessDate = todayInput;
+      return 0;
+    }
+  } catch (error) {
+    // 저장소를 못 읽어도 정리는 그대로 진행합니다.
+  }
+
+  let removedCount = 0;
+
+  try {
+    removedCount = await clearChatMessagesBeforeToday();
+  } catch (error) {
+    console.error("[chat] 지난 영업일 채팅을 정리하지 못했어요", error);
+    return 0;
+  }
+
+  purgedBusinessDate = todayInput;
+
+  try {
+    localStorage.setItem(CHAT_PURGE_STORAGE_KEY, todayInput);
+  } catch (error) {
+    // 메모리 값으로 중복 실행을 막습니다.
+  }
+
+  return removedCount;
+}
+
+// 손님이 결제하고 나가면 그 테이블의 1:1 채팅을 통째로 지웁니다.
+// 방 테이블이 따로 없으므로 room_key(dm_3_7)의 메시지가 곧 채팅방입니다.
+export async function clearDirectChatMessagesForTable(tableNumber) {
+  const safeTableNumber = normalizeTableNumber(tableNumber);
+
+  if (!safeTableNumber) {
+    return 0;
+  }
+
+  const directRows = await fetchList("chatMessages", {
+    columns: ["id", "roomKey"],
+    filters: [["roomType", "eq", CHAT_ROOM_TYPE.DIRECT]],
+    limit: 1000,
+  });
+
+  const targetIds = directRows
+    .filter((row) => parseDirectRoomKey(row.roomKey).includes(safeTableNumber))
+    .map((row) => row.id);
+
+  if (targetIds.length === 0) {
+    return 0;
+  }
+
+  await deleteWhere("chatMessages", [["id", "in", targetIds]]);
+
+  return targetIds.length;
 }

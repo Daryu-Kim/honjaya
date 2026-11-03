@@ -10,7 +10,7 @@
           <g
             v-for="part in guestParts"
             :id="`tv-guest-${part.tone}`"
-            :key="part.tone"
+            :key="`guest-${part.tone}`"
           >
             <rect
               v-for="rect in part.rects"
@@ -21,6 +21,22 @@
               height="1"
             />
           </g>
+          <template v-for="furniture in furnitureSprites" :key="furniture.key">
+            <g
+              v-for="part in furniture.parts"
+              :id="`tv-${furniture.key}-${part.tone}`"
+              :key="`${furniture.key}-${part.tone}`"
+            >
+              <rect
+                v-for="rect in part.rects"
+                :key="rect.key"
+                :x="rect.x"
+                :y="rect.y"
+                width="1"
+                height="1"
+              />
+            </g>
+          </template>
         </defs>
       </svg>
 
@@ -54,57 +70,91 @@
 
           <div
             v-for="zone in seatZones"
-            v-show="zone.seats.length > 0"
             :key="zone.key"
             class="scene-zone"
             :class="`is-${zone.key}`"
           >
             <div
-              v-for="seat in zone.seats"
-              :key="seat.tableNumber"
+              v-for="slot in zone.slots"
+              :key="slot.tableNumber"
               class="seat"
-              :class="{ 'has-bubble': Boolean(bubbles[seat.tableNumber]) }"
-              :style="seatStyle(seat)"
+              :class="{
+                'is-empty': !slot.seat,
+                'has-bubble': Boolean(bubbles[slot.tableNumber]),
+              }"
+              :style="slot.style"
             >
               <transition name="bubble-pop">
-                <div v-if="bubbles[seat.tableNumber]" class="seat-bubble">
+                <div v-if="bubbles[slot.tableNumber]" class="seat-bubble">
                   <span class="seat-bubble-from">
-                    {{ bubbles[seat.tableNumber].label }}
+                    {{ bubbles[slot.tableNumber].label }}
                   </span>
                   <span class="seat-bubble-text">
-                    {{ bubbles[seat.tableNumber].text }}
+                    {{ bubbles[slot.tableNumber].text }}
                   </span>
                 </div>
               </transition>
 
-              <svg
-                class="seat-guest"
-                viewBox="0 0 16 16"
-                aria-hidden="true"
-                focusable="false"
-              >
-                <use
-                  v-for="part in guestParts"
-                  :key="part.tone"
-                  :href="`#tv-guest-${part.tone}`"
-                  :class="`guest-${part.tone}`"
-                />
-              </svg>
+              <div class="seat-figure">
+                <svg
+                  v-if="slot.seat"
+                  class="seat-guest"
+                  viewBox="0 0 16 16"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <use
+                    v-for="part in guestParts"
+                    :key="part.tone"
+                    :href="`#tv-guest-${part.tone}`"
+                    :class="`guest-${part.tone}`"
+                  />
+                </svg>
+
+                <svg
+                  class="seat-furniture"
+                  viewBox="0 0 16 8"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <use
+                    v-for="part in furnitureParts[zone.furniture]"
+                    :key="part.tone"
+                    :href="`#tv-${zone.furniture}-${part.tone}`"
+                    :class="`furniture-${part.tone}`"
+                  />
+                </svg>
+              </div>
 
               <div class="seat-plate">
-                <span class="seat-plate-name">{{ seat.label }}</span>
-                <span class="seat-plate-table">{{ seat.tableNumber }}번</span>
+                <span class="seat-plate-name">
+                  {{ slot.seat ? slot.seat.label : "빈자리" }}
+                </span>
+                <span class="seat-plate-table">{{ slot.tableNumber }}번</span>
               </div>
             </div>
           </div>
 
-          <p v-if="seats.length === 0" class="scene-empty">
-            아직 자리에 앉은 손님이 없어요
-          </p>
-
           <div class="scene-counter" aria-hidden="true">
             <div class="counter-top"></div>
-            <div class="counter-front"></div>
+            <div class="counter-front">
+              <div class="counter-staff">
+                <svg
+                  class="staff-figure"
+                  viewBox="0 0 16 16"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <use
+                    v-for="part in guestParts"
+                    :key="part.tone"
+                    :href="`#tv-guest-${part.tone}`"
+                    :class="`guest-${part.tone}`"
+                  />
+                </svg>
+                <span class="staff-plate">직원</span>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -147,6 +197,19 @@
           <span class="tv-banner-text">{{ banner.text }}</span>
         </footer>
       </transition>
+
+      <transition name="announce-fade">
+        <div v-if="announcement" class="tv-announce" role="status">
+          <div
+            :key="announcement.key"
+            class="tv-announce-card"
+            :class="announcementSize"
+          >
+            <span class="tv-announce-tag">{{ announcement.tag }}</span>
+            <p class="tv-announce-text">{{ announcement.text }}</p>
+          </div>
+        </div>
+      </transition>
     </div>
   </div>
 </template>
@@ -154,7 +217,11 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { fetchList, subscribeTable } from "@/lib/supabase";
-import { GLOBAL_ROOM_KEY, formatTableLabel } from "@/lib/chat";
+import {
+  GLOBAL_ROOM_KEY,
+  formatTableLabel,
+  getChatDayStartIso,
+} from "@/lib/chat";
 import { normalizeTableNumber } from "@/lib/orderSheet";
 
 const DESIGN_WIDTH = 1920;
@@ -166,6 +233,9 @@ const HALL_SEAT_LIMIT = 20;
 const PANEL_LIMIT = 6;
 const BUBBLE_DURATION_MS = 6000;
 const BANNER_DURATION_MS = 9000;
+const ANNOUNCE_DURATION_MS = 8000;
+const ANNOUNCE_GAP_MS = 500;
+const ANNOUNCE_TEXT_LIMIT = 140;
 const MESSAGE_FETCH_LIMIT = 60;
 const BUBBLE_TEXT_LIMIT = 60;
 const PANEL_TEXT_LIMIT = 54;
@@ -217,26 +287,72 @@ const SEAT_PALETTES = [
 
 const SHELF_COLORS = ["#7bdff2", "#f7a072", "#c6f68d", "#f6c667", "#a99bf5"];
 
-const guestRects = [];
-
-GUEST_SPRITE.forEach((row, y) => {
-  [...row].forEach((cell, x) => {
-    const tone = CELL_TONES[cell];
-
-    if (tone) {
-      guestRects.push({ key: `${x}-${y}`, x, y, tone });
-    }
-  });
-});
-
 // Parts are drawn as separate <use> sprites so the fill can come from CSS
 // variables (fill="var(--hair)" in a presentation attribute is not portable).
 const GUEST_TONE_ORDER = ["hair", "skin", "shirt", "eye", "mouth"];
 
-const guestParts = GUEST_TONE_ORDER.map((tone) => ({
-  tone,
-  rects: guestRects.filter((rect) => rect.tone === tone),
-}));
+function buildSpriteParts(rows, toneMap, toneOrder) {
+  const rects = [];
+
+  rows.forEach((row, y) => {
+    [...row].forEach((cell, x) => {
+      const tone = toneMap[cell];
+
+      if (tone) {
+        rects.push({ key: `${x}-${y}`, x, y, tone });
+      }
+    });
+  });
+
+  const tones = toneOrder || [...new Set(rects.map((rect) => rect.tone))];
+
+  return tones.map((tone) => ({
+    tone,
+    rects: rects.filter((rect) => rect.tone === tone),
+  }));
+}
+
+const guestParts = buildSpriteParts(GUEST_SPRITE, CELL_TONES, GUEST_TONE_ORDER);
+
+// 가구는 16x8 픽셀 그리드입니다. w = 나무, d = 그늘.
+const FURNITURE_TONES = {
+  w: "wood",
+  d: "dark",
+};
+
+// 바 좌석(스툴): 넓은 상판 + 가운데 기둥 + 발판.
+const STOOL_SPRITE = [
+  "....wwwwwwww....",
+  "....wwwwwwww....",
+  "....dddddddd....",
+  "......dddd......",
+  "...dddddddddd...",
+  "......dddd......",
+  ".....d....d.....",
+  "....dd....dd....",
+];
+
+// 홀 테이블: 상판 + 다리 + 양옆 의자.
+const TABLE_SPRITE = [
+  "..wwwwwwwwwwww..",
+  "..wwwwwwwwwwww..",
+  "..dddddddddddd..",
+  "ww..d......d..ww",
+  "ww..d......d..ww",
+  "ww..d......d..ww",
+  "ww..d......d..ww",
+  "....dd....dd....",
+];
+
+const furnitureParts = {
+  stool: buildSpriteParts(STOOL_SPRITE, FURNITURE_TONES, ["dark", "wood"]),
+  table: buildSpriteParts(TABLE_SPRITE, FURNITURE_TONES, ["dark", "wood"]),
+};
+
+const furnitureSprites = [
+  { key: "stool", parts: furnitureParts.stool },
+  { key: "table", parts: furnitureParts.table },
+];
 
 const shelfBottles = Array.from({ length: 14 }, (_, index) => {
   const height = 26 + ((index * 13) % 34);
@@ -260,39 +376,81 @@ const seats = ref([]);
 const messages = ref([]);
 const bubbles = reactive({});
 const banner = ref(null);
+const announcement = ref(null);
 
 const stageStyle = computed(() => ({
   transform: `scale(${stageScale.value})`,
 }));
 
 const barSeats = computed(() => {
-  return seats.value
-    .filter((seat) => Number(seat.tableNumber) <= BAR_TABLE_MAX)
-    .slice(0, BAR_SEAT_LIMIT);
-});
-
-const hallSeats = computed(() => {
-  return seats.value
-    .filter((seat) => Number(seat.tableNumber) > BAR_TABLE_MAX)
-    .slice(0, HALL_SEAT_LIMIT);
-});
-
-const seatOverflow = computed(() => {
-  const barTotal = seats.value.filter(
+  return seats.value.filter(
     (seat) => Number(seat.tableNumber) <= BAR_TABLE_MAX
-  ).length;
-
-  return (
-    Math.max(0, barTotal - BAR_SEAT_LIMIT) +
-    Math.max(0, seats.value.length - barTotal - HALL_SEAT_LIMIT)
   );
 });
 
+const hallSeats = computed(() => {
+  return seats.value.filter((seat) => Number(seat.tableNumber) > BAR_TABLE_MAX);
+});
+
+const seatOverflow = computed(() => {
+  return (
+    Math.max(0, barSeats.value.length - BAR_SEAT_LIMIT) +
+    Math.max(0, hallSeats.value.length - HALL_SEAT_LIMIT)
+  );
+});
+
+function buildZoneSlots(from, to, occupiedMap) {
+  const slots = [];
+
+  for (let tableNumber = from; tableNumber <= to; tableNumber += 1) {
+    const key = String(tableNumber);
+
+    slots.push({ tableNumber: key, seat: occupiedMap.get(key) || null });
+  }
+
+  return slots.map((slot) => ({ ...slot, style: seatStyle(slot) }));
+}
+
+const occupiedTableMap = computed(() => {
+  const map = new Map();
+
+  seats.value.forEach((seat) => map.set(String(seat.tableNumber), seat));
+
+  return map;
+});
+
+// 빈자리도 항상 그려야 해서 좌석은 고정 슬롯입니다.
+const hallSlots = computed(() =>
+  buildZoneSlots(
+    BAR_TABLE_MAX + 1,
+    BAR_TABLE_MAX + HALL_SEAT_LIMIT,
+    occupiedTableMap.value
+  )
+);
+
+const barSlots = computed(() =>
+  buildZoneSlots(1, BAR_TABLE_MAX, occupiedTableMap.value)
+);
+
 // 홀(테이블)을 위쪽에, 바(카운터)를 카운터 바로 위에 배치합니다.
 const seatZones = computed(() => [
-  { key: "hall", seats: hallSeats.value },
-  { key: "bar", seats: barSeats.value },
+  { key: "hall", furniture: "table", slots: hallSlots.value },
+  { key: "bar", furniture: "stool", slots: barSlots.value },
 ]);
+
+const announcementSize = computed(() => {
+  const length = announcement.value ? announcement.value.text.length : 0;
+
+  if (length > 90) {
+    return "is-long";
+  }
+
+  if (length > 40) {
+    return "is-medium";
+  }
+
+  return "";
+});
 
 const panelMessages = computed(() => {
   return messages.value
@@ -321,8 +479,11 @@ const panelMessages = computed(() => {
 const seenMessageIds = new Set();
 const bubbleTimers = new Map();
 const subscriptionStops = [];
+const announceQueue = [];
+let announceSequence = 0;
 let hasLoadedMessages = false;
 let bannerTimer = null;
+let announceTimer = null;
 let cursorTimer = null;
 let clockTimer = null;
 let dawnTimer = null;
@@ -426,6 +587,7 @@ async function loadMessages() {
         ["roomType", "eq", ROOM_TYPE_GLOBAL],
         ["roomKey", "eq", GLOBAL_ROOM_KEY],
         ["isDeleted", "eq", false],
+        ["createdAt", "gte", getChatDayStartIso()],
       ],
       order: ["createdAt", "desc"],
       limit: MESSAGE_FETCH_LIMIT,
@@ -455,7 +617,7 @@ function announceNewMessages(rows) {
     }
 
     if (message.messageType === MESSAGE_TYPE_STAFF) {
-      showBanner(message.message, { tag: "직원", tone: "staff" });
+      queueAnnouncement(message.message, { tag: "직원" });
       return;
     }
 
@@ -509,6 +671,40 @@ function showBanner(message, { tag = "공지", tone = "notice" } = {}) {
     banner.value = null;
     bannerTimer = null;
   }, BANNER_DURATION_MS);
+}
+
+// 직원 메시지는 화면 가운데에 크게 띄웠다가 페이드아웃으로 사라집니다.
+// 여러 건이 한 번에 들어오면 순서대로 하나씩 보여줍니다.
+function queueAnnouncement(message, { tag = "직원" } = {}) {
+  const text = truncate(message, ANNOUNCE_TEXT_LIMIT);
+
+  if (!text) {
+    return;
+  }
+
+  announceSequence += 1;
+  announceQueue.push({ key: announceSequence, tag, text });
+
+  if (!announcement.value) {
+    playNextAnnouncement();
+  }
+}
+
+function playNextAnnouncement() {
+  const next = announceQueue.shift();
+
+  if (!next) {
+    announcement.value = null;
+    announceTimer = null;
+    return;
+  }
+
+  announcement.value = next;
+
+  announceTimer = setTimeout(() => {
+    announcement.value = null;
+    announceTimer = setTimeout(playNextAnnouncement, ANNOUNCE_GAP_MS);
+  }, ANNOUNCE_DURATION_MS);
 }
 
 function handleOnline() {
@@ -588,14 +784,20 @@ onUnmounted(() => {
   bubbleTimers.forEach((timer) => clearTimeout(timer));
   bubbleTimers.clear();
 
-  [clockTimer, bannerTimer, dawnTimer, cursorTimer].forEach((timer) => {
-    if (timer) {
-      clearTimeout(timer);
+  [clockTimer, bannerTimer, announceTimer, dawnTimer, cursorTimer].forEach(
+    (timer) => {
+      if (timer) {
+        clearTimeout(timer);
+      }
     }
-  });
+  );
+
+  announceQueue.length = 0;
+  announcement.value = null;
 
   clockTimer = null;
   bannerTimer = null;
+  announceTimer = null;
   dawnTimer = null;
   cursorTimer = null;
 });
@@ -760,11 +962,21 @@ onUnmounted(() => {
   flex-wrap: wrap;
   align-items: flex-end;
   justify-content: center;
-  gap: 8px 12px;
+  gap: 6px 8px;
   padding: 0 40px;
-  --avatar: 96px;
-  --name-size: 17px;
-  --no-size: 12px;
+  --avatar: 92px;
+  --name-size: 13px;
+  --no-size: 10px;
+  --wood: #a86b45;
+  --wood-dark: #6b3f2a;
+}
+
+/* 홀은 10개씩 2줄로 고정 배치합니다(테이블 13~32번). */
+.scene-zone.is-hall {
+  display: grid;
+  grid-template-columns: repeat(10, max-content);
+  align-items: end;
+  justify-content: center;
 }
 
 .scene-zone.is-bar {
@@ -773,11 +985,13 @@ onUnmounted(() => {
   --avatar: 88px;
   --name-size: 18px;
   --no-size: 13px;
+  --wood: #c98a5a;
+  --wood-dark: #8a5232;
 }
 
 .seat {
   position: relative;
-  width: calc(var(--avatar) + 12px);
+  width: calc(var(--avatar) + 10px);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -790,11 +1004,53 @@ onUnmounted(() => {
   z-index: 6;
 }
 
-.seat-guest {
+.seat-figure {
+  position: relative;
   width: var(--avatar);
   height: var(--avatar);
+}
+
+.seat-guest {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   image-rendering: pixelated;
-  filter: drop-shadow(0 10px 0 rgba(0, 0, 0, 0.28));
+  filter: drop-shadow(0 8px 0 rgba(0, 0, 0, 0.28));
+}
+
+/* 가구는 캐릭터 앞쪽에 겹쳐 그려서 앉아 있는 것처럼 보이게 합니다. */
+.seat-furniture {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 90%;
+  height: calc(var(--avatar) * 0.42);
+  transform: translateX(-50%);
+  image-rendering: pixelated;
+  filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.32));
+}
+
+.furniture-wood {
+  fill: var(--wood);
+}
+
+.furniture-dark {
+  fill: var(--wood-dark);
+}
+
+/* 바 스툴은 캐릭터 다리만 가리도록 더 낮게 그립니다. */
+.scene-zone.is-bar .seat-furniture {
+  width: 76%;
+  height: calc(var(--avatar) * 0.26);
+}
+
+.seat.is-empty .seat-furniture {
+  opacity: 0.6;
+}
+
+.seat.is-empty .seat-plate-name {
+  color: #7d72a8;
 }
 
 .guest-hair {
@@ -820,8 +1076,8 @@ onUnmounted(() => {
 .seat-plate {
   width: 100%;
   box-sizing: border-box;
-  margin-top: -10px;
-  padding: 7px 6px;
+  margin-top: -2px;
+  padding: 6px 6px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -885,14 +1141,6 @@ onUnmounted(() => {
   overflow-wrap: anywhere;
 }
 
-.scene-empty {
-  width: 100%;
-  padding: 40px 0;
-  text-align: center;
-  font-size: 26px;
-  color: #9d8fd0;
-}
-
 .scene-counter {
   position: relative;
   z-index: 3;
@@ -912,6 +1160,7 @@ onUnmounted(() => {
 }
 
 .counter-front {
+  position: relative;
   height: 146px;
   background: repeating-linear-gradient(
     90deg,
@@ -919,6 +1168,38 @@ onUnmounted(() => {
     #74452e 68px 136px
   );
   box-shadow: inset 0 8px 0 rgba(0, 0, 0, 0.35);
+}
+
+/* 직원은 카운터 앞쪽에 서 있는 픽셀 캐릭터로 그립니다. */
+.counter-staff {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: translateX(-50%);
+  --hair: #2f2a3d;
+  --skin: #f7d5b5;
+  --eye: #241b33;
+  --mouth: #c8627a;
+  --shirt: #f4f1ea;
+}
+
+.staff-figure {
+  width: 92px;
+  height: 92px;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 6px 0 rgba(0, 0, 0, 0.3));
+}
+
+.staff-plate {
+  margin-top: 4px;
+  padding: 3px 10px;
+  font-size: 13px;
+  color: #ffe066;
+  background: #120f24;
+  box-shadow: 0 0 0 3px #3d3168;
 }
 
 .tv-chat {
@@ -1067,6 +1348,77 @@ onUnmounted(() => {
 .banner-fade-enter-from,
 .banner-fade-leave-to {
   opacity: 0;
+}
+
+.tv-announce {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 90px;
+  background: rgba(7, 5, 18, 0.62);
+  z-index: 30;
+  pointer-events: none;
+}
+
+.tv-announce-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 30px;
+  max-width: 1440px;
+  padding: 56px 78px;
+  text-align: center;
+  background: #1a1435;
+  box-shadow: 0 0 0 10px #7cf29c, 22px 22px 0 10px rgba(0, 0, 0, 0.45);
+}
+
+.tv-announce-tag {
+  font-size: 30px;
+  padding: 8px 24px;
+  color: #10102a;
+  background: #7cf29c;
+}
+
+.tv-announce-text {
+  margin: 0;
+  font-size: 68px;
+  line-height: 1.34;
+  color: #fdfbff;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  text-shadow: 5px 5px 0 rgba(0, 0, 0, 0.55);
+}
+
+.tv-announce-card.is-medium .tv-announce-text {
+  font-size: 54px;
+}
+
+.tv-announce-card.is-long .tv-announce-text {
+  font-size: 42px;
+}
+
+.announce-fade-enter-active,
+.announce-fade-leave-active {
+  transition: opacity 420ms ease;
+}
+
+.announce-fade-enter-active .tv-announce-card,
+.announce-fade-leave-active .tv-announce-card {
+  transition: transform 420ms cubic-bezier(0.22, 1.2, 0.36, 1),
+    opacity 420ms ease;
+}
+
+.announce-fade-enter-from,
+.announce-fade-leave-to {
+  opacity: 0;
+}
+
+.announce-fade-enter-from .tv-announce-card,
+.announce-fade-leave-to .tv-announce-card {
+  opacity: 0;
+  transform: translateY(30px) scale(0.9);
 }
 
 @keyframes tv-blink {
