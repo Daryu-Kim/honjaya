@@ -97,7 +97,7 @@ function buildActiveOrderSheetKeyCandidates(tableNumber) {
 }
 
 export function isReusableOrderSheetStatus(status) {
-  return status === "OPEN" || status === "PAYMENT_REQUESTED";
+  return status === "OPEN";
 }
 
 export const TABLE_NICKNAME_MAX_UNITS = 16;
@@ -156,8 +156,8 @@ export async function getOrCreateOpenOrderSheet(tableNumber) {
     tableNumber: safeTableNumber,
     displayName,
     tableNickname: "",
-    status: "OPEN", // OPEN, PAYMENT_REQUESTED, CLOSED
-    paymentStatus: "UNPAID", // UNPAID, REQUESTED, COMPLETED
+    status: "OPEN", // OPEN, CLOSED
+    paymentStatus: "UNPAID", // UNPAID, COMPLETED
     paymentMethod: "",
     totalAmount: 0,
     orderCount: 0,

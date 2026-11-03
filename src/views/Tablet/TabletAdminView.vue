@@ -2051,7 +2051,6 @@ function formatDateTime(value) {
 
 function convertOrderSheetStatusText(status) {
   if (status === "OPEN") return "이용중";
-  if (status === "PAYMENT_REQUESTED") return "결제요청";
   if (status === "PAID") return "결제완료";
   if (status === "CLOSED") return "마감";
   return status || "알 수 없음";
@@ -2081,7 +2080,6 @@ function resolveGiftTargetLabel(order) {
 
 function convertPaymentStatusText(status) {
   if (status === "UNPAID") return "미결제";
-  if (status === "REQUESTED") return "결제요청";
   if (status === "COMPLETED") return "결제완료";
   return status || "알 수 없음";
 }

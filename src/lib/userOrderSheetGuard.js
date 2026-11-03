@@ -5,11 +5,6 @@ export function isBlockedOrderSheetStatus(status) {
   return safeStatus === "PAID" || safeStatus === "CLOSED";
 }
 
-export function isUsableOrderSheetStatus(status) {
-  const safeStatus = String(status || "").trim();
-  return safeStatus === "OPEN" || safeStatus === "PAYMENT_REQUESTED";
-}
-
 export async function getOrderSheetStatus(orderSheetId) {
   const safeOrderSheetId = String(orderSheetId || "").trim();
 
