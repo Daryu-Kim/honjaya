@@ -256,7 +256,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { fetchList, subscribeTable, toTime } from "@/lib/supabase";
 import { normalizeTableNumber } from "@/lib/orderSheet";
 import {
@@ -282,6 +282,7 @@ import {
   sendStaffAlert,
 } from "@/lib/chat";
 
+const route = useRoute();
 const router = useRouter();
 
 const isMobile = ref(false);
@@ -854,7 +855,13 @@ onMounted(() => {
   blockedTableNumbers.value = getBlockedTableNumbers();
 
   if (!tableNumber.value || !displayName.value || !orderSheetId.value) {
-    router.replace("/enter");
+    // Push notifications and shared links can open this route directly, so the
+    // entry info has to be rebuilt from ?table= instead of dropping the guest.
+    const queryTable = normalizeTableNumber(route.query.table);
+
+    router.replace(
+      queryTable ? { path: "/enter", query: { table: queryTable } } : "/enter"
+    );
     return;
   }
 

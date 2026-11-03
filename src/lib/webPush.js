@@ -93,28 +93,28 @@ async function getServiceWorkerRegistration() {
     throw new Error("이 브라우저는 알림을 지원하지 않아요.");
   }
 
+  // `ready` resolves as soon as an active worker exists for this scope, which
+  // also covers the first visit while the worker is still activating.
+  const ready = await Promise.race([
+    navigator.serviceWorker.ready,
+    new Promise((resolve) => {
+      setTimeout(() => resolve(null), SW_READY_TIMEOUT_MS);
+    }),
+  ]);
+
+  if (ready) {
+    return ready;
+  }
+
   const existing = await navigator.serviceWorker.getRegistration();
 
   if (!existing) {
     throw new Error(
-      "알림은 배포된 앱에서만 켤 수 있어요. 잠시 후 다시 시도해주세요."
+      "알림 준비가 끝나지 않았어요. 새로고침 후 다시 시도해주세요."
     );
   }
 
-  return Promise.race([
-    navigator.serviceWorker.ready,
-    new Promise((resolve, reject) => {
-      setTimeout(
-        () =>
-          reject(
-            new Error(
-              "서비스 워커 준비가 지연되고 있어요. 새로고침 후 다시 시도해주세요."
-            )
-          ),
-        SW_READY_TIMEOUT_MS
-      );
-    }),
-  ]);
+  return existing;
 }
 
 function toSubscriptionPayload(subscription) {

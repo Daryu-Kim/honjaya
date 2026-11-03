@@ -35,7 +35,7 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 
-  const targetUrl = new URL(
+  const notificationUrl = new URL(
     (event.notification.data && event.notification.data.url) || DEFAULT_NOTIFICATION_URL,
     self.location.origin
   ).href;
@@ -52,16 +52,29 @@ self.addEventListener("notificationclick", (event) => {
           continue;
         }
 
+        // The table number lives in the query string, so keep whatever the open
+        // window already carries when the notification URL has none.
+        const currentUrl = new URL(client.url);
+        const nextUrl = new URL(notificationUrl);
+
+        if (!nextUrl.searchParams.get("table")) {
+          const currentTable = currentUrl.searchParams.get("table");
+
+          if (currentTable) {
+            nextUrl.searchParams.set("table", currentTable);
+          }
+        }
+
         await client.focus();
 
-        if ("navigate" in client) {
-          await client.navigate(targetUrl);
+        if ("navigate" in client && nextUrl.href !== currentUrl.href) {
+          await client.navigate(nextUrl.href);
         }
 
         return;
       }
 
-      await self.clients.openWindow(targetUrl);
+      await self.clients.openWindow(notificationUrl);
     })()
   );
 });

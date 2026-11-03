@@ -104,6 +104,13 @@ npx supabase functions deploy send-chat-push --project-ref <PROJECT_REF>
 
 > 서비스 워커는 프로덕션 빌드에서만 등록되므로, 알림 수신 테스트는 `pnpm build` 후 배포본(HTTPS)에서 진행하세요.
 
+#### 브라우저 지원
+
+- Android Chrome/Samsung Internet/Firefox, 데스크톱 Chrome/Edge/Firefox: **PWA 설치 없이** 일반 탭에서도 알림을 켜고 받을 수 있습니다 (HTTPS + 알림 권한 허용 필요).
+- iOS Safari: 16.4 이상에서 **홈 화면에 추가(PWA)** 한 상태에서만 지원합니다. 일반 탭에서는 알림을 켤 수 없습니다.
+- 설치형 PWA는 아이콘 실행 시 `start_url`로 열려 `?table=` 쿼리가 사라지므로, 테이블 입장은 항상 테이블 오더 카드의 링크(`/?table=3`)나 일반 브라우저 탭을 기준으로 안내하세요.
+- 알림 클릭 시 이동 주소는 수신자 테이블 기준 `/user/chat?table=<번호>`이며, 세션 정보가 없으면 `입장 화면(/enter?table=<번호>)`으로 이어집니다.
+
 ### Data migration
 
 ```

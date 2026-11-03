@@ -119,12 +119,17 @@ function resolveTargets(message: ChatMessage): Set<string> {
   return targets;
 }
 
-function buildPayload(message: ChatMessage) {
+function buildPayload(message: ChatMessage, recipientTableNumber: string) {
   const senderName = String(message.sender_label || message.nickname || "").trim();
   const title = senderName
     ? `${senderName} · ${roomTitle(message)}`
     : roomTitle(message);
   const text = String(message.message || "").replace(/\s+/g, " ").trim();
+  // The table number rides along so a cold start can rebuild the guest's entry
+  // info instead of dropping them on the root screen.
+  const url = recipientTableNumber
+    ? `${CHAT_URL}?table=${recipientTableNumber}`
+    : CHAT_URL;
 
   return {
     title,
@@ -132,7 +137,7 @@ function buildPayload(message: ChatMessage) {
       text.length > BODY_LIMIT
         ? `${text.slice(0, BODY_LIMIT)}…`
         : text || "새 메시지가 도착했어요.",
-    url: CHAT_URL,
+    url,
     tag: `honjaya-${message.room_key || "global"}`,
     vibrate: [80, 40, 80],
   };
@@ -231,19 +236,20 @@ Deno.serve(async (request) => {
     return jsonResponse({ skipped: "no_subscribers", targets: [...targets] });
   }
 
-  const payload = JSON.stringify(buildPayload(target));
   const staleIds: string[] = [];
   let sent = 0;
 
   await Promise.all(
     recipients.map(async (row) => {
+      const table = normalizeTableNumber(row.table_number);
+
       try {
         await webpush.sendNotification(
           {
             endpoint: row.endpoint,
             keys: { p256dh: row.p256dh, auth: row.auth },
           },
-          payload,
+          JSON.stringify(buildPayload(target, table)),
           { TTL: 600, urgency: "high" }
         );
         sent += 1;
