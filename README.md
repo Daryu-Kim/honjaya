@@ -76,6 +76,15 @@ pnpm menu:import -- --file menu-data/menu.json --apply    # 반영
 - 태블릿 운영판 — 헤더의 `💬 테이블 채팅` 버튼으로 테이블별 호출/메시지 확인·답장(호출이 오면 배지 + 알림음)
 - `chat_messages`는 `room_key`로 방을 구분합니다: `global`, `staff_3`, `dm_3_7`
 
+### Bar TV screen
+
+- 매장 TV에서 `/tv` 를 전체화면으로 띄웁니다. 로그인 없이 읽기 전용으로 동작합니다.
+- 착석 좌석은 `active_order_sheets` 기준이고, 이름표는 `order_sheets.table_nickname`(없으면 `손님`)을 사용합니다.
+- 전체 채팅(`GLOBAL`)만 표시합니다: 새 메시지가 오면 해당 테이블 캐릭터 위에 6초 말풍선이 뜨고, 우측 패널에 최근 6개가 쌓입니다. `SYSTEM`/`ADMIN` 메시지는 하단 배너로 표시합니다.
+- **1:1(`DIRECT`)·직원(`STAFF`) 방은 조회 자체를 하지 않아 TV에 노출되지 않습니다.**
+- 1920×1080 기준 화면을 뷰포트에 맞춰 축소(`transform: scale`)하므로 어떤 해상도의 TV에서도 잘리지 않습니다.
+- 운영 편의: 5시 자동 새로고침, 20~60초 폴링 백업, 오프라인 시 `OFFLINE` 표시, 3초 뒤 마우스 커서 숨김.
+
 ### Web push notifications
 
 손님 폰이 앱을 닫아도(백그라운드/잠금 화면) 전체 채팅·1:1 채팅·직원 답장을 받을 수 있게 하는 Web Push 구성입니다.

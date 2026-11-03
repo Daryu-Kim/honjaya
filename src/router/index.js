@@ -13,6 +13,7 @@ import AdminProductFormView from "@/views/Admin/AdminProductFormView.vue";
 import AdminCategoryView from "@/views/Admin/AdminCategoryView.vue";
 import AdminRecipeView from "@/views/Admin/AdminRecipeView.vue";
 import TabletAdminView from "@/views/Tablet/TabletAdminView.vue";
+import TvBarView from "@/views/Tv/TvBarView.vue";
 import AdminDashboardView from "@/views/Admin/AdminDashboardView.vue";
 import AdminSalesView from "@/views/Admin/AdminSalesView.vue";
 import AdminPaymentHistoryView from "@/views/Admin/AdminPaymentHistoryView.vue";
@@ -69,6 +70,12 @@ const routes = [
     path: "/user/order-complete",
     name: "user-order-complete",
     component: UserOrderCompleteView,
+  },
+  {
+    // Read-only screen for the bar TV. It never shows 1:1 or staff rooms.
+    path: "/tv",
+    name: "tv-bar",
+    component: TvBarView,
   },
   {
     path: "/admin",
