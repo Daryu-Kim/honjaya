@@ -47,6 +47,9 @@
         </div>
 
         <div class="tv-status">
+          <span v-if="!isSoundUnlocked" class="tv-sound-hint">
+            🔇 화면을 한 번 터치하면 알림음이 켜져요
+          </span>
           <span class="tv-live" :class="{ 'is-offline': !isOnline }">
             {{ isOnline ? "LIVE" : "OFFLINE" }}
           </span>
@@ -225,6 +228,12 @@ import {
   getChatDayStartIso,
 } from "@/lib/chat";
 import { normalizeTableNumber } from "@/lib/orderSheet";
+import {
+  TV_CHIME,
+  isSoundUnlocked,
+  playNotificationChime,
+  primeNotificationSound,
+} from "@/lib/notificationSound";
 
 const DESIGN_WIDTH = 1920;
 const DESIGN_HEIGHT = 1080;
@@ -726,6 +735,7 @@ function playNextAnnouncement() {
   }
 
   announcement.value = next;
+  playNotificationChime(TV_CHIME);
 
   announceTimer = setTimeout(() => {
     announcement.value = null;
@@ -780,6 +790,7 @@ onMounted(() => {
   updateStageScale();
   updateClock();
   revealCursor();
+  primeNotificationSound();
 
   window.addEventListener("resize", updateStageScale);
   window.addEventListener("online", handleOnline);
@@ -906,6 +917,14 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 22px;
+}
+
+.tv-sound-hint {
+  padding: 8px 16px;
+  font-size: 17px;
+  color: #2b1b00;
+  background: #ffe066;
+  box-shadow: 4px 4px 0 #7a4b00;
 }
 
 .tv-live {

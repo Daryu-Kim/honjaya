@@ -20,6 +20,10 @@ import {
   parseDirectRoomKey,
 } from "@/lib/chat";
 import { normalizeTableNumber } from "@/lib/orderSheet";
+import {
+  playNotificationChime,
+  registerSoundUnlock,
+} from "@/lib/notificationSound";
 
 const ENTRY_STORAGE_KEY = "userEntryInfo";
 const CHAT_ROUTE_PATH = "/user/chat";
@@ -42,9 +46,7 @@ const alertTimers = new Map();
 let isPrimed = false;
 let sessionStartedAt = "";
 let unsubscribeMessages = null;
-let audioContext = null;
 let titleBeforeBadge = "";
-let hasUnlockListeners = false;
 let hasVisibilityListener = false;
 
 function readEntryTableNumber() {
@@ -163,79 +165,6 @@ function vibrate() {
   navigator.vibrate([14, 40, 14]);
 }
 
-function ensureAudioContext() {
-  if (audioContext) {
-    return audioContext;
-  }
-
-  const AudioCtor = window.AudioContext || window.webkitAudioContext;
-
-  if (!AudioCtor) {
-    return null;
-  }
-
-  try {
-    audioContext = new AudioCtor();
-  } catch (error) {
-    audioContext = null;
-  }
-
-  return audioContext;
-}
-
-function unlockAudio() {
-  const context = ensureAudioContext();
-
-  if (!context || context.state !== "suspended") {
-    return;
-  }
-
-  context.resume().catch(() => {});
-}
-
-// Mobile browsers only allow audio after a user gesture, so the context is
-// created lazily on the first touch/click/key anywhere in the app.
-function registerUnlockListeners() {
-  if (hasUnlockListeners) {
-    return;
-  }
-
-  hasUnlockListeners = true;
-  ["pointerdown", "touchstart", "keydown"].forEach((eventName) => {
-    window.addEventListener(eventName, unlockAudio, { passive: true });
-  });
-}
-
-function playChatSound() {
-  const context = audioContext;
-
-  if (!context || context.state !== "running") {
-    return;
-  }
-
-  const startAt = context.currentTime;
-  const tones = [
-    { offset: 0, frequency: 880 },
-    { offset: 0.09, frequency: 1318 },
-  ];
-
-  tones.forEach(({ offset, frequency }) => {
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-
-    oscillator.type = "sine";
-    oscillator.frequency.value = frequency;
-    gain.gain.setValueAtTime(0.0001, startAt + offset);
-    gain.gain.exponentialRampToValueAtTime(0.2, startAt + offset + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, startAt + offset + 0.13);
-
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-    oscillator.start(startAt + offset);
-    oscillator.stop(startAt + offset + 0.15);
-  });
-}
-
 function applyTitleBadge(count) {
   if (!titleBeforeBadge) {
     titleBeforeBadge = String(document.title || "").replace(/^\(\d+\)\s+/, "");
@@ -276,7 +205,7 @@ function pushAlert(message) {
     setTimeout(() => dismissAlert(alert.id), ALERT_LIFETIME_MS)
   );
 
-  playChatSound();
+  playNotificationChime();
   vibrate();
 }
 
@@ -409,7 +338,7 @@ export function startChatAlerts() {
   tableNumber.value = nextTableNumber;
   isRunning.value = true;
   sessionStartedAt = new Date().toISOString();
-  registerUnlockListeners();
+  registerSoundUnlock();
 
   if (!hasVisibilityListener) {
     hasVisibilityListener = true;
