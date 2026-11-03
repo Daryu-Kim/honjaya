@@ -48,7 +48,7 @@ pnpm lint
 - [supabase/patch-006-web-push.sql](supabase/patch-006-web-push.sql) — Web Push 구독 테이블(`push_subscriptions`) + 런타임 설정(`app_settings`)
 - [supabase/patch-007-web-push-trigger.sql](supabase/patch-007-web-push-trigger.sql) — 새 채팅 메시지를 `send-chat-push` Edge Function으로 넘기는 `pg_net` 트리거
 - [supabase/patch-008-hearts.sql](supabase/patch-008-hearts.sql) — 익명 하트 테이블(`hearts`) + 상호 하트 공개 컬럼(`is_revealed`) + Realtime 등록 패치
-- [supabase/patch-009-bar-notes.sql](supabase/patch-009-bar-notes.sql) — 오늘의 한 줄 테이블(`bar_notes`) + 주문서당 영업일 1개 제약 + Realtime 등록 패치
+- [supabase/patch-009-drop-bar-notes.sql](supabase/patch-009-drop-bar-notes.sql) — 제거된 '오늘의 한 줄' 테이블(`bar_notes`) 정리 패치
 
 > `patch-001` → `patch-002` 순서로 Supabase SQL Editor에서 실행하세요. 두 패치는 여러 번 실행해도 안전합니다.
 > `patch-003`은 스키마가 아니라 데이터만 바꾸는 선택 패치라서, 메뉴를 전면 교체할 때만 실행하면 됩니다.
@@ -56,7 +56,7 @@ pnpm lint
 > `patch-005`는 결제 요청 기능을 걷어낸 뒤 한 번 실행하면 되고, 여러 번 실행해도 안전합니다.
 > `patch-006` → `patch-007`은 Web Push를 켤 때 순서대로 실행하세요. `patch-007`은 아래 배포 절차를 마친 뒤에 실행합니다.
 > `patch-008`은 익명 하트를 켤 때 한 번 실행하면 되고, 여러 번 실행해도 안전합니다.
-> `patch-009`는 오늘의 한 줄을 켤 때 한 번 실행하면 되고, 여러 번 실행해도 안전합니다.
+> `patch-009`는 '오늘의 한 줄' 기능을 제거한 뒤 한 번 실행하면 되고, 여러 번 실행해도 안전합니다.
 
 ### Menu import
 
@@ -92,15 +92,6 @@ pnpm menu:import -- --file menu-data/menu.json --apply    # 반영
 - 처음 적용하는 프로젝트에서는 Supabase SQL Editor에서 [supabase/patch-008-hearts.sql](supabase/patch-008-hearts.sql)을 실행하세요. 여러 번 실행해도 안전합니다.
 - 익명성은 화면 표시 기준입니다. 앱은 anon key로 동작하므로 DB 레벨에서 보낸 테이블을 숨기지는 않습니다.
 
-### Today's one line (`bar_notes`)
-
-- 고객 메인(`/user/main`)의 `📝 오늘의 한 줄` 카드에서 **10자**까지 한 줄을 남깁니다. 등록된 한 줄은 TV 화면 우측 `오늘의 한 줄` 보드에 최신 5개까지 쌓입니다.
-- **주문서 기준 영업일 1개**입니다(`order_sheet_id` + `business_date` 유니크). 같은 주문서로는 하루에 한 번만 남길 수 있고, 남긴 뒤에는 **수정·삭제**가 가능합니다(수정은 30초 쿨다운).
-- 새 한 줄이 등록되면 TV에 `📝 {닉네임}({번호}번) · {한 줄}` 배너가 노란 톤으로 표시됩니다.
-- 저장 전에 [src/lib/profanity.js](src/lib/profanity.js)의 금칙어 목록으로 마스킹하고, 화면에는 안내 문구(비속어는 가려지거나 강제 변경될 수 있음)를 함께 보여줍니다.
-- 결제 완료 또는 테이블 정리 시 해당 테이블의 한 줄은 삭제되고, 영업일이 바뀌면 지난 영업일 한 줄도 정리됩니다. 규칙은 [src/lib/barNotes.js](src/lib/barNotes.js)에 모여 있습니다.
-- 처음 적용하는 프로젝트에서는 Supabase SQL Editor에서 [supabase/patch-009-bar-notes.sql](supabase/patch-009-bar-notes.sql)을 실행하세요. 여러 번 실행해도 안전합니다.
-
 ### Business day
 
 - 매장 영업일은 **KST 15:00:00 ~ 익일 14:59:59**(영업은 새벽 4시까지) 기준입니다.
@@ -117,11 +108,12 @@ pnpm menu:import -- --file menu-data/menu.json --apply    # 반영
 - 매장에 없는 **25번 테이블은 좌석으로 그리지 않습니다.** 총 31석이며, 손님이 있으면 캐릭터가, 없으면 빈 의자(스툴/테이블)만 표시되고 이름표는 `빈자리`가 됩니다.
 - 좌석 가구(바 스툴 · 홀 테이블)는 픽셀 스프라이트를 캐릭터 앞에 겹쳐 그려 앉아 있는 모습을 만듭니다. 카운터 앞에는 직원 픽셀 캐릭터가 상시 서 있습니다.
 - 착석 좌석은 `active_order_sheets` 기준이고, 이름표는 `order_sheets.table_nickname`(없으면 `손님`)을 사용합니다. 배치에 없는 번호의 주문은 좌석 없이 `외 N팀`으로만 집계합니다.
-- 멀리서도 읽히도록 화면 전체가 큰 글씨 기준으로 맞춰져 있습니다(말풍선 26px, 최근 채팅 24px, 한 줄 22px, 배너 30px). 맨 위 브랜드 영역만 기존 크기를 유지합니다. 줄의 양 끝 좌석은 말풍선을 안쪽으로 붙여 화면 밖으로 잘리지 않게 정렬합니다.
+- 멀리서도 읽히도록 화면 전체가 큰 글씨 기준으로 맞춰져 있습니다(말풍선 26px, 최근 채팅 24px, 배너 30px). 맨 위 브랜드 영역만 기존 크기를 유지합니다. 말풍선은 `word-break: keep-all`로 단어 중간이 끊기지 않게 하고, 줄의 양 끝 좌석은 말풍선을 안쪽으로 붙여 화면 밖으로 잘리지 않게 정렬합니다.
+- 여러 좌석이 동시에 말풍선을 띄우면 **가장 최근에 채팅한 좌석의 말풍선이 맨 앞**에 오도록 좌석·줄 `z-index`를 갱신합니다.
 - 벽면은 네온 `BAR` + 병 진열장을 낮게 붙여 좌석 공간을 넓히고, 카운터와 직원 캐릭터는 작게 그려 좌석 가독성을 우선합니다. 색감은 매장 조명에 맞춘 다크 로즈/앰버 톤입니다.
-- 전체 채팅(`GLOBAL`)만 표시합니다: 새 메시지가 오면 해당 테이블 캐릭터 위에 6초 말풍선이 뜨고, 우측 패널에 최근 6개가 쌓입니다. `SYSTEM` 메시지는 하단 배너로 표시합니다.
+- 전체 채팅(`GLOBAL`)만 표시합니다: 새 메시지가 오면 해당 테이블 캐릭터 위에 6초 말풍선이 뜨고, 우측 패널에 최근 8개가 쌓입니다. `SYSTEM` 메시지는 하단 배너로 표시합니다.
 - 직원 메시지(`ADMIN`)는 우측 최근 채팅에 남는 것과 동시에, 화면 가운데에 큰 카드로 페이드인 → 8초 유지 → 페이드아웃으로 표시되고 알림음이 재생됩니다. 여러 건이 한꺼번에 들어오면 순서대로 하나씩 재생됩니다.
-- 우측 사이드 패널은 `최근 채팅`과 `오늘의 한 줄` 2단입니다. 한 줄 보드는 오늘 등록된 최신 5개를 보여주고, 새 한 줄이 오면 노란 배너로 알립니다.
+- 우측 사이드 패널은 `최근 채팅` 단일 목록입니다.
 - 알림음은 `src/lib/notificationSound.js`의 Web Audio 차임을 쓰며, 브라우저 정책상 페이지를 한 번 터치/클릭해야 소리가 켜집니다. 잠겨 있는 동안 상단에 `🔇 화면을 한 번 터치하면 알림음이 켜져요` 안내가 뜨고, 소리가 켜지면 사라집니다. TV를 켤 때 Chrome을 `--autoplay-policy=no-user-gesture-required` 로 실행하면 터치 없이도 재생됩니다.
 - **1:1(`DIRECT`)·직원(`STAFF`) 방은 조회 자체를 하지 않아 TV에 노출되지 않습니다.**
 - 1920×1080 기준 화면을 뷰포트에 맞춰 축소(`transform: scale`)하므로 어떤 해상도의 TV에서도 잘리지 않습니다.

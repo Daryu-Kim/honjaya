@@ -131,19 +131,6 @@ create table if not exists public.hearts (
   updated_at timestamptz not null default now()
 );
 
--- 오늘의 한 줄: 손님이 주문서마다 영업일 1개 남기는 10자 문구 (매장 TV 보드 노출)
-create table if not exists public.bar_notes (
-  id text primary key,
-  order_sheet_id text not null default '',
-  table_number text not null default '',
-  nickname text not null default '',
-  message text not null default '',
-  business_date timestamptz not null default now(),
-  is_hidden boolean not null default false,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
 create table if not exists public.counters (
   id text primary key, -- e.g. 'orderSheet'
   last_sequence_no integer not null default 0,
@@ -187,15 +174,6 @@ create index if not exists hearts_pair_idx
 create unique index if not exists active_order_sheets_table_number_idx
   on public.active_order_sheets (table_number);
 
-create unique index if not exists bar_notes_sheet_business_date_idx
-  on public.bar_notes (order_sheet_id, business_date);
-
-create index if not exists bar_notes_business_date_created_at_idx
-  on public.bar_notes (business_date desc, created_at desc);
-
-create index if not exists bar_notes_table_number_idx
-  on public.bar_notes (table_number);
-
 -- ---------------------------------------------------------------------------
 -- Row Level Security
 -- ---------------------------------------------------------------------------
@@ -207,7 +185,6 @@ alter table public.orders enable row level security;
 alter table public.active_order_sheets enable row level security;
 alter table public.chat_messages enable row level security;
 alter table public.hearts enable row level security;
-alter table public.bar_notes enable row level security;
 alter table public.counters enable row level security;
 
 grant usage on schema public to anon, authenticated, service_role;
@@ -221,7 +198,6 @@ grant select, insert, update on public.orders to anon, authenticated;
 grant select, insert, update, delete on public.active_order_sheets to anon, authenticated;
 grant select, insert, update on public.chat_messages to anon, authenticated;
 grant select, insert, update, delete on public.hearts to anon, authenticated;
-grant select, insert, update, delete on public.bar_notes to anon, authenticated;
 grant select, insert, update on public.counters to anon, authenticated;
 
 -- service_role bypasses RLS; grant kept explicit for import scripts.
@@ -255,10 +231,6 @@ create policy "hearts: app all"
   on public.hearts for all to anon, authenticated
   using (true) with check (true);
 
-create policy "bar_notes: app all"
-  on public.bar_notes for all to anon, authenticated
-  using (true) with check (true);
-
 create policy "counters: app all"
   on public.counters for all to anon, authenticated
   using (true) with check (true);
@@ -273,7 +245,6 @@ alter publication supabase_realtime add table
   public.active_order_sheets,
   public.chat_messages,
   public.hearts,
-  public.bar_notes,
   public.products,
   public.categories,
   public.counters;
@@ -284,7 +255,6 @@ alter table public.orders replica identity full;
 alter table public.active_order_sheets replica identity full;
 alter table public.chat_messages replica identity full;
 alter table public.hearts replica identity full;
-alter table public.bar_notes replica identity full;
 alter table public.products replica identity full;
 alter table public.categories replica identity full;
 alter table public.counters replica identity full;

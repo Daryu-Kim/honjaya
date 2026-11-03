@@ -87,17 +87,6 @@
             <p>다른 테이블에 누가 보냈는지 모르게 하트를 보낼 수 있어요.</p>
           </div>
         </button>
-
-        <button type="button" class="menu-card" @click="openBarNoteSheet">
-          <div class="menu-icon">📝</div>
-          <div class="menu-text">
-            <strong>
-              오늘의 한 줄
-              <span v-if="myBarNote" class="menu-note-badge">등록됨</span>
-            </strong>
-            <p>짧은 한 줄을 남기면 가게 TV 화면에 보여요.</p>
-          </div>
-        </button>
       </section>
 
       <section class="external-links-section">
@@ -263,105 +252,6 @@
         </div>
       </div>
     </transition>
-
-    <transition name="fade">
-      <div
-        v-if="isBarNoteSheetOpen"
-        class="sheet-overlay"
-        @click.self="closeBarNoteSheet"
-      >
-        <div class="sheet-card">
-          <h3>오늘의 한 줄</h3>
-          <p class="sheet-description">
-            짧은 한 줄을 남기면 가게 TV 화면에 보여요. 주문서마다 하루에 한 번
-            쓸 수 있고, 마음이 바뀌면 수정하거나 삭제할 수 있어요.
-          </p>
-
-          <p v-if="isLoadingBarNote" class="bar-note-empty">
-            오늘 남긴 한 줄을 확인하는 중이에요...
-          </p>
-
-          <div v-else-if="myBarNote" class="bar-note-preview">
-            <span class="bar-note-preview-table">{{ myBarNoteLabel }}</span>
-            <p class="bar-note-preview-message">{{ myBarNote.message }}</p>
-            <span class="bar-note-preview-time">
-              {{ barNoteUpdatedText }}
-            </span>
-          </div>
-
-          <p v-else class="bar-note-empty">
-            아직 오늘의 한 줄을 남기지 않았어요.
-          </p>
-
-          <label class="bar-note-field">
-            <span class="bar-note-field-label">
-              한 줄 (최대 {{ BAR_NOTE_MAX_LENGTH }}자)
-            </span>
-            <input
-              v-model="barNoteDraft"
-              type="text"
-              maxlength="20"
-              class="bar-note-input"
-              placeholder="오늘 기분을 한 줄로 남겨보세요"
-              :disabled="isSavingBarNote"
-              @input="handleBarNoteInput"
-            />
-          </label>
-
-          <p
-            class="bar-note-counter"
-            :class="{ over: barNoteLength > BAR_NOTE_MAX_LENGTH }"
-          >
-            {{ barNoteLength }} / {{ BAR_NOTE_MAX_LENGTH }}
-          </p>
-          <p v-if="barNoteDraftError" class="sheet-error">
-            {{ barNoteDraftError }}
-          </p>
-          <p class="sheet-helper">
-            비속어나 불쾌감을 주는 표현은 가려지거나 운영진에 의해 강제로 변경될
-            수 있어요.
-          </p>
-          <p v-if="barNoteError" class="sheet-error">{{ barNoteError }}</p>
-          <p v-if="barNoteFeedback" class="sheet-success">
-            {{ barNoteFeedback }}
-          </p>
-
-          <div class="sheet-actions">
-            <button
-              type="button"
-              class="sheet-button is-ghost"
-              :disabled="isSavingBarNote"
-              @click="closeBarNoteSheet"
-            >
-              닫기
-            </button>
-            <button
-              v-if="myBarNote"
-              type="button"
-              class="sheet-button is-danger"
-              :disabled="isSavingBarNote"
-              @click="deleteMyBarNoteAction"
-            >
-              {{ isSavingBarNote ? "처리 중..." : "삭제" }}
-            </button>
-            <button
-              type="button"
-              class="sheet-button is-primary"
-              :disabled="isSavingBarNote || !!barNoteDraftError"
-              @click="saveBarNoteAction"
-            >
-              {{
-                isSavingBarNote
-                  ? "저장 중..."
-                  : myBarNote
-                  ? "수정하기"
-                  : "남기기"
-              }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </transition>
   </div>
 </template>
 
@@ -377,14 +267,6 @@ import {
   updateOrderSheetNickname,
 } from "@/lib/orderSheet";
 import { fetchHeartTargets, sendAnonymousHeart } from "@/lib/hearts";
-import {
-  BAR_NOTE_MAX_LENGTH,
-  countBarNoteLength,
-  deleteMyBarNote,
-  fetchMyBarNote,
-  getBarNoteErrorMessage,
-  saveMyBarNote,
-} from "@/lib/barNotes";
 
 const router = useRouter();
 
@@ -403,13 +285,6 @@ const heartTargets = ref([]);
 const heartTargetTable = ref("");
 const heartError = ref("");
 const heartFeedback = ref("");
-const isBarNoteSheetOpen = ref(false);
-const isLoadingBarNote = ref(false);
-const isSavingBarNote = ref(false);
-const myBarNote = ref(null);
-const barNoteDraft = ref("");
-const barNoteError = ref("");
-const barNoteFeedback = ref("");
 
 const tableText = computed(() => {
   return tableNumber.value
@@ -435,41 +310,6 @@ const nicknameDraftError = computed(() => {
   return isNicknameEditorOpen.value
     ? getTableNicknameErrorMessage(nicknameDraft.value)
     : "";
-});
-
-const barNoteLength = computed(() => countBarNoteLength(barNoteDraft.value));
-
-const barNoteDraftError = computed(() => {
-  if (!isBarNoteSheetOpen.value || !barNoteDraft.value.trim()) {
-    return "";
-  }
-
-  return getBarNoteErrorMessage(barNoteDraft.value);
-});
-
-const myBarNoteLabel = computed(() => {
-  return tableNickname.value
-    ? `${tableNickname.value} (${tableText.value})`
-    : tableText.value;
-});
-
-const barNoteUpdatedText = computed(() => {
-  const updatedAt = myBarNote.value?.updatedAt;
-
-  if (!updatedAt) {
-    return "";
-  }
-
-  const date = new Date(updatedAt);
-
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-
-  return `${date.getHours()}시 ${String(date.getMinutes()).padStart(
-    2,
-    "0"
-  )}분 기준`;
 });
 
 function detectMobile() {
@@ -633,112 +473,6 @@ async function sendHeart() {
   }
 }
 
-function handleBarNoteInput() {
-  barNoteError.value = "";
-  barNoteFeedback.value = "";
-}
-
-async function loadMyBarNote() {
-  if (!orderSheetId.value) {
-    myBarNote.value = null;
-    return;
-  }
-
-  isLoadingBarNote.value = true;
-
-  try {
-    myBarNote.value = await fetchMyBarNote({
-      orderSheetId: orderSheetId.value,
-    });
-  } catch (error) {
-    console.error("오늘의 한 줄 조회 실패:", error);
-    barNoteError.value = "오늘의 한 줄을 불러오지 못했어요.";
-    myBarNote.value = null;
-  } finally {
-    isLoadingBarNote.value = false;
-  }
-}
-
-function openBarNoteSheet() {
-  barNoteError.value = "";
-  barNoteFeedback.value = "";
-  barNoteDraft.value = myBarNote.value?.message || "";
-  isBarNoteSheetOpen.value = true;
-  loadMyBarNote().then(() => {
-    if (!isBarNoteSheetOpen.value) return;
-
-    barNoteDraft.value = myBarNote.value?.message || barNoteDraft.value;
-  });
-}
-
-function closeBarNoteSheet() {
-  if (isSavingBarNote.value) {
-    return;
-  }
-
-  isBarNoteSheetOpen.value = false;
-}
-
-async function saveBarNoteAction() {
-  if (isSavingBarNote.value || barNoteDraftError.value) {
-    return;
-  }
-
-  if (!orderSheetId.value) {
-    barNoteError.value = "주문서 정보를 찾을 수 없어 한 줄을 남길 수 없어요.";
-    return;
-  }
-
-  barNoteError.value = "";
-  barNoteFeedback.value = "";
-  isSavingBarNote.value = true;
-
-  try {
-    const wasEditing = Boolean(myBarNote.value);
-
-    myBarNote.value = await saveMyBarNote({
-      orderSheetId: orderSheetId.value,
-      tableNumber: tableNumber.value,
-      nickname: tableNickname.value,
-      message: barNoteDraft.value,
-    });
-    barNoteDraft.value = myBarNote.value.message;
-    barNoteFeedback.value = wasEditing
-      ? "오늘의 한 줄을 수정했어요. TV 화면에서 확인해보세요!"
-      : "오늘의 한 줄을 남겼어요. TV 화면에서 확인해보세요!";
-  } catch (error) {
-    barNoteError.value = error?.message || "한 줄을 저장하지 못했어요.";
-  } finally {
-    isSavingBarNote.value = false;
-  }
-}
-
-async function deleteMyBarNoteAction() {
-  if (isSavingBarNote.value || !myBarNote.value) {
-    return;
-  }
-
-  if (!window.confirm("오늘 남긴 한 줄을 삭제할까요?")) {
-    return;
-  }
-
-  barNoteError.value = "";
-  barNoteFeedback.value = "";
-  isSavingBarNote.value = true;
-
-  try {
-    await deleteMyBarNote(myBarNote.value.id);
-    myBarNote.value = null;
-    barNoteDraft.value = "";
-    barNoteFeedback.value = "오늘의 한 줄을 삭제했어요.";
-  } catch (error) {
-    console.error("오늘의 한 줄 삭제 실패:", error);
-    barNoteError.value = "한 줄을 삭제하지 못했어요.";
-  } finally {
-    isSavingBarNote.value = false;
-  }
-}
-
 function goOrder() {
   router.push("/user/order");
 }
@@ -764,8 +498,6 @@ onMounted(() => {
     router.replace("/enter");
     return;
   }
-
-  loadMyBarNote();
 });
 </script>
 
@@ -939,21 +671,6 @@ onMounted(() => {
   border-radius: 11px;
   background: #ff4d6d;
   color: #fff;
-  font-size: 12px;
-  font-weight: 800;
-  vertical-align: middle;
-}
-
-.menu-note-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 22px;
-  margin-left: 6px;
-  padding: 0 8px;
-  border-radius: 11px;
-  background: rgba(252, 211, 77, 0.9);
-  color: #1f2937;
   font-size: 12px;
   font-weight: 800;
   vertical-align: middle;
@@ -1190,91 +907,6 @@ onMounted(() => {
 .sheet-button.is-danger {
   background: rgba(248, 113, 113, 0.25);
   color: #fecaca;
-}
-
-.bar-note-empty {
-  margin: 0;
-  padding: 14px 0;
-  font-size: 13px;
-  line-height: 1.6;
-  color: rgba(255, 255, 255, 0.6);
-  text-align: center;
-}
-
-.bar-note-preview {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 14px 16px;
-  border: 1px solid rgba(252, 211, 77, 0.35);
-  border-radius: 18px;
-  background: rgba(252, 211, 77, 0.1);
-}
-
-.bar-note-preview-table {
-  font-size: 12px;
-  font-weight: 700;
-  color: rgba(252, 211, 77, 0.9);
-}
-
-.bar-note-preview-message {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 800;
-  line-height: 1.4;
-  word-break: break-all;
-  color: #ffffff;
-}
-
-.bar-note-preview-time {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.55);
-}
-
-.bar-note-field {
-  display: block;
-  margin-top: 14px;
-}
-
-.bar-note-field-label {
-  display: block;
-  margin-bottom: 6px;
-  font-size: 12px;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.bar-note-input {
-  width: 100%;
-  height: 46px;
-  padding: 0 14px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #ffffff;
-  font-size: 15px;
-  font-weight: 700;
-  outline: none;
-
-  &::placeholder {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  &:focus {
-    border-color: rgba(252, 211, 77, 0.6);
-  }
-}
-
-.bar-note-counter {
-  margin: 6px 0 0;
-  font-size: 12px;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.5);
-  text-align: right;
-
-  &.over {
-    color: #fca5a5;
-  }
 }
 
 .sheet-error {

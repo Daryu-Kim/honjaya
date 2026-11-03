@@ -29,7 +29,6 @@ import ChatAlertHost from "@/components/ChatAlertHost.vue";
 import { startChatAlerts, stopChatAlerts } from "@/lib/chatAlerts";
 import { ensureChatMessagesClearedForToday } from "@/lib/chat";
 import { ensureHeartsClearedForToday } from "@/lib/hearts";
-import { ensureBarNotesClearedForToday } from "@/lib/barNotes";
 import { globalBusyMessage, isGlobalBusy } from "@/lib/globalBusy";
 
 const CHAT_PURGE_CHECK_MS = 10 * 60 * 1000;
@@ -45,10 +44,6 @@ function runChatPurge() {
 
   ensureHeartsClearedForToday().catch((error) => {
     console.error("[hearts] 하트 정리 확인 실패", error);
-  });
-
-  ensureBarNotesClearedForToday().catch((error) => {
-    console.error("[barNotes] 오늘의 한 줄 정리 확인 실패", error);
   });
 }
 

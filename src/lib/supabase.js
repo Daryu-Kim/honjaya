@@ -45,7 +45,6 @@ const TABLE_MAPS = {
   appSettings: "app_settings",
   app_settings: "app_settings",
   hearts: "hearts",
-  barNotes: "bar_notes",
 };
 
 // app field name -> postgres column name (keys that match are omitted)
@@ -144,16 +143,6 @@ const FIELD_MAPS = {
     toNickname: "to_nickname",
     businessDate: "business_date",
     isRevealed: "is_revealed",
-    createdAt: "created_at",
-    updatedAt: "updated_at",
-  },
-  bar_notes: {
-    orderSheetId: "order_sheet_id",
-    tableNumber: "table_number",
-    nickname: "nickname",
-    message: "message",
-    businessDate: "business_date",
-    isHidden: "is_hidden",
     createdAt: "created_at",
     updatedAt: "updated_at",
   },

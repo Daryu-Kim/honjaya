@@ -62,6 +62,7 @@
             :key="zone.key"
             class="scene-zone"
             :class="`is-${zone.key}`"
+            :style="{ zIndex: zoneZIndexOf(zone) }"
           >
             <div
               v-for="slot in zone.slots"
@@ -205,27 +206,6 @@
               <span class="tv-chat-foot-dot">●</span>
             </div>
           </div>
-
-          <section class="tv-notes">
-            <div class="tv-notes-head">
-              <h2>오늘의 한 줄</h2>
-              <span class="tv-notes-count">{{ panelNotes.length }}</span>
-            </div>
-
-            <ul class="tv-notes-list">
-              <li
-                v-for="note in panelNotes"
-                :key="note.id"
-                class="tv-note-item"
-              >
-                <span class="tv-note-from">{{ note.from }}</span>
-                <span class="tv-note-text">{{ note.text }}</span>
-              </li>
-              <li v-if="panelNotes.length === 0" class="tv-notes-empty">
-                아직 남겨진 한 줄이 없어요.
-              </li>
-            </ul>
-          </section>
         </aside>
       </main>
 
@@ -262,8 +242,6 @@ import {
 } from "@/lib/chat";
 import { normalizeTableNumber } from "@/lib/orderSheet";
 import { fetchTodayHearts } from "@/lib/hearts";
-import { fetchTodayBarNotes } from "@/lib/barNotes";
-import { maskProfanity } from "@/lib/profanity";
 import {
   TV_CHIME,
   isSoundUnlocked,
@@ -279,9 +257,7 @@ const BAR_TABLE_NUMBERS = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3];
 const HALL_BACK_TABLE_NUMBERS = [23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13];
 const HALL_FRONT_TABLE_NUMBERS = [24, 26, 27, 28, 29, 30, 31, 32];
 const SIDE_TABLE_NUMBERS = [2, 1];
-const PANEL_LIMIT = 6;
-const NOTE_PANEL_LIMIT = 5;
-const NOTE_TEXT_LIMIT = 10;
+const PANEL_LIMIT = 8;
 const BUBBLE_DURATION_MS = 6000;
 const BANNER_DURATION_MS = 9000;
 const ANNOUNCE_DURATION_MS = 8000;
@@ -492,9 +468,10 @@ const clockText = ref("");
 const seats = ref([]);
 const messages = ref([]);
 const hearts = ref([]);
-const barNotes = ref([]);
 const bubbles = reactive({});
 const heartBursts = reactive({});
+// 말풍선이 뜬 순서를 기억해 가장 최근 대화한 좌석이 맨 앞에 오도록 합니다.
+const bubbleOrder = ref([]);
 const banner = ref(null);
 const announcement = ref(null);
 
@@ -595,6 +572,36 @@ const seatZones = computed(() => [
   { key: "bar", slots: withBubbleAlign(barSlots.value) },
 ]);
 
+// 최근 대화 순서를 뒤로 밀어 두고, 늦게 말한 좌석일수록 높은 층에 그립니다.
+function promoteBubble(tableNumber) {
+  const key = String(tableNumber);
+
+  bubbleOrder.value = bubbleOrder.value
+    .filter((item) => item !== key)
+    .concat(key);
+}
+
+function releaseBubble(tableNumber) {
+  const key = String(tableNumber);
+
+  bubbleOrder.value = bubbleOrder.value.filter((item) => item !== key);
+}
+
+function bubbleLayerOf(tableNumber) {
+  const index = bubbleOrder.value.indexOf(String(tableNumber));
+
+  return index === -1 ? 0 : index + 1;
+}
+
+// 좌석은 자기 줄 안에서 겹치고, 줄끼리는 말풍선이 위로 솟을 때만 겹칩니다.
+function zoneZIndexOf(zone) {
+  const layer = zone.slots.reduce((max, slot) => {
+    return Math.max(max, bubbleLayerOf(slot.tableNumber));
+  }, 0);
+
+  return 2 + layer;
+}
+
 // 테이블별로 오늘 받은 하트 개수 (좌석 명패에 표시).
 const heartCounts = computed(() => {
   const counts = new Map();
@@ -654,17 +661,8 @@ const panelMessages = computed(() => {
     });
 });
 
-const panelNotes = computed(() => {
-  return barNotes.value.slice(0, NOTE_PANEL_LIMIT).map((note) => ({
-    id: note.id,
-    from: formatTableLabel(note.tableNumber, note.nickname),
-    text: maskProfanity(truncate(note.message, NOTE_TEXT_LIMIT)),
-  }));
-});
-
 const seenMessageIds = new Set();
 const seenHeartIds = new Set();
-const seenBarNoteIds = new Set();
 const bubbleTimers = new Map();
 const heartBurstTimers = new Map();
 const subscriptionStops = [];
@@ -672,7 +670,6 @@ const announceQueue = [];
 let announceSequence = 0;
 let hasLoadedMessages = false;
 let hasLoadedHearts = false;
-let hasLoadedBarNotes = false;
 let bannerTimer = null;
 let announceTimer = null;
 let cursorTimer = null;
@@ -691,12 +688,14 @@ function seatStyle(seat) {
   const paletteIndex =
     Math.abs(Number(seat.tableNumber) || 0) % SEAT_PALETTES.length;
   const palette = SEAT_PALETTES[paletteIndex];
+  const layer = bubbleLayerOf(seat.tableNumber);
 
   return {
     "--hair": palette.hair,
     "--hair-light": palette.hairLight,
     "--shirt": palette.shirt,
     "--shirt-dark": palette.shirtDark,
+    ...(layer > 0 ? { zIndex: String(6 + layer) } : {}),
   };
 }
 
@@ -850,41 +849,6 @@ function announceNewHearts(rows) {
     .forEach((heart) => showAnonymousHeart(heart));
 }
 
-async function loadBarNotes() {
-  try {
-    const rows = await fetchTodayBarNotes();
-
-    barNotes.value = rows;
-    announceNewBarNotes(rows);
-  } catch (error) {
-    console.error("[tv] 오늘의 한 줄을 불러오지 못했어요", error);
-  }
-}
-
-function announceNewBarNotes(rows) {
-  if (!hasLoadedBarNotes) {
-    hasLoadedBarNotes = true;
-    rows.forEach((note) => seenBarNoteIds.add(note.id));
-    return;
-  }
-
-  const fresh = rows.filter((note) => !seenBarNoteIds.has(note.id));
-
-  fresh.forEach((note) => seenBarNoteIds.add(note.id));
-
-  fresh
-    .slice()
-    .reverse()
-    .forEach((note) => {
-      const from = formatTableLabel(note.tableNumber, note.nickname);
-
-      showBanner(`📝 ${from} · ${maskProfanity(note.message)}`, {
-        tag: "한 줄",
-        tone: "note",
-      });
-    });
-}
-
 function seatNicknameOf(tableNumber) {
   const seat = seats.value.find((item) => item.tableNumber === tableNumber);
 
@@ -958,6 +922,8 @@ function showBubble(tableNumber, message) {
     text: truncate(message.message, BUBBLE_TEXT_LIMIT),
   };
 
+  promoteBubble(tableNumber);
+
   const currentTimer = bubbleTimers.get(tableNumber);
 
   if (currentTimer) {
@@ -968,6 +934,7 @@ function showBubble(tableNumber, message) {
     tableNumber,
     setTimeout(() => {
       delete bubbles[tableNumber];
+      releaseBubble(tableNumber);
       bubbleTimers.delete(tableNumber);
     }, BUBBLE_DURATION_MS)
   );
@@ -1030,7 +997,6 @@ function handleOnline() {
   loadSeats();
   loadMessages();
   loadHearts();
-  loadBarNotes();
 }
 
 function handleOffline() {
@@ -1042,7 +1008,6 @@ function handleVisibilityChange() {
     loadSeats();
     loadMessages();
     loadHearts();
-    loadBarNotes();
   }
 }
 
@@ -1088,8 +1053,7 @@ onMounted(() => {
   subscriptionStops.push(
     subscribeTable("activeOrderSheets", loadSeats, { pollMs: 60000 }),
     subscribeTable("chatMessages", loadMessages, { pollMs: 20000 }),
-    subscribeTable("hearts", loadHearts, { pollMs: 20000 }),
-    subscribeTable("barNotes", loadBarNotes, { pollMs: 20000 })
+    subscribeTable("hearts", loadHearts, { pollMs: 20000 })
   );
 
   scheduleDawnReload();
@@ -1521,8 +1485,9 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  min-width: 150px;
-  max-width: 340px;
+  box-sizing: border-box;
+  min-width: 260px;
+  max-width: 500px;
   padding: 14px 18px;
   background: #fff8f3;
   color: #1a1530;
@@ -1552,23 +1517,24 @@ onUnmounted(() => {
 }
 
 .seat-bubble.is-align-start::after {
-  left: 18%;
+  left: 16%;
 }
 
 .seat-bubble.is-align-end::after {
-  left: 82%;
+  left: 84%;
 }
 
 .seat-bubble-from {
   font-size: 17px;
   color: #c2415f;
+  word-break: keep-all;
 }
 
 .seat-bubble-text {
   font-size: 26px;
   line-height: 1.32;
   word-break: keep-all;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .scene-counter {
@@ -1683,12 +1649,14 @@ onUnmounted(() => {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
+  justify-content: flex-end;
   gap: 12px;
   overflow: hidden;
 }
 
 .tv-chat-item {
   display: flex;
+  flex: 0 0 auto;
   flex-direction: column;
   gap: 4px;
   padding: 11px 13px;
@@ -1736,77 +1704,6 @@ onUnmounted(() => {
   animation: tv-blink 1.6s steps(2, end) infinite;
 }
 
-.tv-notes {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  background: #1c1216;
-  box-shadow: inset 0 0 0 6px #4a2c33;
-  padding: 18px 22px 16px;
-  box-sizing: border-box;
-}
-
-.tv-notes-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-bottom: 12px;
-  border-bottom: 4px solid #4a2c33;
-}
-
-.tv-notes-head h2 {
-  margin: 0;
-  font-size: 28px;
-  color: #ffb066;
-}
-
-.tv-notes-count {
-  font-size: 18px;
-  color: #e4b7c4;
-  padding: 4px 12px;
-  background: #2a1820;
-}
-
-.tv-notes-list {
-  list-style: none;
-  margin: 0;
-  padding: 12px 0 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  overflow: hidden;
-}
-
-.tv-note-item {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 8px 12px;
-  background: #251619;
-  box-shadow: inset 0 0 0 3px #4a2c33;
-}
-
-.tv-note-from {
-  flex: 0 0 auto;
-  font-size: 17px;
-  color: #ffb066;
-}
-
-.tv-note-text {
-  flex: 1 1 auto;
-  font-size: 22px;
-  line-height: 1.32;
-  color: #fdf3f6;
-  word-break: keep-all;
-  overflow-wrap: anywhere;
-}
-
-.tv-notes-empty {
-  font-size: 18px;
-  color: #c9a3b4;
-  line-height: 1.45;
-}
-
 .tv-banner {
   position: absolute;
   left: 50%;
@@ -1819,7 +1716,7 @@ onUnmounted(() => {
   max-width: 1180px;
   background: #241419;
   box-shadow: 0 0 0 6px #ffd166, 8px 8px 0 6px rgba(0, 0, 0, 0.4);
-  z-index: 10;
+  z-index: 60;
 }
 
 .tv-banner.is-staff {
@@ -1843,14 +1740,6 @@ onUnmounted(() => {
 
 .tv-banner.is-heart .tv-banner-tag {
   background: #ff5d8f;
-}
-
-.tv-banner.is-note {
-  box-shadow: 0 0 0 6px #ffd98a, 8px 8px 0 6px rgba(0, 0, 0, 0.4);
-}
-
-.tv-banner.is-note .tv-banner-tag {
-  background: #ffd98a;
 }
 
 .tv-banner-text {
@@ -1888,7 +1777,7 @@ onUnmounted(() => {
   justify-content: center;
   padding: 0 90px;
   background: rgba(8, 4, 6, 0.66);
-  z-index: 30;
+  z-index: 70;
   pointer-events: none;
 }
 
