@@ -59,14 +59,6 @@
           </div>
         </button>
 
-        <button type="button" class="menu-card" @click="goCheckout">
-          <div class="menu-icon">💳</div>
-          <div class="menu-text">
-            <strong>결제 요청</strong>
-            <p>직원에게 결제 요청을 보낼 수 있어요.</p>
-          </div>
-        </button>
-
         <button type="button" class="menu-card" @click="goChat">
           <div class="menu-icon">💬</div>
           <div class="menu-text">
@@ -324,10 +316,6 @@ function goOrder() {
 
 function goOrderHistory() {
   router.push("/user/order-history");
-}
-
-function goCheckout() {
-  router.push("/user/checkout");
 }
 
 function goChat() {

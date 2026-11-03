@@ -481,13 +481,6 @@ function resolvePartnerStatus(sheetRow) {
     return { statusLabel: "", statusTone: "" };
   }
 
-  if (
-    sheetRow.status === "PAYMENT_REQUESTED" ||
-    sheetRow.paymentStatus === "REQUESTED"
-  ) {
-    return { statusLabel: "💳 결제 중", statusTone: "payment" };
-  }
-
   if (sheetRow.paymentStatus === "COMPLETED") {
     return { statusLabel: "✅ 결제 완료", statusTone: "paid" };
   }
@@ -1090,11 +1083,6 @@ onUnmounted(() => {
   font-weight: 800;
   background: rgba(255, 255, 255, 0.14);
   color: rgba(255, 255, 255, 0.82);
-
-  &.payment {
-    background: rgba(248, 113, 113, 0.22);
-    color: #fecaca;
-  }
 
   &.paid {
     background: rgba(74, 222, 128, 0.2);

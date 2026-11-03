@@ -37,7 +37,6 @@ const DEFAULT_COLLECTIONS = [
   "orderSheets",
   "activeOrderSheets",
   "counters",
-  "checkoutRequests",
   "chatMessages",
 ];
 

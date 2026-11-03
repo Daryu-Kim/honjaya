@@ -19,7 +19,6 @@ begin
   foreach target_table in array array[
     'order_sheets',
     'orders',
-    'checkout_requests',
     'active_order_sheets',
     'chat_messages',
     'products',
@@ -47,7 +46,6 @@ end $$;
 -- DELETE events only carry the filterable columns with replica identity full
 alter table public.order_sheets replica identity full;
 alter table public.orders replica identity full;
-alter table public.checkout_requests replica identity full;
 alter table public.active_order_sheets replica identity full;
 alter table public.chat_messages replica identity full;
 alter table public.products replica identity full;
@@ -55,7 +53,7 @@ alter table public.categories replica identity full;
 alter table public.counters replica identity full;
 
 -- 3) verification -------------------------------------------------------------
--- Expect 8 rows below. If some are missing, re-run this patch (or check that
+-- Expect 7 rows below. If some are missing, re-run this patch (or check that
 -- Database -> Replication -> supabase_realtime is enabled in the dashboard).
 select tablename
 from pg_publication_tables

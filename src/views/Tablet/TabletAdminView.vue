@@ -62,10 +62,7 @@
             :key="table.tableNumber"
             type="button"
             class="table-card"
-            :class="[
-              table.status === 'PAYMENT_REQUESTED' ? 'payment-requested' : '',
-              table.paymentStatus === 'COMPLETED' ? 'paid' : '',
-            ]"
+            :class="{ paid: table.paymentStatus === 'COMPLETED' }"
             @click="selectTable(table)"
           >
             <div class="table-card-top">
@@ -132,7 +129,7 @@
               <h3>테이블 번호 통일 정리</h3>
               <p>
                 예전에 01 형태로 저장된 테이블 번호를 1 형태로 한 번에 맞춰요.
-                (주문서 · 주문 · 결제 요청 · 채팅 · 활성 키)
+                (주문서 · 주문 · 채팅 · 활성 키)
               </p>
             </div>
 
@@ -320,54 +317,6 @@
                   @click="confirmOrderStatusChange(order, 'CANCELLED')"
                 >
                   취소
-                </button>
-              </div>
-            </div>
-          </article>
-        </div>
-      </div>
-
-      <!-- 결제 탭 -->
-      <div v-else-if="activeTab === 'payments'" class="tab-panel">
-        <div class="panel-head">
-          <h2>결제 관리</h2>
-          <p>결제 요청 승인 및 직접 결제 처리를 할 수 있어요.</p>
-        </div>
-
-        <div v-if="isLoadingPaymentRequests" class="empty-box">
-          <p>결제 요청을 불러오는 중이에요.</p>
-        </div>
-
-        <div v-else-if="paymentRequestList.length === 0" class="empty-box">
-          <p>결제 요청이 없어요.</p>
-        </div>
-
-        <div v-else class="list-card-wrap">
-          <article
-            v-for="request in paymentRequestList"
-            :key="request.id"
-            class="list-card"
-          >
-            <div class="list-card-head">
-              <div>
-                <strong>{{
-                  request.displayName || `No.${request.tableNumber}`
-                }}</strong>
-                <p>{{ request.orderSheetId }}</p>
-              </div>
-              <span class="status-badge">
-                {{ convertPaymentRequestStatusText(request.status) }}
-              </span>
-            </div>
-
-            <div class="list-card-bottom">
-              <strong
-                >{{ getOrderSheetTotalAmount(request.orderSheetId) }}원</strong
-              >
-
-              <div class="action-row">
-                <button type="button" @click="openPaymentModal(request)">
-                  결제 처리
                 </button>
               </div>
             </div>
@@ -912,13 +861,7 @@
         <div class="modal-card">
           <div class="modal-head">
             <div>
-              <h3>
-                {{
-                  paymentModalState.mode === "REQUEST"
-                    ? "결제 요청 승인"
-                    : "직접 결제 처리"
-                }}
-              </h3>
+              <h3>직접 결제 처리</h3>
               <p>{{ paymentModalState.displayName }}</p>
             </div>
             <button
@@ -1646,7 +1589,6 @@ const recipeModalProduct = ref(null);
 
 const paymentModalState = ref({
   isOpen: false,
-  requestId: "",
   orderSheetId: "",
   tableNumber: "",
   displayName: "",
@@ -1654,7 +1596,6 @@ const paymentModalState = ref({
   amount: 0,
   discounts: [],
   paymentSplits: [],
-  mode: "",
 });
 
 const paymentCompleteModalState = ref({
@@ -1726,7 +1667,6 @@ const manualOptionModalState = ref({
 const tabList = [
   { key: "tables", label: "테이블" },
   { key: "orders", label: "주문" },
-  { key: "payments", label: "결제" },
   { key: "recipes", label: "레시피" },
 ];
 
@@ -1745,12 +1685,10 @@ const tableNumberCleanupSuccessCount = computed(() =>
 
 const isLoadingOrderSheets = ref(true);
 const isLoadingOrders = ref(true);
-const isLoadingPaymentRequests = ref(true);
 const isLoadingProducts = ref(true);
 
 const orderSheetList = ref([]);
 const orderList = ref([]);
-const paymentRequestList = ref([]);
 const categoryList = ref([]);
 const productList = ref([]);
 
@@ -1758,11 +1696,9 @@ const orderSoundSrc = "/audio/order-request.mp3"; // 나중에 경로 수정 가
 const paymentSoundSrc = "/audio/payment-request.mp3"; // 나중에 경로 수정 가능
 
 let previousOrderIds = new Set();
-let previousPaymentRequestIds = new Set();
 
 let unsubscribeOrderSheets = null;
 let unsubscribeOrders = null;
-let unsubscribePayments = null;
 let unsubscribeCategories = null;
 let unsubscribeProducts = null;
 
@@ -2143,14 +2079,6 @@ function resolveGiftTargetLabel(order) {
   return "다른 테이블";
 }
 
-function convertPaymentRequestStatusText(status) {
-  if (status === "REQUESTED") return "요청됨";
-  if (status === "CONFIRMED") return "확인됨";
-  if (status === "DONE") return "결제완료";
-  if (status === "CANCELLED") return "취소됨";
-  return status || "알 수 없음";
-}
-
 function convertPaymentStatusText(status) {
   if (status === "UNPAID") return "미결제";
   if (status === "REQUESTED") return "결제요청";
@@ -2270,13 +2198,6 @@ function getHiddenPreviewCount(table) {
   return previewLength > 5 ? previewLength - 5 : 0;
 }
 
-function getOrderSheetTotalAmount(orderSheetId) {
-  const found = orderSheetList.value.find(
-    (item) => item.orderSheetId === orderSheetId
-  );
-  return formatPrice(found?.totalAmount || 0);
-}
-
 function getActiveOptions(group) {
   return [...(group.options || [])]
     .filter((item) => item.isActive !== false)
@@ -2360,36 +2281,6 @@ function subscribeOrders() {
   };
 
   unsubscribeOrders = subscribeTable("orders", loadOrders);
-}
-
-function subscribePaymentRequests() {
-  const loadPaymentRequests = async () => {
-    try {
-      const currentRequests = await fetchList("checkoutRequests", {
-        filters: [["status", "in", ["REQUESTED", "CONFIRMED"]]],
-        order: ["createdAt", "desc"],
-      });
-      const currentRequestIds = new Set(currentRequests.map((item) => item.id));
-
-      if (!isLoadingPaymentRequests.value) {
-        for (const id of currentRequestIds) {
-          if (!previousPaymentRequestIds.has(id)) {
-            playNotificationSound("payment");
-            break;
-          }
-        }
-      }
-
-      previousPaymentRequestIds = currentRequestIds;
-      paymentRequestList.value = currentRequests;
-    } catch (error) {
-      console.error("결제 요청 구독 실패:", error);
-    } finally {
-      isLoadingPaymentRequests.value = false;
-    }
-  };
-
-  unsubscribePayments = subscribeTable("checkoutRequests", loadPaymentRequests);
 }
 
 function subscribeCategories() {
@@ -3022,7 +2913,6 @@ function openTablePaymentModal(table) {
 
   paymentModalState.value = {
     isOpen: true,
-    requestId: "",
     orderSheetId: table.orderSheetId || "",
     tableNumber: table.tableNumber || "",
     displayName: table.displayName || `No.${table.tableNumber}`,
@@ -3030,35 +2920,12 @@ function openTablePaymentModal(table) {
     amount,
     discounts: [],
     paymentSplits: [createPaymentSplit("CARD", amount)],
-    mode: "DIRECT",
-  };
-}
-
-function openPaymentModal(request) {
-  const amount = Number(
-    orderSheetList.value.find(
-      (item) => item.orderSheetId === request.orderSheetId
-    )?.totalAmount || 0
-  );
-
-  paymentModalState.value = {
-    isOpen: true,
-    requestId: request.id,
-    orderSheetId: request.orderSheetId,
-    tableNumber: request.tableNumber,
-    displayName: request.displayName || `No.${request.tableNumber}`,
-    paymentMethod: "CARD",
-    amount,
-    discounts: [],
-    paymentSplits: [createPaymentSplit("CARD", amount)],
-    mode: "REQUEST",
   };
 }
 
 function closePaymentModal() {
   paymentModalState.value = {
     isOpen: false,
-    requestId: "",
     orderSheetId: "",
     tableNumber: "",
     displayName: "",
@@ -3066,7 +2933,6 @@ function closePaymentModal() {
     amount: 0,
     discounts: [],
     paymentSplits: [],
-    mode: "",
   };
 }
 
@@ -3115,20 +2981,6 @@ async function completePayment() {
 
   await runGlobalBusy(async () => {
     try {
-      if (state.requestId) {
-        await updateRow("checkoutRequests", state.requestId, {
-          status: "DONE",
-          paymentMethod,
-          originalAmount,
-          discountTotal,
-          totalAmount: payableAmount,
-          discounts,
-          paymentSplits,
-          approvedAt: nowIso(),
-          updatedAt: nowIso(),
-        });
-      }
-
       await recalculateOrderSheetTotals(state.orderSheetId);
 
       await completeOrderSheetPayment({
@@ -3281,8 +3133,8 @@ async function handleRunTableNumberCleanup() {
   const scannedTotal = tableNumberCleanupScan.value?.total;
   const confirmed = window.confirm(
     scannedTotal
-      ? `검사된 ${scannedTotal}건의 테이블 번호를 1 형태로 정리할까요?\n주문서 · 주문 · 결제 요청 · 채팅 · 활성 키가 대상이에요.`
-      : "테이블 번호 일괄 정리를 실행할까요?\n주문서 · 주문 · 결제 요청 · 채팅 · 활성 키에서 01 형태를 1 형태로 바꿔요."
+      ? `검사된 ${scannedTotal}건의 테이블 번호를 1 형태로 정리할까요?\n주문서 · 주문 · 채팅 · 활성 키가 대상이에요.`
+      : "테이블 번호 일괄 정리를 실행할까요?\n주문서 · 주문 · 채팅 · 활성 키에서 01 형태를 1 형태로 바꿔요."
   );
 
   if (!confirmed) return;
@@ -3650,7 +3502,6 @@ async function sendQuickReply(phrase) {
 onMounted(() => {
   subscribeOrderSheets();
   subscribeOrders();
-  subscribePaymentRequests();
   subscribeCategories();
   subscribeProducts();
   subscribeChat();
@@ -3659,7 +3510,6 @@ onMounted(() => {
 onUnmounted(() => {
   if (unsubscribeOrderSheets) unsubscribeOrderSheets();
   if (unsubscribeOrders) unsubscribeOrders();
-  if (unsubscribePayments) unsubscribePayments();
   if (unsubscribeCategories) unsubscribeCategories();
   if (unsubscribeProducts) unsubscribeProducts();
   if (unsubscribeChatMessages) unsubscribeChatMessages();
@@ -3897,9 +3747,6 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 14px;
-}
-.table-card.payment-requested {
-  outline: 2px solid rgba(250, 204, 21, 0.35);
 }
 .table-card.paid {
   outline: 2px solid rgba(52, 211, 153, 0.35);

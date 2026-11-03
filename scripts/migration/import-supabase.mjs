@@ -359,35 +359,6 @@ function transformActiveOrderSheets(docs, orderSheetById) {
   });
 }
 
-function transformCheckoutRequests(docs) {
-  return docs.map((doc) => {
-    statusKey("checkoutRequests.status", str(doc.status));
-
-    const { tableNumber, displayName } = normalizeTableFields(
-      doc,
-      doc.tableNumber,
-      doc.displayName
-    );
-
-    return {
-      id: str(doc._id),
-      order_sheet_id: str(doc.orderSheetId),
-      table_number: tableNumber,
-      display_name: displayName,
-      status: str(doc.status) || "REQUESTED",
-      payment_method: str(doc.paymentMethod),
-      original_amount: doc.originalAmount == null ? null : num(doc.originalAmount),
-      discount_total: doc.discountTotal == null ? null : num(doc.discountTotal),
-      total_amount: doc.totalAmount == null ? null : num(doc.totalAmount),
-      discounts: Array.isArray(doc.discounts) ? doc.discounts : null,
-      payment_splits: Array.isArray(doc.paymentSplits) ? doc.paymentSplits : null,
-      approved_at: ts(doc.approvedAt),
-      created_at: ts(doc.createdAt, new Date().toISOString()),
-      updated_at: ts(doc.updatedAt, new Date().toISOString()),
-    };
-  });
-}
-
 function transformChatMessages(docs) {
   return docs.map((doc) => {
     statusKey("chatMessages.messageType", str(doc.messageType));
@@ -433,14 +404,6 @@ function validate(tables) {
   for (const row of tables.orders) {
     if (!sheetIds.has(row.order_sheet_id)) {
       warn(`orders ${row.id}: orderSheetId ${row.order_sheet_id || "(empty)"} not found`);
-    }
-  }
-
-  for (const row of tables.checkout_requests) {
-    if (!sheetIds.has(row.order_sheet_id)) {
-      warn(
-        `checkoutRequests ${row.id}: orderSheetId ${row.order_sheet_id || "(empty)"} not found`
-      );
     }
   }
 
@@ -609,7 +572,6 @@ async function main() {
     products: transformProducts(arr(collections.products)),
     order_sheets: orderSheets,
     orders: transformOrders(arr(collections.orders)),
-    checkout_requests: transformCheckoutRequests(arr(collections.checkoutRequests)),
     active_order_sheets: transformActiveOrderSheets(
       arr(collections.activeOrderSheets),
       orderSheetById
@@ -626,7 +588,6 @@ async function main() {
     products: arr(collections.products).length,
     order_sheets: arr(collections.orderSheets).length,
     orders: arr(collections.orders).length,
-    checkout_requests: arr(collections.checkoutRequests).length,
     active_order_sheets: arr(collections.activeOrderSheets).length,
     chat_messages: arr(collections.chatMessages).length,
     counters: arr(collections.counters).length,

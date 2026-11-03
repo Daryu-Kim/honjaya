@@ -5,7 +5,6 @@ import UserOrderView from "@/views/User/UserOrderView.vue";
 import UserCartView from "@/views/User/UserCartView.vue";
 import UserOrderHistoryView from "@/views/User/UserOrderHistoryView.vue";
 import UserOrderCompleteView from "@/views/User/UserOrderCompleteView.vue";
-import UserCheckoutView from "@/views/User/UserCheckoutView.vue";
 import UserChatView from "@/views/User/UserChatView.vue";
 import UserGiftView from "@/views/User/UserGiftView.vue";
 import AdminChatView from "@/views/Admin/AdminChatView.vue";
@@ -70,11 +69,6 @@ const routes = [
     path: "/user/order-complete",
     name: "user-order-complete",
     component: UserOrderCompleteView,
-  },
-  {
-    path: "/user/checkout",
-    name: "user-checkout",
-    component: UserCheckoutView,
   },
   {
     path: "/admin",

@@ -166,7 +166,6 @@ onUnmounted(() => {
     .user-main-view,
     .user-order-view,
     .user-cart-view,
-    .user-checkout-view,
     .user-order-history-view,
     .user-order-complete-view
   ) {
@@ -188,7 +187,6 @@ onUnmounted(() => {
     .main-container,
     .order-container,
     .cart-container,
-    .checkout-container,
     .order-history-container,
     .complete-container
   ) {
@@ -201,7 +199,6 @@ onUnmounted(() => {
     .main-container,
     .order-container,
     .cart-container,
-    .checkout-container,
     .order-history-container,
     .complete-container
   )::before {

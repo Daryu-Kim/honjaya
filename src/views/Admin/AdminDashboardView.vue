@@ -34,11 +34,6 @@
         <span class="summary-label">이번달 매출</span>
         <strong>{{ formatPrice(thisMonthSalesAmount) }}원</strong>
       </article>
-
-      <article class="summary-card">
-        <span class="summary-label">결제 요청</span>
-        <strong>{{ paymentRequestCount }}건</strong>
-      </article>
     </section>
 
     <section class="ratio-grid">
@@ -176,52 +171,6 @@
           </div>
         </section>
       </div>
-
-      <div class="right-column">
-        <section class="panel-card">
-          <div class="panel-head">
-            <h2>결제 요청</h2>
-            <p>대기 중인 결제 요청을 빠르게 확인해요.</p>
-          </div>
-
-          <div v-if="isLoadingPayments" class="empty-box">
-            <p>결제 요청을 불러오는 중이에요.</p>
-          </div>
-
-          <div v-else-if="paymentRequestList.length === 0" class="empty-box">
-            <p>대기 중인 결제 요청이 없어요.</p>
-          </div>
-
-          <div v-else class="card-list compact">
-            <article
-              v-for="request in paymentRequestList.slice(0, 5)"
-              :key="request.id"
-              class="mini-card"
-            >
-              <div class="mini-card-head">
-                <div>
-                  <strong>{{
-                    request.displayName || `No.${request.tableNumber}`
-                  }}</strong>
-                  <p>{{ request.orderSheetId }}</p>
-                </div>
-                <span class="status-badge">
-                  {{ convertPaymentRequestStatusText(request.status) }}
-                </span>
-              </div>
-
-              <div class="mini-card-foot">
-                <span>{{ formatDateTime(request.createdAt) }}</span>
-                <strong
-                  >{{
-                    getOrderSheetTotalAmount(request.orderSheetId)
-                  }}원</strong
-                >
-              </div>
-            </article>
-          </div>
-        </section>
-      </div>
     </section>
   </div>
 </template>
@@ -241,15 +190,12 @@ import { normalizeOrderSheetTags } from "@/lib/orderSheetTags";
 const router = useRouter();
 
 const isLoadingOrders = ref(true);
-const isLoadingPayments = ref(true);
 const isLoadingOrderSheets = ref(true);
 
 const orderList = ref([]);
-const paymentRequestList = ref([]);
 const orderSheetList = ref([]);
 
 let unsubscribeOrders = null;
-let unsubscribePayments = null;
 let unsubscribeOrderSheets = null;
 
 const currentDateText = computed(() => {
@@ -279,10 +225,6 @@ const thisWeekSalesAmount = computed(() => {
 
 const thisMonthSalesAmount = computed(() => {
   return getPaidSheetSalesAmount(getThisMonthStart());
-});
-
-const paymentRequestCount = computed(() => {
-  return paymentRequestList.value.length;
 });
 
 const recentOrders = computed(() => {
@@ -440,14 +382,6 @@ function convertOrderStatusText(status) {
   return status || "알 수 없음";
 }
 
-function convertPaymentRequestStatusText(status) {
-  if (status === "REQUESTED") return "요청됨";
-  if (status === "CONFIRMED") return "확인됨";
-  if (status === "DONE") return "결제완료";
-  if (status === "CANCELLED") return "취소";
-  return status || "알 수 없음";
-}
-
 function buildOrderSummary(items) {
   if (!Array.isArray(items) || items.length === 0) return "주문 항목 없음";
 
@@ -460,13 +394,6 @@ function buildOrderSummary(items) {
   }
 
   return preview.join(", ");
-}
-
-function getOrderSheetTotalAmount(orderSheetId) {
-  const found = orderSheetList.value.find(
-    (item) => item.orderSheetId === orderSheetId
-  );
-  return formatPrice(found?.totalAmount || 0);
 }
 
 function goPage(path) {
@@ -490,24 +417,6 @@ function subscribeOrders() {
   unsubscribeOrders = subscribeTable("orders", loadOrders);
 }
 
-function subscribePayments() {
-  const loadPayments = async () => {
-    try {
-      paymentRequestList.value = await fetchList("checkoutRequests", {
-        filters: [["status", "in", ["REQUESTED", "CONFIRMED"]]],
-        order: ["createdAt", "desc"],
-        limit: 20,
-      });
-    } catch (error) {
-      console.error("결제 요청 조회 실패:", error);
-    } finally {
-      isLoadingPayments.value = false;
-    }
-  };
-
-  unsubscribePayments = subscribeTable("checkoutRequests", loadPayments);
-}
-
 function subscribeOrderSheets() {
   const loadOrderSheets = async () => {
     try {
@@ -526,13 +435,11 @@ function subscribeOrderSheets() {
 
 onMounted(() => {
   subscribeOrders();
-  subscribePayments();
   subscribeOrderSheets();
 });
 
 onUnmounted(() => {
   if (unsubscribeOrders) unsubscribeOrders();
-  if (unsubscribePayments) unsubscribePayments();
   if (unsubscribeOrderSheets) unsubscribeOrderSheets();
 });
 </script>
@@ -701,12 +608,11 @@ onUnmounted(() => {
 
 .dashboard-grid {
   display: grid;
-  grid-template-columns: 1.2fr 0.9fr;
+  grid-template-columns: 1fr;
   gap: 16px;
 }
 
-.left-column,
-.right-column {
+.left-column {
   display: grid;
   gap: 16px;
   align-content: start;
@@ -765,10 +671,6 @@ onUnmounted(() => {
 .card-list {
   display: grid;
   gap: 12px;
-
-  &.compact .mini-card {
-    padding: 14px;
-  }
 }
 
 .mini-card {

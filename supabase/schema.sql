@@ -54,8 +54,8 @@ create table if not exists public.order_sheets (
   table_number text not null default '',
   display_name text not null default '',
   table_nickname text not null default '',
-  status text not null default 'OPEN', -- OPEN | PAYMENT_REQUESTED | CLOSED
-  payment_status text not null default 'UNPAID', -- UNPAID | REQUESTED | COMPLETED
+  status text not null default 'OPEN', -- OPEN | CLOSED (legacy: PAYMENT_REQUESTED)
+  payment_status text not null default 'UNPAID', -- UNPAID | COMPLETED (legacy: REQUESTED)
   payment_method text not null default '',
   total_amount integer not null default 0,
   order_count integer not null default 0,
@@ -87,23 +87,6 @@ create table if not exists public.orders (
   is_gift boolean not null default false,
   gift_to_table_number text not null default '',
   gift_to_nickname text not null default '',
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create table if not exists public.checkout_requests (
-  id text primary key,
-  order_sheet_id text not null,
-  table_number text not null default '',
-  display_name text not null default '',
-  status text not null default 'REQUESTED', -- REQUESTED | CONFIRMED | DONE | CANCELLED
-  payment_method text not null default '',
-  original_amount integer,
-  discount_total integer,
-  total_amount integer,
-  discounts jsonb,
-  payment_splits jsonb,
-  approved_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -163,12 +146,6 @@ create index if not exists orders_created_at_idx
 create index if not exists orders_order_sheet_id_idx
   on public.orders (order_sheet_id);
 
-create index if not exists checkout_requests_status_created_at_idx
-  on public.checkout_requests (status, created_at desc);
-
-create index if not exists checkout_requests_order_sheet_id_idx
-  on public.checkout_requests (order_sheet_id);
-
 create index if not exists chat_messages_created_at_idx
   on public.chat_messages (created_at);
 
@@ -186,7 +163,6 @@ alter table public.categories enable row level security;
 alter table public.products enable row level security;
 alter table public.order_sheets enable row level security;
 alter table public.orders enable row level security;
-alter table public.checkout_requests enable row level security;
 alter table public.active_order_sheets enable row level security;
 alter table public.chat_messages enable row level security;
 alter table public.counters enable row level security;
@@ -199,7 +175,6 @@ grant select, insert, update, delete on public.categories to anon, authenticated
 grant select, insert, update, delete on public.products to anon, authenticated;
 grant select, insert, update on public.order_sheets to anon, authenticated;
 grant select, insert, update on public.orders to anon, authenticated;
-grant select, insert, update on public.checkout_requests to anon, authenticated;
 grant select, insert, update, delete on public.active_order_sheets to anon, authenticated;
 grant select, insert, update on public.chat_messages to anon, authenticated;
 grant select, insert, update on public.counters to anon, authenticated;
@@ -223,10 +198,6 @@ create policy "orders: app all"
   on public.orders for all to anon, authenticated
   using (true) with check (true);
 
-create policy "checkout_requests: app all"
-  on public.checkout_requests for all to anon, authenticated
-  using (true) with check (true);
-
 create policy "active_order_sheets: app all"
   on public.active_order_sheets for all to anon, authenticated
   using (true) with check (true);
@@ -246,7 +217,6 @@ create policy "counters: app all"
 alter publication supabase_realtime add table
   public.order_sheets,
   public.orders,
-  public.checkout_requests,
   public.active_order_sheets,
   public.chat_messages,
   public.products,
@@ -256,7 +226,6 @@ alter publication supabase_realtime add table
 -- DELETE events only carry the filterable columns with replica identity full
 alter table public.order_sheets replica identity full;
 alter table public.orders replica identity full;
-alter table public.checkout_requests replica identity full;
 alter table public.active_order_sheets replica identity full;
 alter table public.chat_messages replica identity full;
 alter table public.products replica identity full;
