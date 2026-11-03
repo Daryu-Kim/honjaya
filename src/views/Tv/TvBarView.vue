@@ -100,6 +100,21 @@
                 </div>
               </transition>
 
+              <div
+                v-if="heartBursts[slot.tableNumber]"
+                :key="heartBursts[slot.tableNumber].key"
+                class="seat-heart-burst"
+                aria-hidden="true"
+              >
+                <span
+                  v-for="particle in heartBursts[slot.tableNumber].particles"
+                  :key="particle.key"
+                  class="seat-heart-particle"
+                  :style="particle.style"
+                  >💗</span
+                >
+              </div>
+
               <div class="seat-figure">
                 <svg
                   v-if="slot.seat"
@@ -136,6 +151,11 @@
                   {{ slot.seat ? slot.seat.label : "빈자리" }}
                 </span>
                 <span class="seat-plate-table">{{ slot.tableNumber }}번</span>
+                <span
+                  v-if="heartCountOf(slot.tableNumber) > 0"
+                  class="seat-plate-heart"
+                  >💗 {{ heartCountOf(slot.tableNumber) }}</span
+                >
               </div>
             </div>
           </div>
@@ -163,36 +183,59 @@
           </div>
         </section>
 
-        <aside class="tv-chat">
-          <div class="tv-chat-head">
-            <h2>최근 채팅</h2>
-            <span class="tv-chat-room">전체</span>
-          </div>
+        <aside class="tv-side">
+          <div class="tv-chat">
+            <div class="tv-chat-head">
+              <h2>최근 채팅</h2>
+              <span class="tv-chat-room">전체</span>
+            </div>
 
-          <ul class="tv-chat-list">
-            <li
-              v-for="message in panelMessages"
-              :key="message.id"
-              class="tv-chat-item"
-              :class="{ 'is-staff': message.isStaff }"
-            >
-              <span class="tv-chat-from">{{ message.from }}</span>
-              <span class="tv-chat-text">{{ message.text }}</span>
-            </li>
-            <li v-if="panelMessages.length === 0" class="tv-chat-empty">
-              아직 대화가 없어요. 첫 인사를 건네보세요.
-            </li>
-          </ul>
-
-          <div class="tv-chat-foot">
-            <span>
-              바 {{ barSeats.length }} · 홀 {{ hallSeats.length }}
-              <template v-if="seatOverflow > 0"
-                >· 외 {{ seatOverflow }}팀</template
+            <ul class="tv-chat-list">
+              <li
+                v-for="message in panelMessages"
+                :key="message.id"
+                class="tv-chat-item"
+                :class="{ 'is-staff': message.isStaff }"
               >
-            </span>
-            <span class="tv-chat-foot-dot">●</span>
+                <span class="tv-chat-from">{{ message.from }}</span>
+                <span class="tv-chat-text">{{ message.text }}</span>
+              </li>
+              <li v-if="panelMessages.length === 0" class="tv-chat-empty">
+                아직 대화가 없어요. 첫 인사를 건네보세요.
+              </li>
+            </ul>
+
+            <div class="tv-chat-foot">
+              <span>
+                바 {{ barSeats.length }} · 홀 {{ hallSeats.length }}
+                <template v-if="seatOverflow > 0"
+                  >· 외 {{ seatOverflow }}팀</template
+                >
+              </span>
+              <span class="tv-chat-foot-dot">●</span>
+            </div>
           </div>
+
+          <section class="tv-notes">
+            <div class="tv-notes-head">
+              <h2>오늘의 한 줄</h2>
+              <span class="tv-notes-count">{{ panelNotes.length }}</span>
+            </div>
+
+            <ul class="tv-notes-list">
+              <li
+                v-for="note in panelNotes"
+                :key="note.id"
+                class="tv-note-item"
+              >
+                <span class="tv-note-from">{{ note.from }}</span>
+                <span class="tv-note-text">{{ note.text }}</span>
+              </li>
+              <li v-if="panelNotes.length === 0" class="tv-notes-empty">
+                아직 남겨진 한 줄이 없어요.
+              </li>
+            </ul>
+          </section>
         </aside>
       </main>
 
@@ -228,6 +271,9 @@ import {
   getChatDayStartIso,
 } from "@/lib/chat";
 import { normalizeTableNumber } from "@/lib/orderSheet";
+import { fetchTodayHearts } from "@/lib/hearts";
+import { fetchTodayBarNotes } from "@/lib/barNotes";
+import { maskProfanity } from "@/lib/profanity";
 import {
   TV_CHIME,
   isSoundUnlocked,
@@ -244,6 +290,8 @@ const HALL_BACK_TABLE_NUMBERS = [23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13];
 const HALL_FRONT_TABLE_NUMBERS = [24, 26, 27, 28, 29, 30, 31, 32];
 const SIDE_TABLE_NUMBERS = [2, 1];
 const PANEL_LIMIT = 6;
+const NOTE_PANEL_LIMIT = 5;
+const NOTE_TEXT_LIMIT = 10;
 const BUBBLE_DURATION_MS = 6000;
 const BANNER_DURATION_MS = 9000;
 const ANNOUNCE_DURATION_MS = 8000;
@@ -254,6 +302,8 @@ const BUBBLE_TEXT_LIMIT = 60;
 const PANEL_TEXT_LIMIT = 54;
 const CURSOR_IDLE_MS = 3000;
 const DAWN_RELOAD_HOUR = 5;
+const HEART_BURST_MS = 5200;
+const HEART_PARTICLE_COUNT = 7;
 
 // The TV only ever renders the global room. Direct (1:1) and staff rooms are
 // deliberately never queried here so private chats cannot leak onto the screen.
@@ -387,7 +437,10 @@ const isOnline = ref(true);
 const clockText = ref("");
 const seats = ref([]);
 const messages = ref([]);
+const hearts = ref([]);
+const barNotes = ref([]);
 const bubbles = reactive({});
+const heartBursts = reactive({});
 const banner = ref(null);
 const announcement = ref(null);
 
@@ -473,6 +526,27 @@ const seatZones = computed(() => [
   { key: "bar", slots: barSlots.value },
 ]);
 
+// 테이블별로 오늘 받은 하트 개수 (좌석 명패에 표시).
+const heartCounts = computed(() => {
+  const counts = new Map();
+
+  hearts.value.forEach((heart) => {
+    const tableNumber = normalizeTableNumber(heart.toTableNumber);
+
+    if (!tableNumber) {
+      return;
+    }
+
+    counts.set(tableNumber, (counts.get(tableNumber) || 0) + 1);
+  });
+
+  return counts;
+});
+
+function heartCountOf(tableNumber) {
+  return heartCounts.value.get(normalizeTableNumber(tableNumber)) || 0;
+}
+
 const announcementSize = computed(() => {
   const length = announcement.value ? announcement.value.text.length : 0;
 
@@ -511,12 +585,27 @@ const panelMessages = computed(() => {
     });
 });
 
+const panelNotes = computed(() => {
+  return barNotes.value.slice(0, NOTE_PANEL_LIMIT).map((note) => ({
+    id: note.id,
+    from: formatTableLabel(note.tableNumber, note.nickname),
+    text: maskProfanity(truncate(note.message, NOTE_TEXT_LIMIT)),
+  }));
+});
+
 const seenMessageIds = new Set();
+const seenHeartIds = new Set();
+const revealedHeartIds = new Set();
+const revealedHeartPairs = new Set();
+const seenBarNoteIds = new Set();
 const bubbleTimers = new Map();
+const heartBurstTimers = new Map();
 const subscriptionStops = [];
 const announceQueue = [];
 let announceSequence = 0;
 let hasLoadedMessages = false;
+let hasLoadedHearts = false;
+let hasLoadedBarNotes = false;
 let bannerTimer = null;
 let announceTimer = null;
 let cursorTimer = null;
@@ -664,6 +753,181 @@ function announceNewMessages(rows) {
   });
 }
 
+async function loadHearts() {
+  try {
+    const rows = await fetchTodayHearts();
+
+    hearts.value = rows;
+    announceNewHearts(rows);
+  } catch (error) {
+    console.error("[tv] 하트 정보를 불러오지 못했어요", error);
+  }
+}
+
+function announceNewHearts(rows) {
+  if (!hasLoadedHearts) {
+    hasLoadedHearts = true;
+    rows.forEach((heart) => {
+      seenHeartIds.add(heart.id);
+
+      if (heart.isRevealed) {
+        revealedHeartIds.add(heart.id);
+      }
+    });
+    return;
+  }
+
+  const fresh = rows.filter((heart) => !seenHeartIds.has(heart.id));
+
+  fresh.forEach((heart) => seenHeartIds.add(heart.id));
+
+  fresh
+    .filter((heart) => !heart.isRevealed)
+    .slice()
+    .reverse()
+    .forEach((heart) => showAnonymousHeart(heart));
+
+  // 상호 하트 공개는 insert 이후 update 로 들어오므로 따로 감지합니다.
+  rows
+    .filter((heart) => heart.isRevealed && !revealedHeartIds.has(heart.id))
+    .slice()
+    .reverse()
+    .forEach((heart) => {
+      revealedHeartIds.add(heart.id);
+      showMutualHeart(heart);
+    });
+}
+
+async function loadBarNotes() {
+  try {
+    const rows = await fetchTodayBarNotes();
+
+    barNotes.value = rows;
+    announceNewBarNotes(rows);
+  } catch (error) {
+    console.error("[tv] 오늘의 한 줄을 불러오지 못했어요", error);
+  }
+}
+
+function announceNewBarNotes(rows) {
+  if (!hasLoadedBarNotes) {
+    hasLoadedBarNotes = true;
+    rows.forEach((note) => seenBarNoteIds.add(note.id));
+    return;
+  }
+
+  const fresh = rows.filter((note) => !seenBarNoteIds.has(note.id));
+
+  fresh.forEach((note) => seenBarNoteIds.add(note.id));
+
+  fresh
+    .slice()
+    .reverse()
+    .forEach((note) => {
+      const from = formatTableLabel(note.tableNumber, note.nickname);
+
+      showBanner(`📝 ${from} · ${maskProfanity(note.message)}`, {
+        tag: "한 줄",
+        tone: "note",
+      });
+    });
+}
+
+function seatNicknameOf(tableNumber) {
+  const seat = seats.value.find((item) => item.tableNumber === tableNumber);
+
+  return seat ? seat.nickname : "";
+}
+
+// 익명 하트는 받는 테이블 좌석 위로 하트가 떠오르고, 서로 하트면 닉네임까지 공개합니다.
+function showAnonymousHeart(heart) {
+  const toTableNumber = normalizeTableNumber(heart.toTableNumber);
+
+  if (!toTableNumber) {
+    return;
+  }
+
+  const toLabel = formatTableLabel(
+    toTableNumber,
+    heart.toNickname || seatNicknameOf(toTableNumber)
+  );
+
+  showHeartBurst(toTableNumber);
+
+  showBanner(`💗 ${toLabel}님에게 익명 하트가 도착했어요`, {
+    tag: "하트",
+    tone: "heart",
+  });
+}
+
+function showMutualHeart(heart) {
+  const toTableNumber = normalizeTableNumber(heart.toTableNumber);
+  const fromTableNumber = normalizeTableNumber(heart.fromTableNumber);
+
+  if (!toTableNumber || !fromTableNumber || toTableNumber === fromTableNumber) {
+    return;
+  }
+
+  const pairKey = [fromTableNumber, toTableNumber]
+    .sort((first, second) => Number(first) - Number(second))
+    .join("-");
+
+  if (revealedHeartPairs.has(pairKey)) {
+    return;
+  }
+
+  revealedHeartPairs.add(pairKey);
+  showHeartBurst(toTableNumber);
+  showHeartBurst(fromTableNumber);
+
+  const toLabel = formatTableLabel(
+    toTableNumber,
+    heart.toNickname || seatNicknameOf(toTableNumber)
+  );
+  const fromLabel = formatTableLabel(
+    fromTableNumber,
+    heart.fromNickname || seatNicknameOf(fromTableNumber)
+  );
+
+  showBanner(`💗 서로 하트! ${fromLabel} ↔ ${toLabel}`, {
+    tag: "하트",
+    tone: "heart",
+  });
+}
+
+function buildHeartParticles() {
+  return Array.from({ length: HEART_PARTICLE_COUNT }, (_, index) => ({
+    key: index,
+    style: {
+      left: `${8 + ((index * 37) % 78)}%`,
+      fontSize: `${18 + ((index * 7) % 14)}px`,
+      animationDelay: `${(index % 5) * 130}ms`,
+      animationDuration: `${2600 + ((index * 313) % 900)}ms`,
+    },
+  }));
+}
+
+function showHeartBurst(tableNumber) {
+  const currentTimer = heartBurstTimers.get(tableNumber);
+
+  if (currentTimer) {
+    clearTimeout(currentTimer);
+  }
+
+  heartBursts[tableNumber] = {
+    key: Date.now() + Math.random(),
+    particles: buildHeartParticles(),
+  };
+
+  heartBurstTimers.set(
+    tableNumber,
+    setTimeout(() => {
+      delete heartBursts[tableNumber];
+      heartBurstTimers.delete(tableNumber);
+    }, HEART_BURST_MS)
+  );
+}
+
 function showBubble(tableNumber, message) {
   const seat = seats.value.find((item) => item.tableNumber === tableNumber);
   const label = formatTableLabel(
@@ -747,6 +1011,8 @@ function handleOnline() {
   isOnline.value = true;
   loadSeats();
   loadMessages();
+  loadHearts();
+  loadBarNotes();
 }
 
 function handleOffline() {
@@ -757,6 +1023,8 @@ function handleVisibilityChange() {
   if (document.visibilityState === "visible") {
     loadSeats();
     loadMessages();
+    loadHearts();
+    loadBarNotes();
   }
 }
 
@@ -801,7 +1069,9 @@ onMounted(() => {
 
   subscriptionStops.push(
     subscribeTable("activeOrderSheets", loadSeats, { pollMs: 60000 }),
-    subscribeTable("chatMessages", loadMessages, { pollMs: 20000 })
+    subscribeTable("chatMessages", loadMessages, { pollMs: 20000 }),
+    subscribeTable("hearts", loadHearts, { pollMs: 20000 }),
+    subscribeTable("barNotes", loadBarNotes, { pollMs: 20000 })
   );
 
   scheduleDawnReload();
@@ -820,6 +1090,9 @@ onUnmounted(() => {
 
   bubbleTimers.forEach((timer) => clearTimeout(timer));
   bubbleTimers.clear();
+
+  heartBurstTimers.forEach((timer) => clearTimeout(timer));
+  heartBurstTimers.clear();
 
   [clockTimer, bannerTimer, announceTimer, dawnTimer, cursorTimer].forEach(
     (timer) => {
@@ -1120,6 +1393,7 @@ onUnmounted(() => {
 }
 
 .seat-plate {
+  position: relative;
   width: 100%;
   box-sizing: border-box;
   margin-top: -2px;
@@ -1144,6 +1418,55 @@ onUnmounted(() => {
 .seat-plate-table {
   font-size: var(--no-size);
   color: #9d8fd0;
+}
+
+/* 명패 레이아웃을 밀지 않도록 하트 배지는 절대 위치로 띄웁니다. */
+.seat-plate-heart {
+  position: absolute;
+  top: -14px;
+  right: -8px;
+  padding: 2px 6px;
+  font-size: 12px;
+  color: #22102a;
+  background: #ff9ad5;
+  box-shadow: 0 0 0 3px #0d0a1c;
+  white-space: nowrap;
+}
+
+.seat-heart-burst {
+  position: absolute;
+  bottom: calc(100% - 10px);
+  left: 0;
+  right: 0;
+  height: 130px;
+  pointer-events: none;
+  z-index: 8;
+}
+
+.seat-heart-particle {
+  position: absolute;
+  bottom: 0;
+  color: #ff77c8;
+  text-shadow: 0 0 10px rgba(255, 119, 200, 0.85), 2px 2px 0 rgba(0, 0, 0, 0.35);
+  animation-name: heart-float;
+  animation-timing-function: ease-out;
+  animation-fill-mode: forwards;
+}
+
+@keyframes heart-float {
+  0% {
+    transform: translate(-50%, 0) scale(0.5);
+    opacity: 0;
+  }
+
+  18% {
+    opacity: 1;
+  }
+
+  100% {
+    transform: translate(-50%, -120px) scale(1.15);
+    opacity: 0;
+  }
 }
 
 .seat-bubble {
@@ -1248,10 +1571,19 @@ onUnmounted(() => {
   box-shadow: 0 0 0 3px #3d3168;
 }
 
-.tv-chat {
+.tv-side {
   flex: 0 0 400px;
   display: flex;
   flex-direction: column;
+  gap: 18px;
+  min-height: 0;
+}
+
+.tv-chat {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   background: #100d20;
   box-shadow: inset 0 0 0 6px #241d43;
   padding: 22px 22px 16px;
@@ -1339,6 +1671,77 @@ onUnmounted(() => {
   animation: tv-blink 1.6s steps(2, end) infinite;
 }
 
+.tv-notes {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: #14102a;
+  box-shadow: inset 0 0 0 6px #3a2f5f;
+  padding: 18px 22px 16px;
+  box-sizing: border-box;
+}
+
+.tv-notes-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 4px solid #3a2f5f;
+}
+
+.tv-notes-head h2 {
+  margin: 0;
+  font-size: 22px;
+  color: #ffd98a;
+}
+
+.tv-notes-count {
+  font-size: 14px;
+  color: #9d8fd0;
+  padding: 4px 10px;
+  background: #1b1533;
+}
+
+.tv-notes-list {
+  list-style: none;
+  margin: 0;
+  padding: 12px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.tv-note-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #1b1636;
+  box-shadow: inset 0 0 0 3px #3a2f5f;
+}
+
+.tv-note-from {
+  flex: 0 0 auto;
+  font-size: 13px;
+  color: #ffd98a;
+}
+
+.tv-note-text {
+  flex: 1 1 auto;
+  font-size: 18px;
+  line-height: 1.35;
+  color: #f6f1ff;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.tv-notes-empty {
+  font-size: 16px;
+  color: #9d8fd0;
+  line-height: 1.5;
+}
+
 .tv-banner {
   position: absolute;
   left: 50%;
@@ -1367,6 +1770,22 @@ onUnmounted(() => {
 
 .tv-banner.is-staff .tv-banner-tag {
   background: #7cf29c;
+}
+
+.tv-banner.is-heart {
+  box-shadow: 0 0 0 6px #ff77c8, 8px 8px 0 6px rgba(0, 0, 0, 0.4);
+}
+
+.tv-banner.is-heart .tv-banner-tag {
+  background: #ff77c8;
+}
+
+.tv-banner.is-note {
+  box-shadow: 0 0 0 6px #ffd98a, 8px 8px 0 6px rgba(0, 0, 0, 0.4);
+}
+
+.tv-banner.is-note .tv-banner-tag {
+  background: #ffd98a;
 }
 
 .tv-banner-text {

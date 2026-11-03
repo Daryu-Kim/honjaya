@@ -1583,6 +1583,7 @@ import {
   sendChatMessage,
   STAFF_LABEL,
 } from "@/lib/chat";
+import { clearBarNotesForTable } from "@/lib/barNotes";
 
 const activeTab = ref("tables");
 
@@ -3001,6 +3002,13 @@ async function completePayment() {
         console.error("1:1 채팅 정리 실패:", chatError);
       }
 
+      // 나간 테이블의 오늘의 한 줄도 TV 보드에서 내립니다.
+      try {
+        await clearBarNotesForTable(state.tableNumber);
+      } catch (noteError) {
+        console.error("오늘의 한 줄 정리 실패:", noteError);
+      }
+
       paymentCompleteModalState.value = {
         isOpen: true,
         displayName: state.displayName,
@@ -3065,6 +3073,13 @@ async function finalizeTableCleanup(table) {
         await clearDirectChatMessagesForTable(table.tableNumber);
       } catch (chatError) {
         console.error("1:1 채팅 정리 실패:", chatError);
+      }
+
+      // 테이블을 비우면 오늘의 한 줄도 함께 내립니다.
+      try {
+        await clearBarNotesForTable(table.tableNumber);
+      } catch (noteError) {
+        console.error("오늘의 한 줄 정리 실패:", noteError);
       }
 
       closeTableModal();

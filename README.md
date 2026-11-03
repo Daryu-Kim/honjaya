@@ -47,12 +47,16 @@ pnpm lint
 - [supabase/patch-005-remove-payment-request.sql](supabase/patch-005-remove-payment-request.sql) — 고객 결제 요청 기능 제거: `checkout_requests` 테이블 삭제 + 레거시 `PAYMENT_REQUESTED`/`REQUESTED` 상태 정리
 - [supabase/patch-006-web-push.sql](supabase/patch-006-web-push.sql) — Web Push 구독 테이블(`push_subscriptions`) + 런타임 설정(`app_settings`)
 - [supabase/patch-007-web-push-trigger.sql](supabase/patch-007-web-push-trigger.sql) — 새 채팅 메시지를 `send-chat-push` Edge Function으로 넘기는 `pg_net` 트리거
+- [supabase/patch-008-hearts.sql](supabase/patch-008-hearts.sql) — 익명 하트 테이블(`hearts`) + 상호 하트 공개 컬럼(`is_revealed`) + Realtime 등록 패치
+- [supabase/patch-009-bar-notes.sql](supabase/patch-009-bar-notes.sql) — 오늘의 한 줄 테이블(`bar_notes`) + 주문서당 영업일 1개 제약 + Realtime 등록 패치
 
 > `patch-001` → `patch-002` 순서로 Supabase SQL Editor에서 실행하세요. 두 패치는 여러 번 실행해도 안전합니다.
 > `patch-003`은 스키마가 아니라 데이터만 바꾸는 선택 패치라서, 메뉴를 전면 교체할 때만 실행하면 됩니다.
 > `patch-004`도 데이터 전용이며, 이미 실행된 데이터베이스에서는 다시 실행해도 안전합니다.
 > `patch-005`는 결제 요청 기능을 걷어낸 뒤 한 번 실행하면 되고, 여러 번 실행해도 안전합니다.
 > `patch-006` → `patch-007`은 Web Push를 켤 때 순서대로 실행하세요. `patch-007`은 아래 배포 절차를 마친 뒤에 실행합니다.
+> `patch-008`은 익명 하트를 켤 때 한 번 실행하면 되고, 여러 번 실행해도 안전합니다.
+> `patch-009`는 오늘의 한 줄을 켤 때 한 번 실행하면 되고, 여러 번 실행해도 안전합니다.
 
 ### Menu import
 
@@ -78,6 +82,25 @@ pnpm menu:import -- --file menu-data/menu.json --apply    # 반영
 - 영업일 기준으로 채팅이 초기화됩니다. KST 오후 3시에 영업일이 바뀌면 지난 영업일의 전체/직원/1:1 메시지를 모두 삭제하고, 조회 화면도 영업일 시작 시각 이후 메시지만 불러옵니다.
 - 손님이 결제를 마치거나 테이블을 정리하면 그 테이블의 1:1 채팅(`dm_*`)이 전부 삭제됩니다.
 
+### Anonymous hearts
+
+- 고객 메인(`/user/main`)의 `💗 익명 하트` 카드 → 현재 주문서가 열려 있는 다른 테이블 중 하나를 골라 하트를 보냅니다.
+- 보낸 테이블은 받는 테이블에 공개되지 않습니다. TV 화면에는 `💗 {닉네임}({번호}번)님에게 익명 하트가 도착했어요` 배너와 함께 해당 좌석 위로 하트가 떠오릅니다.
+- **서로 하트**(A→B, B→A)가 성립하면 두 row를 모두 `is_revealed = true`로 바꾸고, TV에 `💗 서로 하트! A ↔ B`로 양쪽 닉네임이 공개됩니다.
+- 한 테이블은 **30초에 한 번**, 하루 **20개**까지 보낼 수 있습니다. 제한은 [src/lib/hearts.js](src/lib/hearts.js)에서 판정합니다.
+- 하트는 영업일 기준(KST 15:00)으로 초기화되고, 받은 개수는 TV 좌석 명패에 `💗 n` 배지로 표시됩니다.
+- 처음 적용하는 프로젝트에서는 Supabase SQL Editor에서 [supabase/patch-008-hearts.sql](supabase/patch-008-hearts.sql)을 실행하세요. 여러 번 실행해도 안전합니다.
+- 익명성은 화면 표시 기준입니다. 앱은 anon key로 동작하므로 DB 레벨에서 보낸 테이블을 숨기지는 않습니다.
+
+### Today's one line (`bar_notes`)
+
+- 고객 메인(`/user/main`)의 `📝 오늘의 한 줄` 카드에서 **10자**까지 한 줄을 남깁니다. 등록된 한 줄은 TV 화면 우측 `오늘의 한 줄` 보드에 최신 5개까지 쌓입니다.
+- **주문서 기준 영업일 1개**입니다(`order_sheet_id` + `business_date` 유니크). 같은 주문서로는 하루에 한 번만 남길 수 있고, 남긴 뒤에는 **수정·삭제**가 가능합니다(수정은 30초 쿨다운).
+- 새 한 줄이 등록되면 TV에 `📝 {닉네임}({번호}번) · {한 줄}` 배너가 노란 톤으로 표시됩니다.
+- 저장 전에 [src/lib/profanity.js](src/lib/profanity.js)의 금칙어 목록으로 마스킹하고, 화면에는 안내 문구(비속어는 가려지거나 강제 변경될 수 있음)를 함께 보여줍니다.
+- 결제 완료 또는 테이블 정리 시 해당 테이블의 한 줄은 삭제되고, 영업일이 바뀌면 지난 영업일 한 줄도 정리됩니다. 규칙은 [src/lib/barNotes.js](src/lib/barNotes.js)에 모여 있습니다.
+- 처음 적용하는 프로젝트에서는 Supabase SQL Editor에서 [supabase/patch-009-bar-notes.sql](supabase/patch-009-bar-notes.sql)을 실행하세요. 여러 번 실행해도 안전합니다.
+
 ### Business day
 
 - 매장 영업일은 **KST 15:00:00 ~ 익일 14:59:59**(영업은 새벽 4시까지) 기준입니다.
@@ -96,6 +119,7 @@ pnpm menu:import -- --file menu-data/menu.json --apply    # 반영
 - 착석 좌석은 `active_order_sheets` 기준이고, 이름표는 `order_sheets.table_nickname`(없으면 `손님`)을 사용합니다. 배치에 없는 번호의 주문은 좌석 없이 `외 N팀`으로만 집계합니다.
 - 전체 채팅(`GLOBAL`)만 표시합니다: 새 메시지가 오면 해당 테이블 캐릭터 위에 6초 말풍선이 뜨고, 우측 패널에 최근 6개가 쌓입니다. `SYSTEM` 메시지는 하단 배너로 표시합니다.
 - 직원 메시지(`ADMIN`)는 우측 최근 채팅에 남는 것과 동시에, 화면 가운데에 큰 카드로 페이드인 → 8초 유지 → 페이드아웃으로 표시되고 알림음이 재생됩니다. 여러 건이 한꺼번에 들어오면 순서대로 하나씩 재생됩니다.
+- 우측 사이드 패널은 `최근 채팅`과 `오늘의 한 줄` 2단입니다. 한 줄 보드는 오늘 등록된 최신 5개를 보여주고, 새 한 줄이 오면 노란 배너로 알립니다.
 - 알림음은 `src/lib/notificationSound.js`의 Web Audio 차임을 쓰며, 브라우저 정책상 페이지를 한 번 터치/클릭해야 소리가 켜집니다. 잠겨 있는 동안 상단에 `🔇 화면을 한 번 터치하면 알림음이 켜져요` 안내가 뜨고, 소리가 켜지면 사라집니다. TV를 켤 때 Chrome을 `--autoplay-policy=no-user-gesture-required` 로 실행하면 터치 없이도 재생됩니다.
 - **1:1(`DIRECT`)·직원(`STAFF`) 방은 조회 자체를 하지 않아 TV에 노출되지 않습니다.**
 - 1920×1080 기준 화면을 뷰포트에 맞춰 축소(`transform: scale`)하므로 어떤 해상도의 TV에서도 잘리지 않습니다.
