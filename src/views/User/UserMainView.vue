@@ -209,8 +209,8 @@
         <div class="sheet-card">
           <h3>익명 하트 보내기</h3>
           <p class="sheet-description">
-            누가 보냈는지는 상대 테이블에 알려지지 않아요. 서로 하트를 보내면 TV
-            화면에 두 테이블의 닉네임이 공개돼요.
+            누가 보냈는지는 상대 테이블에도 TV 화면에도 알려지지 않아요. 서로
+            하트를 보내면 두 테이블에만 알림이 가고 1:1 채팅이 열려요.
           </p>
 
           <p v-if="isLoadingHeartTargets" class="heart-target-empty">
@@ -624,8 +624,8 @@ async function sendHeart() {
     });
 
     heartFeedback.value = result.mutual
-      ? `서로 하트예요! ${target.label}님과 TV 화면에 닉네임이 공개됐어요.`
-      : `${target.label}님에게 익명 하트를 보냈어요. TV 화면을 확인해보세요!`;
+      ? `서로 하트예요! ${target.label}님과 1:1 채팅이 열렸어요. 알림을 확인해보세요.`
+      : `${target.label}님에게 익명 하트를 보냈어요. 서로 하트가 되면 1:1 채팅이 열려요.`;
   } catch (error) {
     heartError.value = error?.message || "하트를 보내지 못했어요.";
   } finally {

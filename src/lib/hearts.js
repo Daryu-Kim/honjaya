@@ -1,5 +1,6 @@
-// 익명 하트: 보낸 사람은 상대 테이블과 TV 화면에 공개되지 않습니다.
-// 서로 하트를 주고받은 경우에만 두 테이블의 닉네임이 TV에 공개됩니다.
+// 익명 하트: 보낸 사람은 상대 테이블에도 TV 화면에도 공개되지 않습니다.
+// 서로 하트가 성사되면 TV에는 아무것도 띄우지 않고, 두 테이블의 1:1 채팅방에만
+// 시스템 메시지를 남겨 두 테이블이 알림을 받고 바로 대화를 열 수 있게 합니다.
 import {
   deleteWhere,
   fetchList,
@@ -12,7 +13,13 @@ import {
   getBusinessDayStartIso,
   getCurrentBusinessDateInput,
 } from "@/lib/businessDay";
-import { formatTableLabel } from "@/lib/chat";
+import {
+  CHAT_MESSAGE_TYPE,
+  CHAT_ROOM_TYPE,
+  buildDirectRoomKey,
+  formatTableLabel,
+  sendChatMessage,
+} from "@/lib/chat";
 import { normalizeTableNumber } from "@/lib/orderSheet";
 
 export const HEART_COOLDOWN_MS = 30 * 1000;
@@ -120,8 +127,8 @@ function findHeartCounterpart(hearts, fromTableNumber, toTableNumber) {
   );
 }
 
-// 상호 하트면 두 row 를 모두 공개 상태로 바꿔 TV 가 닉네임을 보여줄 수 있게 합니다.
-async function revealMutualHearts(rows) {
+// 상호 하트 성사는 기록용으로만 표시하고 TV에는 노출하지 않습니다.
+async function markMutualHearts(rows) {
   const now = nowIso();
 
   await Promise.all(
@@ -132,6 +139,29 @@ async function revealMutualHearts(rows) {
       });
     })
   );
+}
+
+// 서로 하트가 성사되면 두 테이블의 1:1 채팅방에 시스템 메시지를 남깁니다.
+// 채팅 알림 파이프라인을 그대로 타기 때문에 상대 테이블 폰에 토스트/진동이 뜹니다.
+async function notifyMutualHeart({
+  senderTableNumber,
+  senderNickname,
+  receiverTableNumber,
+  receiverNickname,
+}) {
+  const senderLabel = formatTableLabel(senderTableNumber, senderNickname);
+  const receiverLabel = formatTableLabel(receiverTableNumber, receiverNickname);
+
+  await sendChatMessage({
+    roomType: CHAT_ROOM_TYPE.DIRECT,
+    roomKey: buildDirectRoomKey(senderTableNumber, receiverTableNumber),
+    message: `💗 서로 하트 성사! ${senderLabel} ↔ ${receiverLabel} 1:1 채팅이 열렸어요.`,
+    sender: {
+      tableNumber: senderTableNumber,
+      nickname: senderNickname,
+    },
+    messageType: CHAT_MESSAGE_TYPE.SYSTEM,
+  });
 }
 
 // ---- 영업일 하트 정리 -------------------------------------------------
@@ -219,12 +249,14 @@ export async function sendAnonymousHeart({
   }
 
   const now = nowIso();
+  const senderNickname = String(fromNickname || "").trim();
+  const receiverNickname = String(toNickname || "").trim();
   const heart = await insertRow("hearts", {
     id: newId(),
     fromTableNumber: senderTableNumber,
-    fromNickname: String(fromNickname || "").trim(),
+    fromNickname: senderNickname,
     toTableNumber: receiverTableNumber,
-    toNickname: String(toNickname || "").trim(),
+    toNickname: receiverNickname,
     businessDate: getBusinessDayStartIso(),
     isRevealed: false,
     createdAt: now,
@@ -242,10 +274,22 @@ export async function sendAnonymousHeart({
   }
 
   try {
-    await revealMutualHearts([heart, counterpart]);
+    await markMutualHearts([heart, counterpart]);
   } catch (error) {
-    // 공개 표시 실패가 하트 전송 자체를 막지 않게 합니다.
-    console.error("상호 하트 공개 처리 실패:", error);
+    // 기록 실패가 하트 전송 자체를 막지 않게 합니다.
+    console.error("상호 하트 기록 실패:", error);
+  }
+
+  try {
+    await notifyMutualHeart({
+      senderTableNumber,
+      senderNickname: senderNickname || counterpart.toNickname || "",
+      receiverTableNumber,
+      receiverNickname: receiverNickname || counterpart.fromNickname || "",
+    });
+  } catch (error) {
+    // 1:1 채팅 알림 실패도 하트 전송 결과를 뒤집지 않습니다.
+    console.error("상호 하트 채팅 알림 실패:", error);
   }
 
   return { heart, mutual: true, counterpart };

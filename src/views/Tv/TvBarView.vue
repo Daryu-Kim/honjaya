@@ -12,14 +12,7 @@
             :id="`tv-guest-${part.tone}`"
             :key="`guest-${part.tone}`"
           >
-            <rect
-              v-for="rect in part.rects"
-              :key="rect.key"
-              :x="rect.x"
-              :y="rect.y"
-              width="1"
-              height="1"
-            />
+            <path :d="part.d" />
           </g>
           <template v-for="furniture in furnitureSprites" :key="furniture.key">
             <g
@@ -27,14 +20,7 @@
               :id="`tv-${furniture.key}-${part.tone}`"
               :key="`${furniture.key}-${part.tone}`"
             >
-              <rect
-                v-for="rect in part.rects"
-                :key="rect.key"
-                :x="rect.x"
-                :y="rect.y"
-                width="1"
-                height="1"
-              />
+              <path :d="part.d" />
             </g>
           </template>
         </defs>
@@ -90,7 +76,11 @@
               :style="slot.style"
             >
               <transition name="bubble-pop">
-                <div v-if="bubbles[slot.tableNumber]" class="seat-bubble">
+                <div
+                  v-if="bubbles[slot.tableNumber]"
+                  class="seat-bubble"
+                  :class="`is-align-${slot.align}`"
+                >
                   <span class="seat-bubble-from">
                     {{ bubbles[slot.tableNumber].label }}
                   </span>
@@ -119,7 +109,7 @@
                 <svg
                   v-if="slot.seat"
                   class="seat-guest"
-                  viewBox="0 0 16 16"
+                  viewBox="0 0 24 24"
                   aria-hidden="true"
                   focusable="false"
                 >
@@ -133,7 +123,7 @@
 
                 <svg
                   class="seat-furniture"
-                  viewBox="0 0 16 8"
+                  viewBox="0 0 24 12"
                   aria-hidden="true"
                   focusable="false"
                 >
@@ -166,7 +156,7 @@
               <div class="counter-staff">
                 <svg
                   class="staff-figure"
-                  viewBox="0 0 16 16"
+                  viewBox="0 0 24 24"
                   aria-hidden="true"
                   focusable="false"
                 >
@@ -313,71 +303,127 @@ const MESSAGE_TYPE_SYSTEM = "SYSTEM";
 
 const CELL_TONES = {
   h: "hair",
+  H: "hair-light",
   f: "skin",
-  e: "eye",
-  m: "mouth",
-  t: "shirt",
+  F: "skin-shadow",
   s: "skin",
+  S: "skin-shadow",
+  t: "shirt",
+  T: "shirt-dark",
+  e: "eye",
+  r: "blush",
+  m: "mouth",
 };
 
+// 24x24 픽셀 그리드. 앉은 자세라 무릎 아래는 가구가 가립니다.
 const GUEST_SPRITE = [
-  "................",
-  "................",
-  ".....hhhhhh.....",
-  "....hhhhhhhh....",
-  "....hffffffh....",
-  "....ffeffeff....",
-  "....ffffffff....",
-  ".....fmmmff.....",
-  "......ffff......",
-  "....tttttttt....",
-  "...tttttttttt...",
-  "..sttttttttts...",
-  "..sttttttttts...",
-  "...tttttttttt...",
-  "....tttttttt....",
-  "................",
+  "........................",
+  "........hhhhhhhh........",
+  "......hhhhhhhhhhhh......",
+  ".....hHhhhhhhhhhhHh.....",
+  ".....hhhhhhhhhhhhhh.....",
+  ".....hhffffffffffhh.....",
+  ".....hhffeeffeeffhh.....",
+  ".....hhffeeffeeffhh.....",
+  ".....hhrrffffffrrhh.....",
+  ".....hhffffmmffffhh.....",
+  "......hffffffffffh......",
+  "..........fFFf..........",
+  "......TttttTTttttT......",
+  "....TttttttttttttttT....",
+  "...ssTttttttttttttTss...",
+  "...sSTttttttttttttTSs...",
+  "...ssTttttttttttttTss...",
+  "....STttttttttttttTS....",
+  ".....TttttttttttttT.....",
+  ".....TTttttttttttTT.....",
+  "......TTTTTTTTTTTT......",
+  "........................",
+  "........................",
+  "........................",
 ];
 
+// 픽셀은 CSS 변수로 색을 바꿀 수 있게 톤별 path 하나로 묶어 그립니다.
 const SEAT_PALETTES = [
-  { hair: "#241f33", shirt: "#ff8a5c" },
-  { hair: "#4a2f1f", shirt: "#5bc0eb" },
-  { hair: "#1b2430", shirt: "#9ee37d" },
-  { hair: "#5c3b6e", shirt: "#ffd166" },
-  { hair: "#2b2b2b", shirt: "#ef476f" },
-  { hair: "#6b3f1d", shirt: "#2ec4b6" },
+  {
+    hair: "#241f33",
+    hairLight: "#3d3459",
+    shirt: "#ff8a5c",
+    shirtDark: "#c95f33",
+  },
+  {
+    hair: "#4a2f1f",
+    hairLight: "#6f4a2e",
+    shirt: "#5bc0eb",
+    shirtDark: "#3a8fb8",
+  },
+  {
+    hair: "#1b2430",
+    hairLight: "#35455b",
+    shirt: "#9ee37d",
+    shirtDark: "#6fae52",
+  },
+  {
+    hair: "#5c3b6e",
+    hairLight: "#82569a",
+    shirt: "#ffd166",
+    shirtDark: "#c99b2e",
+  },
+  {
+    hair: "#2b2b2b",
+    hairLight: "#4d4a4a",
+    shirt: "#ef476f",
+    shirtDark: "#b32a4e",
+  },
+  {
+    hair: "#6b3f1d",
+    hairLight: "#95602f",
+    shirt: "#2ec4b6",
+    shirtDark: "#1f8f85",
+  },
 ];
 
-const SHELF_COLORS = ["#7bdff2", "#f7a072", "#c6f68d", "#f6c667", "#a99bf5"];
+// 따뜻한 바 분위기에 맞춘 병 색(앰버·로즈·민트).
+const SHELF_COLORS = ["#ffb066", "#ff7a90", "#8ce6d2", "#ffd166", "#c9a2ff"];
 
-// Parts are drawn as separate <use> sprites so the fill can come from CSS
-// variables (fill="var(--hair)" in a presentation attribute is not portable).
-const GUEST_TONE_ORDER = ["hair", "skin", "shirt", "eye", "mouth"];
-
-function buildSpriteParts(rows, toneMap, toneOrder) {
-  const rects = [];
+function buildSpritePaths(rows, toneMap) {
+  const segmentsByTone = new Map();
 
   rows.forEach((row, y) => {
-    [...row].forEach((cell, x) => {
-      const tone = toneMap[cell];
+    let x = 0;
 
-      if (tone) {
-        rects.push({ key: `${x}-${y}`, x, y, tone });
+    while (x < row.length) {
+      const tone = toneMap[row[x]];
+
+      if (!tone) {
+        x += 1;
+        continue;
       }
-    });
+
+      let end = x + 1;
+
+      while (end < row.length && toneMap[row[end]] === tone) {
+        end += 1;
+      }
+
+      const width = end - x;
+      const segments = segmentsByTone.get(tone) || [];
+
+      segments.push(`M${x} ${y}h${width}v1h-${width}z`);
+      segmentsByTone.set(tone, segments);
+      x = end;
+    }
   });
 
-  const tones = toneOrder || [...new Set(rects.map((rect) => rect.tone))];
-
-  return tones.map((tone) => ({
+  return [...segmentsByTone].map(([tone, segments]) => ({
     tone,
-    rects: rects.filter((rect) => rect.tone === tone),
+    d: segments.join(""),
   }));
 }
 
-const guestParts = buildSpriteParts(GUEST_SPRITE, CELL_TONES, GUEST_TONE_ORDER);
+const guestParts = buildSpritePaths(GUEST_SPRITE, CELL_TONES);
 
-// 가구는 16x8 픽셀 그리드입니다. w = 나무, d = 그늘.
+// 가구는 24x12 픽셀 그리드입니다. w = 나무, d = 그늘.
 const FURNITURE_TONES = {
   w: "wood",
   d: "dark",
@@ -385,31 +431,39 @@ const FURNITURE_TONES = {
 
 // 바 좌석(스툴): 넓은 상판 + 가운데 기둥 + 발판.
 const STOOL_SPRITE = [
-  "....wwwwwwww....",
-  "....wwwwwwww....",
-  "....dddddddd....",
-  "......dddd......",
-  "...dddddddddd...",
-  "......dddd......",
-  ".....d....d.....",
-  "....dd....dd....",
+  "....wwwwwwwwwwwwwwww....",
+  "....wwwwwwwwwwwwwwww....",
+  "....dddddddddddddddd....",
+  ".........dddddd.........",
+  ".........dddddd.........",
+  ".........dddddd.........",
+  "....dddddddddddddddd....",
+  "....dddddddddddddddd....",
+  ".........dddddd.........",
+  ".........dddddd.........",
+  "........dd....dd........",
+  ".......dd......dd.......",
 ];
 
 // 홀 테이블: 상판 + 다리 + 양옆 의자.
 const TABLE_SPRITE = [
-  "..wwwwwwwwwwww..",
-  "..wwwwwwwwwwww..",
-  "..dddddddddddd..",
-  "ww..d......d..ww",
-  "ww..d......d..ww",
-  "ww..d......d..ww",
-  "ww..d......d..ww",
-  "....dd....dd....",
+  "....wwwwwwwwwwwwwwww....",
+  "....wwwwwwwwwwwwwwww....",
+  "....dddddddddddddddd....",
+  "ww..d..............d..ww",
+  "ww..d..............d..ww",
+  "ww..d..............d..ww",
+  "ww..d..............d..ww",
+  "....d..............d....",
+  "....d..............d....",
+  "....dddddddddddddddd....",
+  "....dddddddddddddddd....",
+  "....dddddddddddddddd....",
 ];
 
 const furnitureParts = {
-  stool: buildSpriteParts(STOOL_SPRITE, FURNITURE_TONES, ["dark", "wood"]),
-  table: buildSpriteParts(TABLE_SPRITE, FURNITURE_TONES, ["dark", "wood"]),
+  stool: buildSpritePaths(STOOL_SPRITE, FURNITURE_TONES),
+  table: buildSpritePaths(TABLE_SPRITE, FURNITURE_TONES),
 };
 
 const furnitureSprites = [
@@ -418,7 +472,7 @@ const furnitureSprites = [
 ];
 
 const shelfBottles = Array.from({ length: 14 }, (_, index) => {
-  const height = 26 + ((index * 13) % 34);
+  const height = 16 + ((index * 9) % 24);
   const color = SHELF_COLORS[index % SHELF_COLORS.length];
 
   return {
@@ -426,7 +480,7 @@ const shelfBottles = Array.from({ length: 14 }, (_, index) => {
     style: {
       height: `${height}px`,
       background: color,
-      opacity: String(0.55 + (index % 3) * 0.15),
+      opacity: String(0.6 + (index % 3) * 0.15),
     },
   };
 });
@@ -520,10 +574,25 @@ const barSlots = computed(() =>
   buildTableSlots(BAR_TABLE_NUMBERS, occupiedTableMap.value, "stool")
 );
 
+// 말풍선이 화면 밖으로 잘리지 않도록 줄의 양 끝 좌석은 안쪽으로 정렬합니다.
+function withBubbleAlign(slots) {
+  return slots.map((slot, index) => {
+    if (index === 0) {
+      return { ...slot, align: "start" };
+    }
+
+    if (index === slots.length - 1) {
+      return { ...slot, align: "end" };
+    }
+
+    return { ...slot, align: "center" };
+  });
+}
+
 const seatZones = computed(() => [
-  { key: "hall-back", slots: hallBackSlots.value },
-  { key: "hall-front", slots: hallFrontSlots.value },
-  { key: "bar", slots: barSlots.value },
+  { key: "hall-back", slots: withBubbleAlign(hallBackSlots.value) },
+  { key: "hall-front", slots: withBubbleAlign(hallFrontSlots.value) },
+  { key: "bar", slots: withBubbleAlign(barSlots.value) },
 ]);
 
 // 테이블별로 오늘 받은 하트 개수 (좌석 명패에 표시).
@@ -595,8 +664,6 @@ const panelNotes = computed(() => {
 
 const seenMessageIds = new Set();
 const seenHeartIds = new Set();
-const revealedHeartIds = new Set();
-const revealedHeartPairs = new Set();
 const seenBarNoteIds = new Set();
 const bubbleTimers = new Map();
 const heartBurstTimers = new Map();
@@ -627,7 +694,9 @@ function seatStyle(seat) {
 
   return {
     "--hair": palette.hair,
+    "--hair-light": palette.hairLight,
     "--shirt": palette.shirt,
+    "--shirt-dark": palette.shirtDark,
   };
 }
 
@@ -767,13 +836,7 @@ async function loadHearts() {
 function announceNewHearts(rows) {
   if (!hasLoadedHearts) {
     hasLoadedHearts = true;
-    rows.forEach((heart) => {
-      seenHeartIds.add(heart.id);
-
-      if (heart.isRevealed) {
-        revealedHeartIds.add(heart.id);
-      }
-    });
+    rows.forEach((heart) => seenHeartIds.add(heart.id));
     return;
   }
 
@@ -782,20 +845,9 @@ function announceNewHearts(rows) {
   fresh.forEach((heart) => seenHeartIds.add(heart.id));
 
   fresh
-    .filter((heart) => !heart.isRevealed)
     .slice()
     .reverse()
     .forEach((heart) => showAnonymousHeart(heart));
-
-  // 상호 하트 공개는 insert 이후 update 로 들어오므로 따로 감지합니다.
-  rows
-    .filter((heart) => heart.isRevealed && !revealedHeartIds.has(heart.id))
-    .slice()
-    .reverse()
-    .forEach((heart) => {
-      revealedHeartIds.add(heart.id);
-      showMutualHeart(heart);
-    });
 }
 
 async function loadBarNotes() {
@@ -839,7 +891,8 @@ function seatNicknameOf(tableNumber) {
   return seat ? seat.nickname : "";
 }
 
-// 익명 하트는 받는 테이블 좌석 위로 하트가 떠오르고, 서로 하트면 닉네임까지 공개합니다.
+// 익명 하트는 받는 테이블 좌석 위로만 하트가 떠오릅니다.
+// 서로 하트 성사는 TV에 노출하지 않고 두 테이블의 1:1 채팅 알림으로만 알려줍니다.
 function showAnonymousHeart(heart) {
   const toTableNumber = normalizeTableNumber(heart.toTableNumber);
 
@@ -855,41 +908,6 @@ function showAnonymousHeart(heart) {
   showHeartBurst(toTableNumber);
 
   showBanner(`💗 ${toLabel}님에게 익명 하트가 도착했어요`, {
-    tag: "하트",
-    tone: "heart",
-  });
-}
-
-function showMutualHeart(heart) {
-  const toTableNumber = normalizeTableNumber(heart.toTableNumber);
-  const fromTableNumber = normalizeTableNumber(heart.fromTableNumber);
-
-  if (!toTableNumber || !fromTableNumber || toTableNumber === fromTableNumber) {
-    return;
-  }
-
-  const pairKey = [fromTableNumber, toTableNumber]
-    .sort((first, second) => Number(first) - Number(second))
-    .join("-");
-
-  if (revealedHeartPairs.has(pairKey)) {
-    return;
-  }
-
-  revealedHeartPairs.add(pairKey);
-  showHeartBurst(toTableNumber);
-  showHeartBurst(fromTableNumber);
-
-  const toLabel = formatTableLabel(
-    toTableNumber,
-    heart.toNickname || seatNicknameOf(toTableNumber)
-  );
-  const fromLabel = formatTableLabel(
-    fromTableNumber,
-    heart.fromNickname || seatNicknameOf(fromTableNumber)
-  );
-
-  showBanner(`💗 서로 하트! ${fromLabel} ↔ ${toLabel}`, {
     tag: "하트",
     tone: "heart",
   });
@@ -1045,7 +1063,7 @@ function scheduleDawnReload() {
 
 function lockPageScroll() {
   document.body.style.overflow = "hidden";
-  document.body.style.background = "#06060f";
+  document.body.style.background = "#0b0709";
 }
 
 function releasePageScroll() {
@@ -1121,7 +1139,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  background: radial-gradient(circle at 50% 20%, #161230 0%, #06060f 70%);
+  background: radial-gradient(circle at 50% 15%, #2a1a22 0%, #0b0709 72%);
   cursor: none;
   user-select: none;
 }
@@ -1149,10 +1167,10 @@ onUnmounted(() => {
   box-sizing: border-box;
   background: repeating-linear-gradient(
     90deg,
-    #141029 0 40px,
-    #191433 40px 80px
+    #170f16 0 40px,
+    #1d141c 40px 80px
   );
-  color: #f7f3ff;
+  color: #fdf3f6;
   font-family: "DungGeunMo", "NeoDunggeunmo", "Malgun Gothic",
     "Apple SD Gothic Neo", monospace;
   letter-spacing: 0.02em;
@@ -1235,42 +1253,43 @@ onUnmounted(() => {
   justify-content: flex-end;
   gap: 12px;
   overflow: hidden;
-  background: linear-gradient(180deg, #1d1740 0%, #241a4d 46%, #2c1f57 100%);
-  box-shadow: inset 0 0 0 6px #0d0a1c;
+  background: linear-gradient(180deg, #2b1a22 0%, #34202a 46%, #402733 100%);
+  box-shadow: inset 0 0 0 6px #120b10;
 }
 
 .scene-wall {
   position: absolute;
-  inset: 0 0 46% 0;
+  inset: 0 0 52% 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  padding-top: 40px;
-  gap: 34px;
+  padding-top: 18px;
+  gap: 10px;
 }
 
 .scene-neon {
-  font-size: 76px;
-  letter-spacing: 0.34em;
-  color: #ff77c8;
-  text-shadow: 0 0 18px rgba(255, 119, 200, 0.7),
-    6px 6px 0 rgba(60, 0, 40, 0.55);
+  font-size: 60px;
+  letter-spacing: 0.3em;
+  color: #ff5d8f;
+  text-shadow: 0 0 16px rgba(255, 93, 143, 0.72),
+    0 0 36px rgba(255, 93, 143, 0.36), 5px 5px 0 rgba(48, 0, 22, 0.6);
 }
 
 .scene-shelf {
   display: flex;
   align-items: flex-end;
-  gap: 14px;
-  padding: 0 40px 12px;
-  height: 120px;
-  border-bottom: 8px solid #4a3a7a;
+  gap: 10px;
+  padding: 0 34px 8px;
+  height: 76px;
+  border-bottom: 6px solid #6a4632;
+  box-shadow: 0 8px 14px rgba(0, 0, 0, 0.35);
 }
 
 .shelf-bottle {
   display: block;
-  width: 22px;
-  box-shadow: inset 0 -8px 0 rgba(0, 0, 0, 0.25);
+  width: 15px;
+  box-shadow: inset 0 -5px 0 rgba(0, 0, 0, 0.25);
 }
 
 .scene-zone {
@@ -1282,11 +1301,11 @@ onUnmounted(() => {
   justify-content: center;
   gap: 6px 8px;
   padding: 0 40px;
-  --avatar: 92px;
-  --name-size: 13px;
-  --no-size: 10px;
-  --wood: #a86b45;
-  --wood-dark: #6b3f2a;
+  --avatar: 94px;
+  --name-size: 15px;
+  --no-size: 12px;
+  --wood: #b9793f;
+  --wood-dark: #7a4a2b;
 }
 
 /* 홀은 사진처럼 두 줄입니다. 안쪽 줄 23~13번, 바깥 줄 1·2번 + 24·26~32번. */
@@ -1295,24 +1314,30 @@ onUnmounted(() => {
   gap: 6px 8px;
 }
 
+.scene-zone.is-hall-front {
+  --avatar: 99px;
+}
+
 .scene-zone.is-bar {
   gap: 8px;
-  --avatar: 88px;
-  --name-size: 18px;
-  --no-size: 13px;
-  --wood: #c98a5a;
-  --wood-dark: #8a5232;
+  --avatar: 104px;
+  --name-size: 19px;
+  --no-size: 15px;
+  --wood: #d99a5f;
+  --wood-dark: #96603a;
 }
 
 .seat {
   position: relative;
-  width: calc(var(--avatar) + 10px);
+  width: calc(var(--avatar) + 14px);
   display: flex;
   flex-direction: column;
   align-items: center;
   --skin: #f7d5b5;
+  --skin-shadow: #e3b391;
   --eye: #241b33;
   --mouth: #c8627a;
+  --blush: #f6a2ae;
 }
 
 .seat.has-bubble {
@@ -1339,8 +1364,9 @@ onUnmounted(() => {
   position: absolute;
   bottom: 0;
   left: 50%;
-  width: 90%;
-  height: calc(var(--avatar) * 0.42);
+  width: 76%;
+  height: auto;
+  aspect-ratio: 24 / 12;
   transform: translateX(-50%);
   image-rendering: pixelated;
   filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.32));
@@ -1354,10 +1380,9 @@ onUnmounted(() => {
   fill: var(--wood-dark);
 }
 
-/* 바 스툴은 캐릭터 다리만 가리도록 더 낮게 그립니다. */
+/* 바 스툴은 캐릭터 다리만 가리도록 더 작게 그립니다. */
 .seat.is-stool .seat-furniture {
-  width: 76%;
-  height: calc(var(--avatar) * 0.26);
+  width: 62%;
 }
 
 .seat.is-gap-before {
@@ -1369,23 +1394,39 @@ onUnmounted(() => {
 }
 
 .seat.is-empty .seat-plate-name {
-  color: #7d72a8;
+  color: #a88a95;
 }
 
 .guest-hair {
   fill: var(--hair);
 }
 
+.guest-hair-light {
+  fill: var(--hair-light);
+}
+
 .guest-skin {
   fill: var(--skin);
+}
+
+.guest-skin-shadow {
+  fill: var(--skin-shadow);
 }
 
 .guest-shirt {
   fill: var(--shirt);
 }
 
+.guest-shirt-dark {
+  fill: var(--shirt-dark);
+}
+
 .guest-eye {
   fill: var(--eye);
+}
+
+.guest-blush {
+  fill: var(--blush);
 }
 
 .guest-mouth {
@@ -1402,34 +1443,37 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  background: #120f24;
-  box-shadow: 0 0 0 4px #3d3168, 4px 4px 0 4px rgba(0, 0, 0, 0.4);
+  background: #1a1018;
+  box-shadow: 0 0 0 4px #4a2f3a, 4px 4px 0 4px rgba(0, 0, 0, 0.4);
 }
 
 .seat-plate-name {
   font-size: var(--name-size);
-  color: #ffe066;
-  white-space: nowrap;
+  line-height: 1.2;
+  color: #ffd166;
+  text-align: center;
+  min-height: calc(1.2em + 2px);
+  max-height: calc(2.4em + 2px);
+  word-break: keep-all;
+  overflow-wrap: anywhere;
   overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
 }
 
 .seat-plate-table {
   font-size: var(--no-size);
-  color: #9d8fd0;
+  color: #c9a3b4;
 }
 
 /* 명패 레이아웃을 밀지 않도록 하트 배지는 절대 위치로 띄웁니다. */
 .seat-plate-heart {
   position: absolute;
-  top: -14px;
+  top: -16px;
   right: -8px;
-  padding: 2px 6px;
-  font-size: 12px;
+  padding: 2px 7px;
+  font-size: 14px;
   color: #22102a;
   background: #ff9ad5;
-  box-shadow: 0 0 0 3px #0d0a1c;
+  box-shadow: 0 0 0 3px #120b10;
   white-space: nowrap;
 }
 
@@ -1446,8 +1490,8 @@ onUnmounted(() => {
 .seat-heart-particle {
   position: absolute;
   bottom: 0;
-  color: #ff77c8;
-  text-shadow: 0 0 10px rgba(255, 119, 200, 0.85), 2px 2px 0 rgba(0, 0, 0, 0.35);
+  color: #ff5d8f;
+  text-shadow: 0 0 10px rgba(255, 93, 143, 0.85), 2px 2px 0 rgba(0, 0, 0, 0.35);
   animation-name: heart-float;
   animation-timing-function: ease-out;
   animation-fill-mode: forwards;
@@ -1471,19 +1515,28 @@ onUnmounted(() => {
 
 .seat-bubble {
   position: absolute;
-  bottom: calc(100% + 6px);
+  bottom: calc(100% + 8px);
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(var(--bubble-x, -50%));
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  min-width: 120px;
-  max-width: 260px;
-  padding: 12px 14px;
-  background: #fdfbff;
+  gap: 5px;
+  min-width: 150px;
+  max-width: 340px;
+  padding: 14px 18px;
+  background: #fff8f3;
   color: #1a1530;
-  box-shadow: 0 0 0 4px #0d0a1c, 6px 6px 0 4px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 0 0 4px #120b10, 6px 6px 0 4px rgba(0, 0, 0, 0.35);
   z-index: 5;
+}
+
+/* 줄의 양 끝 좌석은 말풍선을 안쪽으로 붙여 화면 밖으로 잘리지 않게 합니다. */
+.seat-bubble.is-align-start {
+  --bubble-x: -16%;
+}
+
+.seat-bubble.is-align-end {
+  --bubble-x: -84%;
 }
 
 .seat-bubble::after {
@@ -1494,18 +1547,26 @@ onUnmounted(() => {
   width: 16px;
   height: 16px;
   transform: translateX(-50%) rotate(45deg);
-  background: #fdfbff;
-  box-shadow: 4px 4px 0 0 rgba(13, 10, 28, 1);
+  background: #fff8f3;
+  box-shadow: 4px 4px 0 0 rgba(18, 11, 16, 1);
+}
+
+.seat-bubble.is-align-start::after {
+  left: 18%;
+}
+
+.seat-bubble.is-align-end::after {
+  left: 82%;
 }
 
 .seat-bubble-from {
-  font-size: 14px;
-  color: #7a5cff;
+  font-size: 17px;
+  color: #c2415f;
 }
 
 .seat-bubble-text {
-  font-size: 20px;
-  line-height: 1.35;
+  font-size: 26px;
+  line-height: 1.32;
   word-break: keep-all;
   overflow-wrap: anywhere;
 }
@@ -1514,15 +1575,15 @@ onUnmounted(() => {
   position: relative;
   z-index: 3;
   flex: 0 0 auto;
-  height: 168px;
+  height: 112px;
 }
 
 .counter-top {
-  height: 22px;
+  height: 14px;
   background: repeating-linear-gradient(
     90deg,
-    #a86b45 0 34px,
-    #b5764c 34px 68px
+    #b9793f 0 34px,
+    #c6884a 34px 68px
   );
   box-shadow: inset 0 -6px 0 rgba(0, 0, 0, 0.28),
     inset 0 4px 0 rgba(255, 255, 255, 0.18);
@@ -1530,11 +1591,11 @@ onUnmounted(() => {
 
 .counter-front {
   position: relative;
-  height: 146px;
+  height: 98px;
   background: repeating-linear-gradient(
     90deg,
-    #6b3f2a 0 68px,
-    #74452e 68px 136px
+    #7a4a2b 0 68px,
+    #845230 68px 136px
   );
   box-shadow: inset 0 8px 0 rgba(0, 0, 0, 0.35);
 }
@@ -1542,37 +1603,41 @@ onUnmounted(() => {
 /* 직원은 카운터 앞쪽에 서 있는 픽셀 캐릭터로 그립니다. */
 .counter-staff {
   position: absolute;
-  bottom: 10px;
+  bottom: 4px;
   left: 50%;
   display: flex;
   flex-direction: column;
   align-items: center;
   transform: translateX(-50%);
   --hair: #2f2a3d;
+  --hair-light: #4b445e;
   --skin: #f7d5b5;
+  --skin-shadow: #e3b391;
   --eye: #241b33;
   --mouth: #c8627a;
+  --blush: #f6a2ae;
   --shirt: #f4f1ea;
+  --shirt-dark: #cfc7ba;
 }
 
 .staff-figure {
-  width: 92px;
-  height: 92px;
+  width: 58px;
+  height: 58px;
   image-rendering: pixelated;
   filter: drop-shadow(0 6px 0 rgba(0, 0, 0, 0.3));
 }
 
 .staff-plate {
-  margin-top: 4px;
-  padding: 3px 10px;
-  font-size: 13px;
-  color: #ffe066;
-  background: #120f24;
-  box-shadow: 0 0 0 3px #3d3168;
+  margin-top: 3px;
+  padding: 2px 9px;
+  font-size: 12px;
+  color: #ffd166;
+  background: #1a1018;
+  box-shadow: 0 0 0 3px #4a2f3a;
 }
 
 .tv-side {
-  flex: 0 0 400px;
+  flex: 0 0 440px;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -1584,8 +1649,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: #100d20;
-  box-shadow: inset 0 0 0 6px #241d43;
+  background: #1a1018;
+  box-shadow: inset 0 0 0 6px #3a2028;
   padding: 22px 22px 16px;
   box-sizing: border-box;
 }
@@ -1595,20 +1660,20 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   padding-bottom: 14px;
-  border-bottom: 4px solid #241d43;
+  border-bottom: 4px solid #3a2028;
 }
 
 .tv-chat-head h2 {
   margin: 0;
-  font-size: 24px;
-  color: #ffe066;
+  font-size: 30px;
+  color: #ffd166;
 }
 
 .tv-chat-room {
-  font-size: 14px;
-  color: #9d8fd0;
-  padding: 4px 10px;
-  background: #1b1533;
+  font-size: 18px;
+  color: #e4b7c4;
+  padding: 4px 12px;
+  background: #2a1820;
 }
 
 .tv-chat-list {
@@ -1625,34 +1690,34 @@ onUnmounted(() => {
 .tv-chat-item {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 10px 12px;
-  background: #17122c;
-  box-shadow: inset 0 0 0 3px #241d43;
+  gap: 4px;
+  padding: 11px 13px;
+  background: #221419;
+  box-shadow: inset 0 0 0 3px #3a2028;
 }
 
 .tv-chat-item.is-staff {
-  background: #1d1a38;
-  box-shadow: inset 0 0 0 3px #4a3a7a;
+  background: #2b1c22;
+  box-shadow: inset 0 0 0 3px #6b3a44;
 }
 
 .tv-chat-from {
-  font-size: 14px;
-  color: #7cf29c;
+  font-size: 18px;
+  color: #ffb066;
 }
 
 .tv-chat-text {
-  font-size: 18px;
-  line-height: 1.4;
-  color: #efeaff;
+  font-size: 24px;
+  line-height: 1.35;
+  color: #fdf3f6;
   word-break: keep-all;
   overflow-wrap: anywhere;
 }
 
 .tv-chat-empty {
-  font-size: 18px;
-  color: #9d8fd0;
-  line-height: 1.5;
+  font-size: 21px;
+  color: #c9a3b4;
+  line-height: 1.45;
 }
 
 .tv-chat-foot {
@@ -1661,9 +1726,9 @@ onUnmounted(() => {
   justify-content: space-between;
   padding-top: 14px;
   margin-top: 12px;
-  border-top: 4px solid #241d43;
-  font-size: 16px;
-  color: #9d8fd0;
+  border-top: 4px solid #3a2028;
+  font-size: 18px;
+  color: #c9a3b4;
 }
 
 .tv-chat-foot-dot {
@@ -1675,8 +1740,8 @@ onUnmounted(() => {
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  background: #14102a;
-  box-shadow: inset 0 0 0 6px #3a2f5f;
+  background: #1c1216;
+  box-shadow: inset 0 0 0 6px #4a2c33;
   padding: 18px 22px 16px;
   box-sizing: border-box;
 }
@@ -1686,20 +1751,20 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   padding-bottom: 12px;
-  border-bottom: 4px solid #3a2f5f;
+  border-bottom: 4px solid #4a2c33;
 }
 
 .tv-notes-head h2 {
   margin: 0;
-  font-size: 22px;
-  color: #ffd98a;
+  font-size: 28px;
+  color: #ffb066;
 }
 
 .tv-notes-count {
-  font-size: 14px;
-  color: #9d8fd0;
-  padding: 4px 10px;
-  background: #1b1533;
+  font-size: 18px;
+  color: #e4b7c4;
+  padding: 4px 12px;
+  background: #2a1820;
 }
 
 .tv-notes-list {
@@ -1717,29 +1782,29 @@ onUnmounted(() => {
   align-items: baseline;
   gap: 10px;
   padding: 8px 12px;
-  background: #1b1636;
-  box-shadow: inset 0 0 0 3px #3a2f5f;
+  background: #251619;
+  box-shadow: inset 0 0 0 3px #4a2c33;
 }
 
 .tv-note-from {
   flex: 0 0 auto;
-  font-size: 13px;
-  color: #ffd98a;
+  font-size: 17px;
+  color: #ffb066;
 }
 
 .tv-note-text {
   flex: 1 1 auto;
-  font-size: 18px;
-  line-height: 1.35;
-  color: #f6f1ff;
+  font-size: 22px;
+  line-height: 1.32;
+  color: #fdf3f6;
   word-break: keep-all;
   overflow-wrap: anywhere;
 }
 
 .tv-notes-empty {
-  font-size: 16px;
-  color: #9d8fd0;
-  line-height: 1.5;
+  font-size: 18px;
+  color: #c9a3b4;
+  line-height: 1.45;
 }
 
 .tv-banner {
@@ -1752,8 +1817,8 @@ onUnmounted(() => {
   gap: 14px;
   padding: 16px 26px;
   max-width: 1180px;
-  background: #1a1435;
-  box-shadow: 0 0 0 6px #ffe066, 8px 8px 0 6px rgba(0, 0, 0, 0.4);
+  background: #241419;
+  box-shadow: 0 0 0 6px #ffd166, 8px 8px 0 6px rgba(0, 0, 0, 0.4);
   z-index: 10;
 }
 
@@ -1762,10 +1827,10 @@ onUnmounted(() => {
 }
 
 .tv-banner-tag {
-  font-size: 16px;
-  padding: 4px 10px;
-  color: #1a1435;
-  background: #ffe066;
+  font-size: 19px;
+  padding: 4px 11px;
+  color: #241419;
+  background: #ffd166;
 }
 
 .tv-banner.is-staff .tv-banner-tag {
@@ -1773,11 +1838,11 @@ onUnmounted(() => {
 }
 
 .tv-banner.is-heart {
-  box-shadow: 0 0 0 6px #ff77c8, 8px 8px 0 6px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 0 0 6px #ff5d8f, 8px 8px 0 6px rgba(0, 0, 0, 0.4);
 }
 
 .tv-banner.is-heart .tv-banner-tag {
-  background: #ff77c8;
+  background: #ff5d8f;
 }
 
 .tv-banner.is-note {
@@ -1789,8 +1854,8 @@ onUnmounted(() => {
 }
 
 .tv-banner-text {
-  font-size: 26px;
-  color: #fdfbff;
+  font-size: 30px;
+  color: #fff8f3;
   word-break: keep-all;
 }
 
@@ -1802,7 +1867,7 @@ onUnmounted(() => {
 .bubble-pop-enter-from,
 .bubble-pop-leave-to {
   opacity: 0;
-  transform: translateX(-50%) translateY(12px) scale(0.92);
+  transform: translateX(var(--bubble-x, -50%)) translateY(12px) scale(0.92);
 }
 
 .banner-fade-enter-active,
@@ -1822,7 +1887,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   padding: 0 90px;
-  background: rgba(7, 5, 18, 0.62);
+  background: rgba(8, 4, 6, 0.66);
   z-index: 30;
   pointer-events: none;
 }

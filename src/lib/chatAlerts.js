@@ -126,7 +126,13 @@ function refreshUnreadCount() {
 
 function describeAlert(message) {
   const roomKey = String(message.roomKey || "");
+  const text = String(message.message || "");
   const isSystemMessage = message.messageType === CHAT_MESSAGE_TYPE.SYSTEM;
+  const isHeartEvent = text.startsWith("💗");
+
+  if (isHeartEvent) {
+    return { icon: "💗", title: "서로 하트 성사!" };
+  }
 
   const icon = isSystemMessage || isAlertMessage(message) ? "🔔" : "💬";
 
