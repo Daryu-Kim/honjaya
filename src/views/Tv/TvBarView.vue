@@ -7,15 +7,18 @@
     <div class="tv-stage" :style="stageStyle">
       <svg class="sprite-defs" aria-hidden="true" focusable="false">
         <defs>
-          <g id="tv-guest">
+          <g
+            v-for="part in guestParts"
+            :id="`tv-guest-${part.tone}`"
+            :key="part.tone"
+          >
             <rect
-              v-for="rect in guestRects"
+              v-for="rect in part.rects"
               :key="rect.key"
               :x="rect.x"
               :y="rect.y"
               width="1"
               height="1"
-              :fill="rect.fill"
             />
           </g>
         </defs>
@@ -49,12 +52,19 @@
             </div>
           </div>
 
-          <div class="scene-seats">
+          <div
+            v-for="zone in seatZones"
+            v-show="zone.seats.length > 0"
+            :key="zone.key"
+            class="scene-zone"
+            :class="`is-${zone.key}`"
+          >
             <div
-              v-for="(seat, index) in seats"
+              v-for="seat in zone.seats"
               :key="seat.tableNumber"
               class="seat"
-              :style="seatStyle(index)"
+              :class="{ 'has-bubble': Boolean(bubbles[seat.tableNumber]) }"
+              :style="seatStyle(seat)"
             >
               <transition name="bubble-pop">
                 <div v-if="bubbles[seat.tableNumber]" class="seat-bubble">
@@ -73,7 +83,12 @@
                 aria-hidden="true"
                 focusable="false"
               >
-                <use href="#tv-guest" />
+                <use
+                  v-for="part in guestParts"
+                  :key="part.tone"
+                  :href="`#tv-guest-${part.tone}`"
+                  :class="`guest-${part.tone}`"
+                />
               </svg>
 
               <div class="seat-plate">
@@ -81,11 +96,11 @@
                 <span class="seat-plate-table">{{ seat.tableNumber }}번</span>
               </div>
             </div>
-
-            <p v-if="seats.length === 0" class="scene-empty">
-              아직 자리에 앉은 손님이 없어요
-            </p>
           </div>
+
+          <p v-if="seats.length === 0" class="scene-empty">
+            아직 자리에 앉은 손님이 없어요
+          </p>
 
           <div class="scene-counter" aria-hidden="true">
             <div class="counter-top"></div>
@@ -116,7 +131,7 @@
 
           <div class="tv-chat-foot">
             <span>
-              {{ seats.length }}팀 참여 중
+              바 {{ barSeats.length }} · 홀 {{ hallSeats.length }}
               <template v-if="seatOverflow > 0"
                 >· 외 {{ seatOverflow }}팀</template
               >
@@ -144,7 +159,10 @@ import { normalizeTableNumber } from "@/lib/orderSheet";
 
 const DESIGN_WIDTH = 1920;
 const DESIGN_HEIGHT = 1080;
-const SEAT_LIMIT = 12;
+// 1~12번은 바 카운터 좌석, 13번부터는 홀 테이블입니다(실제 매장 배치 기준).
+const BAR_TABLE_MAX = 12;
+const BAR_SEAT_LIMIT = 12;
+const HALL_SEAT_LIMIT = 20;
 const PANEL_LIMIT = 6;
 const BUBBLE_DURATION_MS = 6000;
 const BANNER_DURATION_MS = 9000;
@@ -160,13 +178,13 @@ const ROOM_TYPE_GLOBAL = "GLOBAL";
 const MESSAGE_TYPE_STAFF = "ADMIN";
 const MESSAGE_TYPE_SYSTEM = "SYSTEM";
 
-const CELL_FILL = {
-  h: "var(--hair)",
-  f: "var(--skin)",
-  e: "var(--eye)",
-  m: "var(--mouth)",
-  t: "var(--shirt)",
-  s: "var(--skin)",
+const CELL_TONES = {
+  h: "hair",
+  f: "skin",
+  e: "eye",
+  m: "mouth",
+  t: "shirt",
+  s: "skin",
 };
 
 const GUEST_SPRITE = [
@@ -203,13 +221,22 @@ const guestRects = [];
 
 GUEST_SPRITE.forEach((row, y) => {
   [...row].forEach((cell, x) => {
-    const fill = CELL_FILL[cell];
+    const tone = CELL_TONES[cell];
 
-    if (fill) {
-      guestRects.push({ key: `${x}-${y}`, x, y, fill });
+    if (tone) {
+      guestRects.push({ key: `${x}-${y}`, x, y, tone });
     }
   });
 });
+
+// Parts are drawn as separate <use> sprites so the fill can come from CSS
+// variables (fill="var(--hair)" in a presentation attribute is not portable).
+const GUEST_TONE_ORDER = ["hair", "skin", "shirt", "eye", "mouth"];
+
+const guestParts = GUEST_TONE_ORDER.map((tone) => ({
+  tone,
+  rects: guestRects.filter((rect) => rect.tone === tone),
+}));
 
 const shelfBottles = Array.from({ length: 14 }, (_, index) => {
   const height = 26 + ((index * 13) % 34);
@@ -230,7 +257,6 @@ const isCursorVisible = ref(false);
 const isOnline = ref(true);
 const clockText = ref("");
 const seats = ref([]);
-const seatOverflow = ref(0);
 const messages = ref([]);
 const bubbles = reactive({});
 const banner = ref(null);
@@ -238,6 +264,35 @@ const banner = ref(null);
 const stageStyle = computed(() => ({
   transform: `scale(${stageScale.value})`,
 }));
+
+const barSeats = computed(() => {
+  return seats.value
+    .filter((seat) => Number(seat.tableNumber) <= BAR_TABLE_MAX)
+    .slice(0, BAR_SEAT_LIMIT);
+});
+
+const hallSeats = computed(() => {
+  return seats.value
+    .filter((seat) => Number(seat.tableNumber) > BAR_TABLE_MAX)
+    .slice(0, HALL_SEAT_LIMIT);
+});
+
+const seatOverflow = computed(() => {
+  const barTotal = seats.value.filter(
+    (seat) => Number(seat.tableNumber) <= BAR_TABLE_MAX
+  ).length;
+
+  return (
+    Math.max(0, barTotal - BAR_SEAT_LIMIT) +
+    Math.max(0, seats.value.length - barTotal - HALL_SEAT_LIMIT)
+  );
+});
+
+// 홀(테이블)을 위쪽에, 바(카운터)를 카운터 바로 위에 배치합니다.
+const seatZones = computed(() => [
+  { key: "hall", seats: hallSeats.value },
+  { key: "bar", seats: barSeats.value },
+]);
 
 const panelMessages = computed(() => {
   return messages.value
@@ -280,8 +335,10 @@ function truncate(value, limit) {
   return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
 
-function seatStyle(index) {
-  const palette = SEAT_PALETTES[index % SEAT_PALETTES.length];
+function seatStyle(seat) {
+  const paletteIndex =
+    Math.abs(Number(seat.tableNumber) || 0) % SEAT_PALETTES.length;
+  const palette = SEAT_PALETTES[paletteIndex];
 
   return {
     "--hair": palette.hair,
@@ -356,8 +413,7 @@ async function loadSeats() {
         return Number(first.tableNumber) - Number(second.tableNumber);
       });
 
-    seatOverflow.value = Math.max(0, sortedSeats.length - SEAT_LIMIT);
-    seats.value = sortedSeats.slice(0, SEAT_LIMIT);
+    seats.value = sortedSeats;
   } catch (error) {
     console.error("[tv] 좌석 정보를 불러오지 못했어요", error);
   }
@@ -657,6 +713,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
+  gap: 8px;
   overflow: hidden;
   background: linear-gradient(180deg, #1d1740 0%, #241a4d 46%, #2c1f57 100%);
   box-shadow: inset 0 0 0 6px #0d0a1c;
@@ -696,21 +753,31 @@ onUnmounted(() => {
   box-shadow: inset 0 -8px 0 rgba(0, 0, 0, 0.25);
 }
 
-.scene-seats {
+.scene-zone {
   position: relative;
   z-index: 2;
   display: flex;
-  flex-wrap: wrap-reverse;
+  flex-wrap: wrap;
   align-items: flex-end;
   justify-content: center;
-  gap: 10px 18px;
-  padding: 0 48px 6px;
-  max-height: 100%;
+  gap: 8px 12px;
+  padding: 0 40px;
+  --avatar: 96px;
+  --name-size: 17px;
+  --no-size: 12px;
+}
+
+.scene-zone.is-bar {
+  flex-wrap: nowrap;
+  gap: 8px;
+  --avatar: 88px;
+  --name-size: 18px;
+  --no-size: 13px;
 }
 
 .seat {
   position: relative;
-  width: 132px;
+  width: calc(var(--avatar) + 12px);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -719,42 +786,67 @@ onUnmounted(() => {
   --mouth: #c8627a;
 }
 
+.seat.has-bubble {
+  z-index: 6;
+}
+
 .seat-guest {
-  width: 132px;
-  height: 132px;
+  width: var(--avatar);
+  height: var(--avatar);
   image-rendering: pixelated;
   filter: drop-shadow(0 10px 0 rgba(0, 0, 0, 0.28));
 }
 
+.guest-hair {
+  fill: var(--hair);
+}
+
+.guest-skin {
+  fill: var(--skin);
+}
+
+.guest-shirt {
+  fill: var(--shirt);
+}
+
+.guest-eye {
+  fill: var(--eye);
+}
+
+.guest-mouth {
+  fill: var(--mouth);
+}
+
 .seat-plate {
+  width: 100%;
+  box-sizing: border-box;
   margin-top: -10px;
-  padding: 8px 12px;
+  padding: 7px 6px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
   background: #120f24;
   box-shadow: 0 0 0 4px #3d3168, 4px 4px 0 4px rgba(0, 0, 0, 0.4);
-  min-width: 92px;
 }
 
 .seat-plate-name {
-  font-size: 20px;
+  font-size: var(--name-size);
   color: #ffe066;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 108px;
+  max-width: 100%;
 }
 
 .seat-plate-table {
-  font-size: 14px;
+  font-size: var(--no-size);
   color: #9d8fd0;
 }
 
 .seat-bubble {
   position: absolute;
-  bottom: 158px;
+  bottom: calc(100% + 6px);
   left: 50%;
   transform: translateX(-50%);
   display: flex;
