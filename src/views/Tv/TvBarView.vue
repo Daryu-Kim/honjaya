@@ -108,10 +108,10 @@
                   focusable="false"
                 >
                   <path
-                    v-for="part in slot.seat.parts"
-                    :key="part.tone"
+                    v-for="part in seatParts(slot.seat)"
+                    :key="part.fill"
                     :d="part.d"
-                    :class="`guest-${part.tone}`"
+                    :fill="part.fill"
                   />
                 </svg>
 
@@ -156,9 +156,9 @@
                 >
                   <path
                     v-for="part in staffParts"
-                    :key="part.tone"
+                    :key="part.fill"
                     :d="part.d"
-                    :class="`guest-${part.tone}`"
+                    :fill="part.fill"
                   />
                 </svg>
                 <span class="staff-plate">직원</span>
@@ -234,10 +234,7 @@ import {
   getChatDayStartIso,
 } from "@/lib/chat";
 import { normalizeTableNumber } from "@/lib/orderSheet";
-import {
-  getCharacterPalette,
-  normalizeCharacterStyle,
-} from "@/lib/characterStyle";
+import { normalizeCharacterStyle } from "@/lib/characterStyle";
 import {
   GUEST_SPRITE_VIEW_BOX,
   STAFF_PARTS,
@@ -582,28 +579,23 @@ function truncate(value, limit) {
 
 function seatStyle(slot) {
   // buildTableSlots() passes a slot; the guest's own styling lives on slot.seat.
-  const seat = slot.seat;
   const tableNumber = String(slot.tableNumber || "");
-  const palette = getCharacterPalette(
-    seat ? seat.characterStyle : null,
-    tableNumber
-  );
   const layer = bubbleLayerOf(tableNumber);
   const delaySeed = Math.abs(Number(tableNumber) || 0) % 7;
 
   return {
-    "--hair": palette.hair,
-    "--hair-light": palette.hairLight,
-    "--skin": palette.skin,
-    "--skin-shadow": palette.skinShadow,
-    "--skin-light": palette.skinLight,
-    "--shirt": palette.shirt,
-    "--shirt-dark": palette.shirtDark,
-    "--shoes": palette.shoes,
     // 테이블마다 숨쉬는 타이밍을 어긋나게 해서 한꺼번에 움직이지 않게 합니다.
     "--breath-delay": `${(delaySeed * 0.31).toFixed(2)}s`,
     ...(layer > 0 ? { zIndex: String(6 + layer) } : {}),
   };
+}
+
+// 좌석 손님의 스킨 path입니다. 스킨은 닉네임별로 한 번만 불러오므로
+// 화면이 그릴 때 계산해 두면 로딩이 끝난 뒤 저절로 다시 그려집니다.
+function seatParts(seat) {
+  if (!seat) return [];
+
+  return buildGuestParts(seat.characterStyle, seat.tableNumber);
 }
 
 function updateStageScale() {
@@ -682,7 +674,6 @@ async function loadSeats() {
           tableNumber,
           nickname,
           characterStyle: sheetInfo.characterStyle || {},
-          parts: buildGuestParts(sheetInfo.characterStyle, tableNumber),
           label: nickname || "손님",
         };
       })
@@ -1239,14 +1230,6 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  --skin: #f7d5b5;
-  --skin-shadow: #e3b391;
-  --skin-light: #ffe6cd;
-  --eye: #241b33;
-  --eye-light: #fff6fa;
-  --mouth: #c8627a;
-  --blush: #f6a2ae;
-  --shoes: #3b3348;
 }
 
 .seat.has-bubble {
@@ -1266,20 +1249,22 @@ onUnmounted(() => {
   height: 100%;
   image-rendering: pixelated;
   filter: drop-shadow(0 8px 0 rgba(0, 0, 0, 0.28));
-  animation: guest-breathe 4.2s ease-in-out infinite;
+  animation: guest-breathe 3.6s steps(1, end) infinite;
   animation-delay: var(--breath-delay, 0s);
-  transform-origin: 50% 100%;
   will-change: transform;
 }
 
+/* 숨쉬기는 스프라이트 2픽셀만큼 딱 내려갔다 올라오는 2프레임 움직임입니다.
+   64 유닛 스프라이트를 --avatar(128px)로 그리므로 1유닛 = 2px입니다. */
 @keyframes guest-breathe {
   0%,
-  100% {
-    transform: translateY(0) scaleY(1);
+  49.99% {
+    transform: translateY(0);
   }
 
-  50% {
-    transform: translateY(-6px) scaleY(1.03);
+  50%,
+  100% {
+    transform: translateY(calc(var(--avatar, 128px) / -32));
   }
 }
 
@@ -1319,54 +1304,6 @@ onUnmounted(() => {
 
 .seat.is-empty .seat-plate-name {
   color: #a88a95;
-}
-
-.guest-hair {
-  fill: var(--hair);
-}
-
-.guest-hair-light {
-  fill: var(--hair-light);
-}
-
-.guest-skin {
-  fill: var(--skin);
-}
-
-.guest-skin-shadow {
-  fill: var(--skin-shadow);
-}
-
-.guest-skin-light {
-  fill: var(--skin-light);
-}
-
-.guest-shirt {
-  fill: var(--shirt);
-}
-
-.guest-shirt-dark {
-  fill: var(--shirt-dark);
-}
-
-.guest-eye {
-  fill: var(--eye);
-}
-
-.guest-eye-light {
-  fill: var(--eye-light);
-}
-
-.guest-blush {
-  fill: var(--blush);
-}
-
-.guest-mouth {
-  fill: var(--mouth);
-}
-
-.guest-shoes {
-  fill: var(--shoes);
 }
 
 .seat-plate {
@@ -1548,18 +1485,6 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   transform: translateX(-50%);
-  --hair: #2f2a3d;
-  --hair-light: #4b445e;
-  --skin: #f7d5b5;
-  --skin-shadow: #e3b391;
-  --skin-light: #ffe6cd;
-  --eye: #241b33;
-  --eye-light: #fff6fa;
-  --mouth: #c8627a;
-  --blush: #f6a2ae;
-  --shirt: #f4f1ea;
-  --shirt-dark: #cfc7ba;
-  --shoes: #3b3348;
 }
 
 .staff-figure {
@@ -1567,19 +1492,20 @@ onUnmounted(() => {
   height: 88px;
   image-rendering: pixelated;
   filter: drop-shadow(0 6px 0 rgba(0, 0, 0, 0.3));
-  animation: staff-breathe 5.2s ease-in-out infinite;
-  transform-origin: 50% 100%;
+  animation: staff-breathe 4.4s steps(1, end) infinite;
   will-change: transform;
 }
 
+/* staff SVG는 viewBox 높이가 44라서 1픽셀당 2px입니다. */
 @keyframes staff-breathe {
   0%,
-  100% {
-    transform: translateY(0) scaleY(1);
+  49.99% {
+    transform: translateY(0);
   }
 
-  50% {
-    transform: translateY(-4px) scaleY(1.022);
+  50%,
+  100% {
+    transform: translateY(-4px);
   }
 }
 

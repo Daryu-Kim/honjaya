@@ -93,21 +93,23 @@
             <svg
               class="character-mini"
               :viewBox="GUEST_SPRITE_VIEW_BOX"
-              :style="characterPaletteStyle(characterStyle)"
               aria-hidden="true"
               focusable="false"
             >
               <path
                 v-for="part in characterParts"
-                :key="`mini-${part.tone}`"
+                :key="`mini-${part.fill}`"
                 :d="part.d"
-                :class="`guest-${part.tone}`"
+                :fill="part.fill"
               />
             </svg>
           </div>
           <div class="menu-text">
             <strong>내 캐릭터</strong>
-            <p>성별·헤어·눈·의상을 골라 TV 속 내 캐릭터를 꾸밀 수 있어요.</p>
+            <p>
+              성별을 고르고 마인크래프트 닉네임을 넣으면 TV 속 캐릭터가
+              바뀌어요.
+            </p>
           </div>
         </button>
       </section>
@@ -283,9 +285,10 @@
         @click.self="closeCharacterSheet"
       >
         <div class="sheet-card character-sheet">
-          <h3>내 캐릭터 꾸미기</h3>
+          <h3>내 캐릭터</h3>
           <p class="sheet-description">
-            TV 화면에 앉아 있는 내 픽셀 캐릭터예요. 저장하면 바로 TV에 보여요.
+            성별을 고르면 그에 맞는 기본 캐릭터가 나와요. 마인크래프트 닉네임을
+            넣으면 그 플레이어의 스킨으로 바뀌고, 저장하면 TV에 바로 보여요.
           </p>
 
           <CharacterStudio
@@ -334,10 +337,7 @@ import {
   updateOrderSheetCharacterStyle,
   updateOrderSheetNickname,
 } from "@/lib/orderSheet";
-import {
-  getCharacterPalette,
-  resolveCharacterStyle,
-} from "@/lib/characterStyle";
+import { resolveCharacterStyle } from "@/lib/characterStyle";
 import { buildGuestParts, GUEST_SPRITE_VIEW_BOX } from "@/lib/pixelGuest";
 import { fetchHeartTargets, sendAnonymousHeart } from "@/lib/hearts";
 
@@ -446,22 +446,6 @@ async function refreshTableNickname() {
   } catch (error) {
     console.error("닉네임 정보 조회 실패:", error);
   }
-}
-
-// TV 화면과 같은 색상 규칙으로 캐릭터 CSS 변수를 만들어 줍니다.
-function characterPaletteStyle(value) {
-  const palette = getCharacterPalette(value, tableNumber.value);
-
-  return {
-    "--skin": palette.skin,
-    "--skin-shadow": palette.skinShadow,
-    "--skin-light": palette.skinLight,
-    "--hair": palette.hair,
-    "--hair-light": palette.hairLight,
-    "--shirt": palette.shirt,
-    "--shirt-dark": palette.shirtDark,
-    "--shoes": palette.shoes,
-  };
 }
 
 function openCharacterSheet() {
@@ -806,59 +790,6 @@ onMounted(() => {
   width: 44px;
   height: 44px;
   image-rendering: pixelated;
-  --eye: #241b33;
-  --eye-light: #fff6fa;
-  --mouth: #c8627a;
-  --blush: #f6a2ae;
-  --shoes: #3b3348;
-}
-
-.guest-hair {
-  fill: var(--hair);
-}
-
-.guest-hair-light {
-  fill: var(--hair-light);
-}
-
-.guest-skin {
-  fill: var(--skin);
-}
-
-.guest-skin-shadow {
-  fill: var(--skin-shadow);
-}
-
-.guest-skin-light {
-  fill: var(--skin-light);
-}
-
-.guest-shirt {
-  fill: var(--shirt);
-}
-
-.guest-shirt-dark {
-  fill: var(--shirt-dark);
-}
-
-.guest-eye {
-  fill: var(--eye);
-}
-
-.guest-eye-light {
-  fill: var(--eye-light);
-}
-
-.guest-blush {
-  fill: var(--blush);
-}
-
-.guest-mouth {
-  fill: var(--mouth);
-}
-
-.guest-shoes {
-  fill: var(--shoes);
 }
 
 .character-sheet {

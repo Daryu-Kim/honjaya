@@ -260,7 +260,7 @@ export async function updateOrderSheetNickname({ orderSheetId, nickname }) {
   return safeNickname;
 }
 
-// 손님 캐릭터(성별·피부·헤어·눈·의상) 설정을 저장합니다. TV 화면이 이 값을 그대로 그립니다.
+// 손님 캐릭터(성별·마인크래프트 닉네임) 설정을 저장합니다. TV 화면이 이 값으로 캐릭터를 그립니다.
 export async function updateOrderSheetCharacterStyle({
   orderSheetId,
   characterStyle,

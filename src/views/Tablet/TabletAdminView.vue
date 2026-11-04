@@ -435,24 +435,14 @@
                 <svg
                   class="table-character-mini"
                   :viewBox="GUEST_SPRITE_VIEW_BOX"
-                  :style="{
-                    '--skin': selectedTableCharacter?.palette.skin,
-                    '--skin-shadow': selectedTableCharacter?.palette.skinShadow,
-                    '--skin-light': selectedTableCharacter?.palette.skinLight,
-                    '--hair': selectedTableCharacter?.palette.hair,
-                    '--hair-light': selectedTableCharacter?.palette.hairLight,
-                    '--shirt': selectedTableCharacter?.palette.shirt,
-                    '--shirt-dark': selectedTableCharacter?.palette.shirtDark,
-                    '--shoes': selectedTableCharacter?.palette.shoes,
-                  }"
                   aria-hidden="true"
                   focusable="false"
                 >
                   <path
-                    v-for="part in selectedTableCharacter?.parts || []"
-                    :key="`table-character-${part.tone}`"
+                    v-for="part in selectedTableCharacter || []"
+                    :key="`table-character-${part.fill}`"
                     :d="part.d"
-                    :class="`guest-${part.tone}`"
+                    :fill="part.fill"
                   />
                 </svg>
                 <button
@@ -798,8 +788,8 @@
           />
 
           <p class="table-nickname-modal-helper">
-            손님 대신 캐릭터를 바꿔줄 수 있어요. 저장하면 손님 화면과 TV에 바로
-            반영돼요.
+            손님 대신 성별과 마인크래프트 닉네임을 바꿔줄 수 있어요. 저장하면
+            손님 화면과 TV에 바로 반영돼요.
           </p>
 
           <button
@@ -1624,10 +1614,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import CharacterStudio from "@/components/CharacterStudio.vue";
-import {
-  getCharacterPalette,
-  resolveCharacterStyle,
-} from "@/lib/characterStyle";
+import { resolveCharacterStyle } from "@/lib/characterStyle";
 import { buildGuestParts, GUEST_SPRITE_VIEW_BOX } from "@/lib/pixelGuest";
 import {
   fetchList,
@@ -1750,12 +1737,8 @@ const selectedTableCharacter = computed(() => {
   if (!table) return null;
 
   const tableNumber = String(table.tableNumber ?? "");
-  const style = resolveCharacterStyle(table.characterStyle, tableNumber);
 
-  return {
-    parts: buildGuestParts(style, tableNumber),
-    palette: getCharacterPalette(style, tableNumber),
-  };
+  return buildGuestParts(table.characterStyle, tableNumber);
 });
 
 const manualAddModalState = ref({
@@ -4650,47 +4633,6 @@ onUnmounted(() => {
   height: 48px;
   flex-shrink: 0;
   image-rendering: pixelated;
-  --eye: #241b33;
-  --eye-light: #fff6fa;
-  --mouth: #c8627a;
-  --blush: #f6a2ae;
-  --shoes: #3b3348;
-}
-.guest-hair {
-  fill: var(--hair);
-}
-.guest-hair-light {
-  fill: var(--hair-light);
-}
-.guest-skin {
-  fill: var(--skin);
-}
-.guest-skin-shadow {
-  fill: var(--skin-shadow);
-}
-.guest-skin-light {
-  fill: var(--skin-light);
-}
-.guest-shirt {
-  fill: var(--shirt);
-}
-.guest-shirt-dark {
-  fill: var(--shirt-dark);
-}
-.guest-eye {
-  fill: var(--eye);
-}
-.guest-eye-light {
-  fill: var(--eye-light);
-}
-.guest-blush {
-  fill: var(--blush);
-}
-.guest-mouth {
-  fill: var(--mouth);
-}
-.guest-shoes {
-  fill: var(--shoes);
 }
 .table-nickname-modal-helper {
   margin: 10px 0 0;

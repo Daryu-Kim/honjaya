@@ -4,54 +4,65 @@
       <svg
         class="studio-figure"
         :viewBox="GUEST_SPRITE_VIEW_BOX"
-        :style="paletteStyle"
         aria-hidden="true"
         focusable="false"
       >
         <path
           v-for="part in parts"
-          :key="`preview-${part.tone}`"
+          :key="`preview-${part.fill}`"
           :d="part.d"
-          :class="`guest-${part.tone}`"
+          :fill="part.fill"
         />
       </svg>
-      <span v-if="nickname" class="studio-name">{{ nickname }}</span>
+      <div class="studio-preview-text">
+        <span v-if="nickname" class="studio-name">{{ nickname }}</span>
+        <span class="studio-caption">{{ statusText }}</span>
+      </div>
     </div>
 
     <div class="studio-body">
-      <div v-for="group in groups" :key="group.key" class="studio-group">
-        <p class="studio-group-label">{{ group.label }}</p>
+      <div class="studio-group">
+        <p class="studio-group-label">성별</p>
 
-        <div v-if="group.type === 'color'" class="studio-swatch-row">
+        <div class="studio-chip-row">
           <button
-            v-for="option in group.options"
-            :key="option.id"
-            type="button"
-            class="studio-swatch"
-            :class="{ active: modelValue[group.key] === option.id }"
-            :style="{ background: option[group.key] }"
-            :aria-label="option.label"
-            @click="selectOption(group.key, option.id)"
-          >
-            <span class="studio-swatch-label">{{ option.label }}</span>
-          </button>
-        </div>
-
-        <div v-else class="studio-chip-row">
-          <button
-            v-for="option in group.options"
-            :key="option.id"
+            v-for="gender in CHARACTER_GENDERS"
+            :key="gender.id"
             type="button"
             class="studio-chip"
-            :class="{ active: modelValue[group.key] === option.id }"
-            @click="selectOption(group.key, option.id)"
+            :class="{ active: modelValue.gender === gender.id }"
+            @click="selectGender(gender.id)"
           >
-            <span v-if="option.emoji" class="studio-chip-emoji">
-              {{ option.emoji }}
-            </span>
-            {{ option.label }}
+            <span class="studio-chip-emoji">{{ gender.emoji }}</span>
+            {{ gender.label }}
           </button>
         </div>
+      </div>
+
+      <div class="studio-group">
+        <p class="studio-group-label">마인크래프트 닉네임 (선택)</p>
+
+        <input
+          class="studio-input"
+          type="text"
+          inputmode="latin"
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck="false"
+          maxlength="16"
+          placeholder="예: Notch"
+          :value="modelValue.minecraft"
+          @input="handleNicknameInput"
+        />
+        <p
+          class="studio-hint"
+          :class="{
+            'is-error': Boolean(nicknameError),
+            'is-warn': !nicknameError && skinStatus.status === 'missing',
+          }"
+        >
+          {{ statusText }}
+        </p>
       </div>
     </div>
   </div>
@@ -61,10 +72,9 @@
 import { computed } from "vue";
 import {
   CHARACTER_GENDERS,
-  CHARACTER_STYLE_GROUPS,
-  getCharacterBodyOptions,
-  getCharacterPalette,
+  getMinecraftNicknameMessage,
 } from "@/lib/characterStyle";
+import { getSkinStatus } from "@/lib/minecraftSkin";
 import { buildGuestParts, GUEST_SPRITE_VIEW_BOX } from "@/lib/pixelGuest";
 
 const props = defineProps({
@@ -76,57 +86,37 @@ const props = defineProps({
 
 const emit = defineEmits(["update:modelValue"]);
 
-// 체형 목록은 고른 성별에 따라 달라집니다.
-const groups = computed(() => {
-  const bodyOptions = getCharacterBodyOptions(props.modelValue.gender);
-
-  return CHARACTER_STYLE_GROUPS.map((group) =>
-    group.key === "body" ? { ...group, options: bodyOptions } : group
-  );
-});
-
 const parts = computed(() =>
   buildGuestParts(props.modelValue, props.tableNumber)
 );
 
-// TV 화면과 같은 색상 규칙으로 캐릭터 CSS 변수를 만들어 줍니다.
-const paletteStyle = computed(() => {
-  const palette = getCharacterPalette(props.modelValue, props.tableNumber);
+const nicknameError = computed(() =>
+  getMinecraftNicknameMessage(props.modelValue.minecraft)
+);
 
-  return {
-    "--skin": palette.skin,
-    "--skin-shadow": palette.skinShadow,
-    "--skin-light": palette.skinLight,
-    "--hair": palette.hair,
-    "--hair-light": palette.hairLight,
-    "--shirt": palette.shirt,
-    "--shirt-dark": palette.shirtDark,
-    "--shoes": palette.shoes,
-  };
+const skinStatus = computed(() => getSkinStatus(props.modelValue.minecraft));
+
+const statusText = computed(() => {
+  if (nicknameError.value) return nicknameError.value;
+
+  return (
+    skinStatus.value.message ||
+    "닉네임을 넣으면 그 플레이어의 스킨으로 바뀌어요."
+  );
 });
 
-// 성별을 바꾸면 헤어스타일·체형 기본값도 함께 맞춰 줍니다.
-function selectOption(key, value) {
-  const next = { ...props.modelValue, [key]: value };
+function selectGender(gender) {
+  emit("update:modelValue", { ...props.modelValue, gender });
+}
 
-  if (key === "gender") {
-    const defaults = CHARACTER_GENDERS.map((gender) => gender.defaultHairstyle);
-    const target = CHARACTER_GENDERS.find((gender) => gender.id === value);
+// 마인크래프트 닉네임에 쓸 수 없는 글자는 입력 단계에서 걸러냅니다.
+function handleNicknameInput(event) {
+  const value = String(event.target.value || "")
+    .replace(/[^A-Za-z0-9_]/g, "")
+    .slice(0, 16);
 
-    if (target) {
-      if (defaults.includes(next.hairstyle)) {
-        next.hairstyle = target.defaultHairstyle;
-      }
-
-      const bodyIds = getCharacterBodyOptions(value).map((option) => option.id);
-
-      if (!bodyIds.includes(next.body)) {
-        next.body = target.defaultBody;
-      }
-    }
-  }
-
-  emit("update:modelValue", next);
+  event.target.value = value;
+  emit("update:modelValue", { ...props.modelValue, minecraft: value });
 }
 </script>
 
@@ -164,16 +154,23 @@ function selectOption(key, value) {
   height: 128px;
   flex-shrink: 0;
   image-rendering: pixelated;
-  --eye: #241b33;
-  --eye-light: #fff6fa;
-  --mouth: #c8627a;
-  --blush: #f6a2ae;
-  --shoes: #3b3348;
 }
 
 .character-studio.is-sticky .studio-figure {
   width: 92px;
   height: 92px;
+}
+
+.studio-preview-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.character-studio.is-sticky .studio-preview-text {
+  align-items: flex-start;
 }
 
 .studio-name {
@@ -187,9 +184,22 @@ function selectOption(key, value) {
 }
 
 .character-studio.is-sticky .studio-name {
-  max-width: 46%;
+  max-width: 100%;
   font-size: 15px;
   color: #ffffff;
+}
+
+/* 고정 미리보기에서만 안내 문구를 함께 보여줍니다. (아래 입력란에도 같은 안내가 있습니다) */
+.studio-caption {
+  display: none;
+  max-width: 100%;
+  font-size: 13px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.character-studio.is-sticky .studio-caption {
+  display: block;
 }
 
 .studio-group {
@@ -203,40 +213,10 @@ function selectOption(key, value) {
   color: rgba(255, 255, 255, 0.7);
 }
 
-.studio-swatch-row,
 .studio-chip-row {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-}
-
-.studio-swatch {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 46px;
-  height: 46px;
-  padding: 0;
-  border: 2px solid transparent;
-  border-radius: 14px;
-  box-shadow: inset 0 -6px 0 rgba(0, 0, 0, 0.2);
-  cursor: pointer;
-
-  &.active {
-    border-color: #ffffff;
-    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35),
-      inset 0 -6px 0 rgba(0, 0, 0, 0.2);
-  }
-}
-
-.studio-swatch-label {
-  padding: 1px 5px;
-  border-radius: 7px;
-  font-size: 10px;
-  font-weight: 800;
-  color: #ffffff;
-  background: rgba(12, 8, 16, 0.46);
 }
 
 .studio-chip {
@@ -265,51 +245,40 @@ function selectOption(key, value) {
   line-height: 1;
 }
 
-.guest-hair {
-  fill: var(--hair);
+.studio-input {
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.6);
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 700;
+
+  &::placeholder {
+    color: rgba(255, 255, 255, 0.32);
+    font-weight: 500;
+  }
+
+  &:focus {
+    outline: none;
+    border-color: rgba(255, 255, 255, 0.6);
+  }
 }
 
-.guest-hair-light {
-  fill: var(--hair-light);
-}
+.studio-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.5);
 
-.guest-skin {
-  fill: var(--skin);
-}
+  &.is-error {
+    color: #fca5a5;
+  }
 
-.guest-skin-shadow {
-  fill: var(--skin-shadow);
-}
-
-.guest-skin-light {
-  fill: var(--skin-light);
-}
-
-.guest-shirt {
-  fill: var(--shirt);
-}
-
-.guest-shirt-dark {
-  fill: var(--shirt-dark);
-}
-
-.guest-eye {
-  fill: var(--eye);
-}
-
-.guest-eye-light {
-  fill: var(--eye-light);
-}
-
-.guest-blush {
-  fill: var(--blush);
-}
-
-.guest-mouth {
-  fill: var(--mouth);
-}
-
-.guest-shoes {
-  fill: var(--shoes);
+  &.is-warn {
+    color: #fcd34d;
+  }
 }
 </style>

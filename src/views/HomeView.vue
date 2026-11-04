@@ -221,7 +221,7 @@ async function handleStart() {
       // 캐릭터 저장이 실패해도 입장 자체는 막지 않습니다. (patch-010 미적용 DB 대비)
       try {
         const savedStyle = result.characterStyle || {};
-        // 고른 성별로 다시 계산해서 성별에 맞지 않는 체형/헤어는 기본값으로 바꿉니다.
+        // 고른 성별을 반영해 저장합니다. (닉네임·기본 스킨은 그대로 유지)
         const nextStyle = resolveCharacterStyle(
           { ...savedStyle, gender: selectedGender.value },
           tableNumber.value
