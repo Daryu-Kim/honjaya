@@ -34,7 +34,7 @@ const HEAD_TOP = 4;
 const BROW_ROW = 11;
 const EYE_TOP = 14;
 const NOSE_ROW = 20;
-const MOUTH_ROW = 22;
+const MOUTH_ROW = 23;
 const CHIN_ROW = 27;
 const NECK_TOP = 28;
 const SHOULDER_ROW = 32;
@@ -274,7 +274,7 @@ function buildSkeleton(gender, bodyId, age) {
   });
 
   const legGap = 2;
-  const legWidth = evenWidth(spec.hip / 2 - 1);
+  const legWidth = evenWidth(spec.hip / 3);
   const legPair = (y, width, extra = 0) => {
     const leftWidth = width + extra;
     const startLeft = CENTER - legGap / 2 - leftWidth;
@@ -627,9 +627,11 @@ const OUTFIT_BUILDERS = {
 
 const FACE_EYE_LEFT = CENTER - 7;
 
+// 둥근 눈은 흰자 없이 어두운 알갱이 + 바깥쪽 하이라이트로 그립니다.
+// 십자(+) 모양으로 겹치면 눈이 아니라 점처럼 보이므로 위아래를 둥글게 깎습니다.
 const EYE_SHAPES = {
-  round: [".eee.", "eeEee", ".eee."],
-  smile: ["e...e", ".eee."],
+  round: [".eee.", "Eeeee", "eeeee", ".eee."],
+  smile: [".....", ".eee.", "e...e"],
   heart: [".m.m.", "mmmmm", ".mmm.", "..m.."],
 };
 
@@ -658,20 +660,19 @@ const MOUTH_SHAPES = {
   flat: [[MOUTH_ROW, [[CENTER - 2, "mmmm"]]]],
 };
 
-// 여성은 가는 눈썹, 남성은 두껍고 각진 눈썹.
+// 여성은 가는 눈썹, 남성은 두껍고 각진 눈썹. 눈(EYE_TOP)과 한 줄 띄워 붙지 않게 합니다.
 function buildBrows(gender) {
-  const width = gender === "male" ? 6 : 5;
-  const left = CENTER - 7;
+  const left = FACE_EYE_LEFT;
+  const male = gender === "male";
+  const width = male ? 5 : 4;
+  const start = male ? left : left + 1;
+  const rows = [mirrored(BROW_ROW + 1, start, start + width - 1, "h")];
 
-  return gender === "male"
-    ? [
-        mirrored(BROW_ROW, left, left + width - 1, "h"),
-        mirrored(BROW_ROW + 1, left, left + 2, "h"),
-      ]
-    : [
-        mirrored(BROW_ROW, left, left + width - 1, "h"),
-        mirrored(BROW_ROW + 1, left, left, "h"),
-      ];
+  if (male) {
+    rows.push(mirrored(BROW_ROW, start + 1, start + width - 2, "h"));
+  }
+
+  return rows;
 }
 
 function buildMouth(eyes) {
@@ -686,12 +687,12 @@ function buildAgeMarks(creases) {
   if (creases <= 0) return [];
 
   const marks = [
-    mirrored(EYE_TOP + 3, FACE_EYE_LEFT + 1, FACE_EYE_LEFT + 2, "F"),
+    mirrored(EYE_TOP + 4, FACE_EYE_LEFT + 1, FACE_EYE_LEFT + 2, "F"),
   ];
 
   if (creases >= 2) {
     marks.push(
-      mirrored(EYE_TOP + 2, FACE_EYE_LEFT - 1, FACE_EYE_LEFT - 1, "F")
+      mirrored(EYE_TOP + 5, FACE_EYE_LEFT + 2, FACE_EYE_LEFT + 3, "F")
     );
     marks.push(mirrored(MOUTH_ROW - 1, CENTER - 5, CENTER - 5, "F"));
   }
@@ -699,12 +700,18 @@ function buildAgeMarks(creases) {
   return marks;
 }
 
+// 볼터치는 눈 바로 밑이 아니라 바깥쪽 볼에, 여성에게만 넣습니다.
+function buildBlush(gender) {
+  if (gender !== "female") return [];
+
+  return [mirrored(NOSE_ROW, CENTER - 8, CENTER - 7, "r")];
+}
+
 function buildFaceLayer(skeleton, eyes) {
   return [
     ...buildBrows(skeleton.gender),
-    mirrored(NOSE_ROW - 1, CENTER - 6, CENTER - 5, "r"),
+    ...buildBlush(skeleton.gender),
     solidRow(NOSE_ROW, CENTER - 1, CENTER, "F"),
-    solidRow(NOSE_ROW + 1, CENTER - 1, CENTER, "F"),
     ...buildMouth(eyes),
     ...buildAgeMarks(skeleton.ageConfig.creases),
   ];
@@ -859,7 +866,7 @@ const HAIR_BUILDERS = {
 
   // 단발: 턱선에서 수평으로 잘리는 컷.
   bob: (skeleton) => [
-    ...hairCap(skeleton, { top: 2, bottom: 10, flare: 2 }),
+    ...hairCap(skeleton, { top: 2, bottom: 9, flare: 2 }),
     ...hairSides(skeleton, { from: 9, to: 21, thickness: 2 }),
     ...hairShine(skeleton),
     mirrored(
@@ -888,7 +895,7 @@ const HAIR_BUILDERS = {
     });
 
     return [
-      ...hairCap(skeleton, { top: 2, bottom: 10, flare: 2 }),
+      ...hairCap(skeleton, { top: 2, bottom: 9, flare: 2 }),
       ...hairSides(skeleton, { from: 9, to: 16, thickness: 1 }),
       ...hairShine(skeleton),
       ...tie,
