@@ -237,10 +237,10 @@ import { normalizeTableNumber } from "@/lib/orderSheet";
 import { normalizeCharacterStyle } from "@/lib/characterStyle";
 import {
   GUEST_SPRITE_VIEW_BOX,
-  STAFF_PARTS,
   STAFF_SPRITE_VIEW_BOX,
   buildGuestParts,
   buildSpritePaths,
+  buildStaffParts,
 } from "@/lib/pixelGuest";
 import { fetchTodayHearts } from "@/lib/hearts";
 import {
@@ -283,7 +283,8 @@ const MESSAGE_TYPE_SYSTEM = "SYSTEM";
 // 따뜻한 바 분위기에 맞춘 병 색(앰버·로즈·민트).
 const SHELF_COLORS = ["#ffb066", "#ff7a90", "#8ce6d2", "#ffd166", "#c9a2ff"];
 
-const staffParts = STAFF_PARTS;
+// 직원 캐릭터입니다. 스킨을 받아오는 동안은 비어 있다가 도착하면 채워집니다.
+const staffParts = computed(() => buildStaffParts());
 
 // 가구는 24x12 픽셀 그리드입니다. w = 나무, d = 그늘.
 const FURNITURE_TONES = {

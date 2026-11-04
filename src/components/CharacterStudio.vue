@@ -101,7 +101,7 @@ const statusText = computed(() => {
 
   return (
     skinStatus.value.message ||
-    "닉네임을 넣으면 그 플레이어의 스킨으로 바뀌어요."
+    "닉네임을 넣으면 그 플레이어의 스킨으로 바뀌어요. 비워두면 남자는 스티브, 여자는 알렉스로 보여드려요."
   );
 });
 

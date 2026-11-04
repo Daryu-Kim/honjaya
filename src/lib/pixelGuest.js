@@ -52,9 +52,12 @@ export function buildSpritePaths(rows, toneMap) {
 // 없으면(또는 아직 불러오는 중이면) 성별 기본 스킨을 사용합니다.
 export function buildGuestParts(value, tableNumber) {
   const style = resolveCharacterStyle(value, tableNumber);
-  const skinParts = skinPartsFor(style.minecraft);
+  const skinParts = skinPartsFor(style.minecraft, { debounce: true });
 
   return skinParts || defaultSkinParts(style.gender);
 }
 
-export const STAFF_PARTS = defaultSkinParts("staff");
+// 바 카운터 뒤에 서는 직원 캐릭터입니다.
+export function buildStaffParts() {
+  return defaultSkinParts("staff");
+}
