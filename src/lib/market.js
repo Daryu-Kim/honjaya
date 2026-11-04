@@ -85,7 +85,7 @@ function fetchMarketProducts() {
   });
 }
 
-// 시세 참여 카테고리 판별용. 칵테일·위스키만 시세에 참여합니다.
+// 시세 참여 카테고리 판별용. 칵테일·시그니처·위스키만 시세에 참여합니다.
 function fetchMarketCategories() {
   return fetchList("categories", {
     columns: ["id", "name", "code", "sortOrder"],
@@ -174,7 +174,7 @@ export function useMarketFeed(options = {}) {
     return engine.value.priceOf(productId, basePrice, nowTick.value);
   }
 
-  // 이 메뉴가 실제로 시세에 참여하는지(칵테일·위스키인지) 확인합니다.
+  // 이 메뉴가 실제로 시세에 참여하는지(칵테일·시그니처·위스키인지) 확인합니다.
   function participates(productOrId) {
     const productId =
       typeof productOrId === "string" ? productOrId : productOrId?.id;

@@ -120,9 +120,15 @@ export function isMarketProduct(product, config = DEFAULT_MARKET_CONFIG) {
   return getProductCategoryIds(product).some((id) => categoryIds.includes(id));
 }
 
-// 시세는 칵테일·위스키만 대상으로 합니다. (이벤트/맥주/음료/음식은 제외)
-export const MARKET_CATEGORY_KEYWORDS = ["칵테일", "위스키"];
-export const MARKET_CATEGORY_CODES = ["cocktail", "whisky", "whiskey"];
+// 시세는 칵테일·시그니처·위스키만 대상으로 합니다.
+// (이벤트/맥주/음료/음식은 제외)
+export const MARKET_CATEGORY_KEYWORDS = ["칵테일", "시그니처", "위스키"];
+export const MARKET_CATEGORY_CODES = [
+  "cocktail",
+  "signature",
+  "whisky",
+  "whiskey",
+];
 
 export function resolveMarketCategoryIds(categories = []) {
   return (Array.isArray(categories) ? categories : [])
@@ -201,7 +207,8 @@ export function createMarketEngine({
   categories = [],
 } = {}) {
   const settings = normalizeMarketConfig(config);
-  // 관리자가 참여 카테고리를 직접 고르지 않으면 칵테일·위스키만 시세에 참여합니다.
+  // 관리자가 참여 카테고리를 직접 고르지 않으면
+  // 칵테일·시그니처·위스키만 시세에 참여합니다.
   const categoryIds =
     settings.categoryIds.length > 0
       ? settings.categoryIds

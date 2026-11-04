@@ -134,7 +134,8 @@
 
       <section v-if="cartList.length > 0" class="request-section">
         <p v-if="isMarketOn" class="market-notice">
-          📈 실시간 시세가 적용 중이에요 · 칵테일·위스키만 가격이 변동돼요
+          📈 실시간 시세가 적용 중이에요 · 칵테일·시그니처·위스키만 가격이
+          변동돼요
         </p>
 
         <div class="request-card">
