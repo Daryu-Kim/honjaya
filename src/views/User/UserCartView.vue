@@ -97,8 +97,16 @@
                 </div>
 
                 <div class="price-row">
-                  <span>개당 {{ formatPrice(item.unitPrice || 0) }}원</span>
-                  <strong>{{ formatPrice(item.totalPrice || 0) }}원</strong>
+                  <span class="price-row-unit">
+                    개당 {{ formatPrice(unitPriceOf(item)) }}원
+                    <MarketSparkline
+                      v-if="cartSparklines[item.productId]"
+                      :values="cartSparklines[item.productId]"
+                      :width="48"
+                      :height="16"
+                    />
+                  </span>
+                  <strong>{{ formatPrice(linePriceOf(item)) }}원</strong>
                 </div>
               </div>
             </div>
@@ -125,6 +133,10 @@
       </section>
 
       <section v-if="cartList.length > 0" class="request-section">
+        <p v-if="isMarketOn" class="market-notice">
+          📈 실시간 시세가 적용 중이에요 · 주문 요청 시점의 가격으로 결제돼요
+        </p>
+
         <div class="request-card">
           <label for="requestMessage">요청사항</label>
           <textarea
@@ -169,8 +181,16 @@ import {
   getOrderSheetStatus,
   isBlockedOrderSheetStatus,
 } from "@/lib/userOrderSheetGuard";
+import { useMarketFeed } from "@/lib/market";
+import MarketSparkline from "@/components/MarketSparkline.vue";
 
 const router = useRouter();
+
+// 장바구니 가격도 시세를 따라갑니다. 결제는 주문 요청 시점 가격으로 확정됩니다.
+const market = useMarketFeed({ minTickMs: 5000, dataPollMs: 45000 });
+const isMarketOn = computed(
+  () => market.enabled.value && market.isActive.value
+);
 
 const isMobile = ref(false);
 const tableNumber = ref("");
@@ -202,10 +222,33 @@ const totalCartCount = computed(() => {
 });
 
 const totalCartPrice = computed(() => {
-  return cartList.value.reduce(
-    (acc, item) => acc + Number(item.totalPrice || 0),
-    0
-  );
+  return cartList.value.reduce((acc, item) => acc + linePriceOf(item), 0);
+});
+
+function unitPriceOf(item) {
+  return market.priceForCartItem(item);
+}
+
+function linePriceOf(item) {
+  return unitPriceOf(item) * Number(item.quantity || 0);
+}
+
+const cartSparklines = computed(() => {
+  if (!isMarketOn.value) {
+    return {};
+  }
+
+  const map = {};
+
+  for (const item of cartList.value) {
+    const values = market.sparkline(item?.productId, 16, 60000);
+
+    if (values.length > 1) {
+      map[item.productId] = values;
+    }
+  }
+
+  return map;
 });
 
 function detectMobile() {
@@ -318,16 +361,24 @@ async function submitOrder() {
     saveRequestMessage();
 
     try {
-      const orderItems = cartList.value.map((item) => ({
+      // 주문 요청 시점의 시세로 단가를 확정합니다.
+      const pricedItems = cartList.value.map((item) => {
+        const quantity = Number(item.quantity || 0);
+        const unitPrice = market.livePriceForCartItem(item);
+
+        return { quantity, unitPrice, item };
+      });
+
+      const orderItems = pricedItems.map(({ quantity, unitPrice, item }) => ({
         orderSheetId: orderSheetId.value,
         tableNumber: tableNumber.value,
         displayName: displayName.value,
         productId: item.productId,
         productName: item.productName,
         basePrice: Number(item.basePrice || 0),
-        unitPrice: Number(item.unitPrice || 0),
-        totalPrice: Number(item.totalPrice || 0),
-        quantity: Number(item.quantity || 0),
+        unitPrice,
+        totalPrice: unitPrice * quantity,
+        quantity,
         imageUrl: item.imageUrl || "",
         selectedOptions: Array.isArray(item.selectedOptions)
           ? item.selectedOptions.map((option) => ({
@@ -347,7 +398,10 @@ async function submitOrder() {
         requestMessage: requestMessage.value,
         items: orderItems,
         totalCount: totalCartCount.value,
-        totalPrice: totalCartPrice.value,
+        totalPrice: orderItems.reduce(
+          (acc, item) => acc + Number(item.totalPrice || 0),
+          0
+        ),
         status: "REQUESTED",
         createdAt: nowIso(),
         updatedAt: nowIso(),
@@ -705,6 +759,12 @@ onMounted(async () => {
   }
 }
 
+.price-row-unit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .cart-card-bottom {
   display: flex;
   justify-content: flex-end;
@@ -742,6 +802,19 @@ onMounted(async () => {
 
 .request-section {
   margin-bottom: 16px;
+}
+
+.market-notice {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(74, 222, 128, 0.14);
+  border: 1px solid rgba(74, 222, 128, 0.35);
+  color: #bbf7d0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  word-break: keep-all;
 }
 
 .request-card {

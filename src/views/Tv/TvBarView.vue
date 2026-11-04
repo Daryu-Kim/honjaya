@@ -37,7 +37,7 @@
       </header>
 
       <main class="tv-main">
-        <section class="tv-scene">
+        <section class="tv-scene" :class="{ 'is-market': marketEnabled }">
           <div class="scene-wall" aria-hidden="true">
             <svg
               class="scene-lantern is-left"
@@ -212,6 +212,18 @@
               </div>
             </div>
           </div>
+
+          <TvMarketBoard
+            v-if="marketEnabled"
+            :rows="marketRows"
+            :index="marketIndex"
+            :index-sparkline="marketIndexSparkline"
+            :ingredients="marketIngredients"
+            :trades="marketTrades"
+            :sparkline-of="marketSparklineOf"
+            :frozen="marketFrozen"
+            :tick-seconds="marketTickSeconds"
+          />
         </section>
 
         <aside class="tv-side">
@@ -291,6 +303,8 @@ import {
   buildStaffParts,
 } from "@/lib/pixelGuest";
 import { fetchTodayHearts } from "@/lib/hearts";
+import { useMarketFeed } from "@/lib/market";
+import TvMarketBoard from "@/components/TvMarketBoard.vue";
 import {
   TV_CHIME,
   isSoundUnlocked,
@@ -334,6 +348,27 @@ const SHELF_COLORS = ["#ffb066", "#ff7a90", "#8ce6d2", "#ffd166", "#c9a2ff"];
 // 직원·사장 캐릭터입니다. 스킨을 받아오는 동안은 비어 있다가 도착하면 채워집니다.
 const staffParts = computed(() => buildStaffParts());
 const bossParts = computed(() => buildBossParts());
+
+// 실시간 시세: 관리자가 켜면 캐릭터 자리를 주식창으로 대체합니다.
+const market = useMarketFeed({ configPollMs: 5000, dataPollMs: 30000 });
+const marketEnabled = computed(() => market.enabled.value);
+const marketRows = computed(() => (marketEnabled.value ? market.rows(12) : []));
+const marketIndex = computed(() => market.index());
+const marketIndexSparkline = computed(() =>
+  marketEnabled.value ? market.indexSparkline(16) : []
+);
+const marketIngredients = computed(() =>
+  marketEnabled.value ? market.ingredients(4) : []
+);
+const marketTrades = computed(() =>
+  marketEnabled.value ? market.trades(8) : []
+);
+const marketFrozen = computed(() => market.isFrozen.value);
+const marketTickSeconds = computed(() => market.config.value.tickSeconds);
+
+function marketSparklineOf(productId) {
+  return marketEnabled.value ? market.sparkline(productId, 16) : [];
+}
 
 // 가구는 24x12 픽셀 그리드입니다. w = 나무, d = 그늘.
 const FURNITURE_TONES = {
@@ -1245,6 +1280,13 @@ onUnmounted(() => {
   background-repeat: no-repeat;
   background-size: 100% 100%, 100% 100%;
   box-shadow: inset 0 0 0 6px #120b10;
+}
+
+/* 시세 화면에서는 캐릭터/바 인테리어 대신 주식창을 보여줍니다. */
+.tv-scene.is-market .scene-wall,
+.tv-scene.is-market .scene-zone,
+.tv-scene.is-market .scene-counter {
+  display: none;
 }
 
 /* 벽: 위쪽은 참나무 판자, 아래쪽은 석재 벽돌 마감입니다. */

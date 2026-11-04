@@ -9,6 +9,15 @@
       <div class="header-right">
         <button
           type="button"
+          class="header-chat-button market-toggle"
+          :class="{ live: marketEnabled }"
+          @click="toggleMarket"
+        >
+          <span>{{ marketEnabled ? "📈 시세 ON" : "📉 시세 OFF" }}</span>
+        </button>
+
+        <button
+          type="button"
           class="header-chat-button"
           :class="{ alerting: totalChatAlertCount > 0 }"
           @click="openChatPanel"
@@ -380,6 +389,304 @@
                 </span>
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 실시간 시세 탭 -->
+      <div v-else-if="activeTab === 'market'" class="tab-panel">
+        <div class="panel-head">
+          <h2>실시간 시세</h2>
+          <p>
+            메뉴 가격이 주식처럼 실시간으로 움직입니다. 켜 두면 손님 주문
+            금액에도 그 가격이 그대로 적용돼요.
+          </p>
+        </div>
+
+        <div class="market-summary">
+          <div class="market-summary-card">
+            <span class="market-summary-label">혼자야 지수</span>
+            <strong>{{ marketIndexValue.toFixed(1) }}</strong>
+            <span
+              class="market-summary-change"
+              :class="marketIndexChangePct >= 0 ? 'up' : 'down'"
+            >
+              {{ marketIndexText }}
+            </span>
+          </div>
+
+          <div class="market-summary-card">
+            <span class="market-summary-label">거래 상태</span>
+            <strong>{{ marketStatusText }}</strong>
+            <span class="market-summary-change">
+              {{ market.productCount.value }}종 참여
+            </span>
+          </div>
+
+          <div class="market-summary-card">
+            <span class="market-summary-label">주문 금액 반영</span>
+            <strong>
+              {{ market.config.value.applyToOrders ? "ON" : "OFF" }}
+            </strong>
+            <span class="market-summary-change">
+              {{ market.config.value.tickSeconds }}초마다 갱신
+            </span>
+          </div>
+        </div>
+
+        <div class="market-report-block">
+          <h3>오늘의 시세 리포트</h3>
+
+          <div v-if="marketTodayStats" class="market-report-stats">
+            <div class="market-report-stat">
+              <span>시가</span>
+              <strong>{{ marketTodayStats.open }}</strong>
+            </div>
+            <div class="market-report-stat">
+              <span>고가</span>
+              <strong class="up">{{ marketTodayStats.high }}</strong>
+            </div>
+            <div class="market-report-stat">
+              <span>저가</span>
+              <strong class="down">{{ marketTodayStats.low }}</strong>
+            </div>
+            <div class="market-report-stat">
+              <span>현재</span>
+              <strong :class="marketTodayStats.trend">
+                {{ marketTodayStats.close }}
+              </strong>
+              <span class="market-report-delta">
+                {{ marketTodayStats.changeText }}
+              </span>
+            </div>
+          </div>
+
+          <div class="market-report-chart">
+            <MarketSparkline
+              :values="marketIndexSeriesValues"
+              :width="960"
+              :height="180"
+              :stroke-width="2"
+              :baseline="1000"
+            />
+            <p
+              v-if="marketIndexSeriesValues.length < 2"
+              class="market-report-empty"
+            >
+              시세를 켜면 오늘의 지수 곡선이 여기에 쌓여요.
+            </p>
+          </div>
+
+          <p class="market-report-note">
+            5분 단위 기록 · 비어 있는 구간은 시세 엔진으로 복원해서 보여줘요.
+          </p>
+
+          <p v-if="marketHistoryError" class="market-report-error">
+            {{ marketHistoryError }}
+          </p>
+        </div>
+
+        <div class="market-table-block">
+          <h3>최근 영업일</h3>
+
+          <div v-if="marketHistoryList.length === 0" class="empty-box compact">
+            <p>아직 기록된 영업일이 없어요.</p>
+          </div>
+
+          <div v-else class="market-table">
+            <div class="market-table-row head">
+              <span>영업일</span>
+              <span>종가</span>
+              <span>등락</span>
+              <span>고가 / 저가</span>
+            </div>
+
+            <div
+              v-for="entry in marketHistoryList"
+              :key="entry.businessDate"
+              class="market-table-row"
+            >
+              <span class="market-table-name">{{ entry.businessDate }}</span>
+              <strong>{{ entry.closeText }}</strong>
+              <span :class="entry.trend">{{ entry.changeText }}</span>
+              <span>{{ entry.rangeText }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="market-controls">
+          <label class="market-field">
+            <span>갱신 주기(초)</span>
+            <input
+              v-model.number="marketDraft.tickSeconds"
+              type="number"
+              min="1"
+              max="10"
+              step="1"
+            />
+          </label>
+
+          <label class="market-field">
+            <span>최대 변동폭(%)</span>
+            <input
+              v-model.number="marketDraft.maxChangePct"
+              type="number"
+              min="5"
+              max="200"
+              step="5"
+            />
+          </label>
+
+          <label class="market-field">
+            <span>변동성</span>
+            <input
+              v-model.number="marketDraft.volatility"
+              type="number"
+              min="0.2"
+              max="3"
+              step="0.1"
+            />
+          </label>
+
+          <label class="market-field">
+            <span>주문 수요 가중치</span>
+            <input
+              v-model.number="marketDraft.demandWeight"
+              type="number"
+              min="0"
+              max="3"
+              step="0.1"
+            />
+          </label>
+
+          <label class="market-field">
+            <span>재료 연쇄 가중치</span>
+            <input
+              v-model.number="marketDraft.chainWeight"
+              type="number"
+              min="0"
+              max="3"
+              step="0.1"
+            />
+          </label>
+
+          <label class="market-field">
+            <span>수요 기준 수량(30분)</span>
+            <input
+              v-model.number="marketDraft.demandTarget"
+              type="number"
+              min="1"
+              max="40"
+              step="1"
+            />
+          </label>
+        </div>
+
+        <div class="market-category-block">
+          <h3>참여 메뉴 카테고리</h3>
+          <p>아무것도 고르지 않으면 모든 메뉴가 참여합니다.</p>
+
+          <div class="market-category-row">
+            <label
+              v-for="category in categoryFilterList"
+              :key="`market-category-${category.id}`"
+              class="market-category-chip"
+              :class="{
+                active: marketDraft.categoryIds.includes(String(category.id)),
+              }"
+            >
+              <input
+                v-model="marketDraft.categoryIds"
+                type="checkbox"
+                :value="String(category.id)"
+              />
+              <span>{{ category.name }}</span>
+            </label>
+          </div>
+        </div>
+
+        <label class="market-checkbox-row">
+          <input v-model="marketDraft.applyToOrders" type="checkbox" />
+          <span>손님 주문 금액에도 시세를 적용합니다.</span>
+        </label>
+
+        <div class="market-action-row">
+          <button
+            type="button"
+            class="market-action-button primary"
+            :disabled="isSavingMarket"
+            @click="saveMarketDraft"
+          >
+            {{ isSavingMarket ? "저장 중..." : "설정 저장" }}
+          </button>
+
+          <button
+            type="button"
+            class="market-action-button"
+            :disabled="isSavingMarket"
+            @click="syncMarketDraft(market.config.value)"
+          >
+            되돌리기
+          </button>
+
+          <button
+            type="button"
+            class="market-action-button warn"
+            :disabled="isSavingMarket"
+            @click="toggleMarketFreeze"
+          >
+            {{ market.isFrozen.value ? "거래 재개" : "5분 거래 정지" }}
+          </button>
+        </div>
+
+        <div class="market-table-block">
+          <h3>메뉴별 시세</h3>
+
+          <div v-if="marketRows.length === 0" class="empty-box compact">
+            <p>시세에 참여하는 메뉴가 없어요.</p>
+          </div>
+
+          <div v-else class="market-table">
+            <div class="market-table-row head">
+              <span>메뉴</span>
+              <span>기본가</span>
+              <span>현재가</span>
+              <span>변동</span>
+            </div>
+
+            <div
+              v-for="row in marketRows"
+              :key="`market-row-${row.productId}`"
+              class="market-table-row"
+            >
+              <span class="market-table-name">{{ row.productName }}</span>
+              <span>{{ formatPrice(row.basePrice) }}원</span>
+              <strong>{{ formatPrice(row.price) }}원</strong>
+              <span :class="row.changePct >= 0 ? 'up' : 'down'">
+                {{ marketChangeText(row.changePct) }}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="market-table-block">
+          <h3>재료 시세</h3>
+
+          <div
+            v-if="marketIngredientRows.length === 0"
+            class="empty-box compact"
+          >
+            <p>지금은 재료 수요가 없어요.</p>
+          </div>
+
+          <div v-else class="market-category-row">
+            <span
+              v-for="ingredient in marketIngredientRows"
+              :key="`market-ingredient-${ingredient.name}`"
+              class="market-ingredient-chip"
+            >
+              {{ ingredient.name }} {{ marketSignedText(ingredient.changePct) }}
+            </span>
           </div>
         </div>
       </div>
@@ -1275,7 +1582,7 @@
                 >
                   <div>
                     <strong>{{ product.productName }}</strong>
-                    <p>{{ formatPrice(product.basePrice || 0) }}원</p>
+                    <p>{{ formatPrice(marketPriceOf(product)) }}원</p>
                   </div>
                   <span v-if="product.optionGroups?.length > 0">옵션</span>
                 </button>
@@ -1325,7 +1632,7 @@
                     </div>
 
                     <p>
-                      {{ formatPrice(item.unitPrice || 0) }}원 ×
+                      {{ formatPrice(manualUnitPriceOf(item)) }}원 ×
                       {{ item.quantity }}개
                     </p>
                   </div>
@@ -1412,12 +1719,8 @@
 
           <div class="modal-section">
             <div class="modal-info-row">
-              <span>기본 가격</span>
-              <strong>
-                {{
-                  formatPrice(manualOptionModalState.product?.basePrice || 0)
-                }}원
-              </strong>
+              <span>{{ marketEnabled ? "실시간 시세" : "기본 가격" }}</span>
+              <strong> {{ formatPrice(manualSheetBasePrice) }}원 </strong>
             </div>
           </div>
 
@@ -1614,6 +1917,8 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import CharacterStudio from "@/components/CharacterStudio.vue";
+import MarketSparkline from "@/components/MarketSparkline.vue";
+import { getBusinessDayStart } from "@/lib/businessDay";
 import { resolveCharacterStyle } from "@/lib/characterStyle";
 import { buildGuestParts, GUEST_SPRITE_VIEW_BOX } from "@/lib/pixelGuest";
 import {
@@ -1659,8 +1964,356 @@ import {
   sendChatMessage,
   STAFF_LABEL,
 } from "@/lib/chat";
+import { saveMarketConfig, useMarketFeed } from "@/lib/market";
+import {
+  buildIndexSeries,
+  createIndexSample,
+  currentMarketBusinessDate,
+  fetchMarketHistory,
+  MARKET_HISTORY_SAMPLE_MS,
+  mergeIndexSample,
+  mergeIndexSeries,
+  saveMarketHistoryEntry,
+  summarizeIndexSamples,
+} from "@/lib/marketHistory";
 
 const activeTab = ref("tables");
+
+// 태블릿은 직원용이라 시세를 조금 더 자주 갱신합니다.
+const market = useMarketFeed({ dataPollMs: 10000 });
+const marketDraft = ref(null);
+const isSavingMarket = ref(false);
+
+const marketEnabled = computed(
+  () => market.enabled.value && market.isActive.value
+);
+const marketRows = computed(() => market.rows(40));
+const marketIndexValue = computed(() => market.index().value);
+const marketIndexChangePct = computed(() => market.index().changePct);
+const marketIndexText = computed(() => {
+  const changePct = marketIndexChangePct.value;
+  const arrow = changePct >= 0 ? "▲" : "▼";
+
+  return `${arrow} ${Math.abs(changePct).toFixed(2)}%`;
+});
+const marketIngredientRows = computed(() => market.ingredients(8));
+
+const marketStatusText = computed(() => {
+  if (!market.config.value.enabled) {
+    return "시세 OFF";
+  }
+
+  return market.isFrozen.value ? "거래 정지" : "실시간 거래";
+});
+
+function marketChangeText(changePct) {
+  const arrow = changePct >= 0 ? "▲" : "▼";
+  return `${arrow} ${Math.abs(changePct).toFixed(1)}%`;
+}
+
+function marketSignedText(changePct) {
+  const sign = changePct >= 0 ? "+" : "-";
+  return `${sign}${Math.abs(changePct).toFixed(1)}%`;
+}
+
+function marketPercentText(changePct, digits = 2) {
+  const arrow = changePct >= 0 ? "▲" : "▼";
+  return `${arrow} ${Math.abs(changePct).toFixed(digits)}%`;
+}
+
+function marketRangeText(summary) {
+  if (!summary) {
+    return "-";
+  }
+
+  return `${summary.high.toFixed(1)} / ${summary.low.toFixed(1)}`;
+}
+
+// ---- 영업일 시세 리포트 ----
+const MARKET_HISTORY_ERROR_HINT =
+  "시세 기록을 읽지 못했어요. patch-012를 실행해주세요.";
+
+const marketHistoryRows = ref([]);
+const marketHistoryError = ref("");
+const marketDerivedSeries = ref([]);
+let marketHistoryTimer = null;
+
+const marketBusinessDate = computed(() =>
+  currentMarketBusinessDate(new Date(market.nowTick.value))
+);
+
+function findMarketHistoryRow(businessDate) {
+  const found = marketHistoryRows.value.find(
+    (row) => row.businessDate === businessDate
+  );
+
+  return found || null;
+}
+
+const marketTodayHistory = computed(() =>
+  findMarketHistoryRow(marketBusinessDate.value)
+);
+
+const marketIndexSeries = computed(() =>
+  mergeIndexSeries(
+    marketDerivedSeries.value,
+    marketTodayHistory.value?.samples || []
+  )
+);
+
+// 곡선 끝이 5분 전에 멈추지 않도록 지금 지수를 한 점 덧붙입니다.
+const marketLiveSeries = computed(() => {
+  const list = marketIndexSeries.value;
+
+  if (!market.config.value.enabled || !market.isActive.value) {
+    return list;
+  }
+
+  const nowTs = market.nowTick.value;
+  const last = list[list.length - 1];
+
+  if (last && nowTs - Number(last.t) < 60000) {
+    return list;
+  }
+
+  const index = market.index();
+
+  return [...list, { t: nowTs, i: index.value, c: index.changePct }];
+});
+
+const marketIndexSeriesValues = computed(() =>
+  marketLiveSeries.value.map((point) => Number(point.i))
+);
+
+const marketTodaySummary = computed(() =>
+  summarizeIndexSamples(marketLiveSeries.value)
+);
+
+const marketTodayStats = computed(() => {
+  const summary = marketTodaySummary.value;
+
+  if (!summary) {
+    return null;
+  }
+
+  return {
+    open: summary.open.toFixed(1),
+    high: summary.high.toFixed(1),
+    low: summary.low.toFixed(1),
+    close: summary.close.toFixed(1),
+    changeText: marketPercentText(summary.changePct),
+    trend: summary.changePct >= 0 ? "up" : "down",
+  };
+});
+
+function compareMarketHistory(first, second) {
+  return second.businessDate.localeCompare(first.businessDate);
+}
+
+function toMarketHistoryRow(row) {
+  const summary = row.summary || summarizeIndexSamples(row.samples);
+
+  if (!summary) {
+    return null;
+  }
+
+  return {
+    businessDate: row.businessDate,
+    closeText: summary.close.toFixed(1),
+    changeText: marketPercentText(summary.changePct),
+    rangeText: marketRangeText(summary),
+    trend: summary.changePct >= 0 ? "up" : "down",
+  };
+}
+
+const marketHistoryList = computed(() => {
+  const rows = marketHistoryRows.value.filter(
+    (row) => row.businessDate !== marketBusinessDate.value
+  );
+
+  return rows
+    .map(toMarketHistoryRow)
+    .filter((row) => row !== null)
+    .sort(compareMarketHistory)
+    .slice(0, 7);
+});
+
+// 기록이 비어 있는 구간은 엔진으로 되짚어 곡선을 복원합니다.
+function rebuildMarketDerivedSeries() {
+  if (!market.config.value.enabled) {
+    marketDerivedSeries.value = [];
+    return;
+  }
+
+  const dayStart = getBusinessDayStart().getTime();
+  const startedAt = toTime(market.config.value.startedAt);
+  const from = Math.max(dayStart, startedAt || dayStart);
+
+  marketDerivedSeries.value = buildIndexSeries(market.engine.value, { from });
+}
+
+async function loadMarketHistory() {
+  try {
+    marketHistoryRows.value = await fetchMarketHistory();
+    marketHistoryError.value = "";
+  } catch (error) {
+    marketHistoryError.value = error?.message || MARKET_HISTORY_ERROR_HINT;
+  } finally {
+    rebuildMarketDerivedSeries();
+  }
+}
+
+async function recordMarketHistorySample() {
+  rebuildMarketDerivedSeries();
+
+  if (!market.config.value.enabled || !market.isActive.value) {
+    return;
+  }
+
+  const businessDate = marketBusinessDate.value;
+  const current = marketHistoryRows.value.find(
+    (row) => row.businessDate === businessDate
+  );
+  const samples = mergeIndexSample(
+    current?.samples || [],
+    createIndexSample(market.engine.value)
+  );
+  const entry = {
+    businessDate,
+    samples,
+    summary: summarizeIndexSamples(samples),
+    updatedAt: nowIso(),
+  };
+
+  marketHistoryRows.value = [
+    entry,
+    ...marketHistoryRows.value.filter(
+      (row) => row.businessDate !== businessDate
+    ),
+  ];
+
+  try {
+    await saveMarketHistoryEntry(entry);
+    marketHistoryError.value = "";
+  } catch (error) {
+    marketHistoryError.value = error?.message || MARKET_HISTORY_ERROR_HINT;
+  }
+}
+
+function syncMarketDraft(config) {
+  marketDraft.value = {
+    tickSeconds: config.tickSeconds,
+    maxChangePct: config.maxChangePct,
+    volatility: config.volatility,
+    demandWeight: config.demandWeight,
+    chainWeight: config.chainWeight,
+    demandTarget: config.demandTarget,
+    applyToOrders: config.applyToOrders,
+    categoryIds: [...config.categoryIds],
+  };
+}
+
+// 실제로 저장된 시점(updatedAt)이 바뀔 때만 편집 중인 값을 덮어씁니다.
+watch(
+  () => market.config.value.updatedAt,
+  () => syncMarketDraft(market.config.value),
+  { immediate: true }
+);
+
+// 시세 탭을 열 때마다 오늘 곡선을 새로 복원합니다.
+watch(activeTab, (tab) => {
+  if (tab === "market") {
+    loadMarketHistory();
+  }
+});
+
+async function toggleMarket() {
+  const nextEnabled = !market.config.value.enabled;
+
+  if (nextEnabled) {
+    const confirmed = window.confirm(
+      `실시간 시세를 켤까요?\n\n참여 메뉴 ${market.productCount.value}종의 가격이 실시간으로 움직이고,\n손님 주문 금액에도 그 가격이 그대로 적용됩니다.`
+    );
+
+    if (!confirmed) return;
+  }
+
+  await runGlobalBusy(
+    async () => {
+      try {
+        if (!nextEnabled) {
+          // 마지막 시점의 지수를 남겨 두고 닫습니다.
+          await recordMarketHistorySample();
+        }
+
+        const saved = await saveMarketConfig(
+          {
+            enabled: nextEnabled,
+            startedAt: nextEnabled
+              ? new Date().toISOString()
+              : market.config.value.startedAt,
+          },
+          { baseConfig: market.config.value }
+        );
+
+        syncMarketDraft(saved);
+        await market.refresh();
+
+        if (nextEnabled) {
+          await recordMarketHistorySample();
+        }
+      } catch (error) {
+        alert(error?.message || "시세 설정을 바꾸지 못했어요.");
+      }
+    },
+    nextEnabled ? "시세를 여는 중이에요." : "시세를 멈추는 중이에요."
+  );
+}
+
+async function saveMarketDraft() {
+  if (!marketDraft.value || isSavingMarket.value) return;
+
+  isSavingMarket.value = true;
+
+  try {
+    const saved = await saveMarketConfig(
+      { ...marketDraft.value },
+      { baseConfig: market.config.value }
+    );
+
+    syncMarketDraft(saved);
+    await market.refresh();
+    alert("시세 설정을 저장했어요.");
+  } catch (error) {
+    alert(error?.message || "시세 설정을 저장하지 못했어요.");
+  } finally {
+    isSavingMarket.value = false;
+  }
+}
+
+async function toggleMarketFreeze() {
+  if (isSavingMarket.value) return;
+
+  const nextFrozenUntil = market.isFrozen.value
+    ? ""
+    : new Date(Date.now() + 5 * 60 * 1000).toISOString();
+
+  isSavingMarket.value = true;
+
+  try {
+    const saved = await saveMarketConfig(
+      { frozenUntil: nextFrozenUntil },
+      { baseConfig: market.config.value }
+    );
+
+    syncMarketDraft(saved);
+    await market.refresh();
+  } catch (error) {
+    alert(error?.message || "거래 상태를 바꾸지 못했어요.");
+  } finally {
+    isSavingMarket.value = false;
+  }
+}
 
 const selectedTable = ref(null);
 const recipeModalProduct = ref(null);
@@ -1767,6 +2420,7 @@ const tabList = [
   { key: "tables", label: "테이블" },
   { key: "orders", label: "주문" },
   { key: "recipes", label: "레시피" },
+  { key: "market", label: "시세" },
 ];
 
 const isTableNumberCleanupScanning = ref(false);
@@ -2037,10 +2691,14 @@ const manualCartTotalCount = computed(() => {
 
 const manualCartTotalAmount = computed(() => {
   return manualAddModalState.value.cartItems.reduce(
-    (acc, item) => acc + Number(item.totalPrice || 0),
+    (acc, item) => acc + manualUnitPriceOf(item) * Number(item.quantity || 0),
     0
   );
 });
+
+function manualUnitPriceOf(item) {
+  return market.priceForCartItem(item);
+}
 
 const manualSortedOptionGroups = computed(() => {
   if (!manualOptionModalState.value.product?.optionGroups) return [];
@@ -2070,6 +2728,11 @@ const manualSelectedOptionsFlat = computed(() => {
   return result;
 });
 
+// 수동 주문도 손님 주문과 같은 시세를 씁니다.
+const manualSheetBasePrice = computed(() =>
+  market.priceFor(manualOptionModalState.value.product)
+);
+
 const manualOptionUnitPrice = computed(() => {
   if (!manualOptionModalState.value.product) return 0;
 
@@ -2078,10 +2741,12 @@ const manualOptionUnitPrice = computed(() => {
     0
   );
 
-  return (
-    Number(manualOptionModalState.value.product.basePrice || 0) + additional
-  );
+  return manualSheetBasePrice.value + additional;
 });
+
+function marketPriceOf(product) {
+  return market.priceFor(product);
+}
 
 const manualOptionTotalPrice = computed(() => {
   return (
@@ -2833,6 +3498,8 @@ function decreaseManualOptionQuantity() {
 }
 
 function addManualSimpleProduct(product) {
+  const unitPrice = market.livePriceFor(product);
+
   const cartItem = {
     cartItemId: `manual_${Date.now()}_${Math.random()
       .toString(36)
@@ -2847,8 +3514,8 @@ function addManualSimpleProduct(product) {
     imageUrl: product.imageUrl || "",
     quantity: 1,
     selectedOptions: [],
-    unitPrice: Number(product.basePrice || 0),
-    totalPrice: Number(product.basePrice || 0),
+    unitPrice,
+    totalPrice: unitPrice,
   };
 
   const foundIndex = manualAddModalState.value.cartItems.findIndex(
@@ -2992,16 +3659,23 @@ async function submitManualAddOrder() {
 
   await runGlobalBusy(async () => {
     try {
-      const orderItems = state.cartItems.map((item) => ({
+      // 수동 추가도 주문 확정 시점의 시세로 금액을 고정합니다.
+      const pricedItems = state.cartItems.map((item) => ({
+        item,
+        quantity: Number(item.quantity || 0),
+        unitPrice: market.livePriceForCartItem(item),
+      }));
+
+      const orderItems = pricedItems.map(({ item, quantity, unitPrice }) => ({
         orderSheetId: state.orderSheetId,
         tableNumber: state.tableNumber,
         displayName: state.displayName,
         productId: item.productId,
         productName: item.productName,
         basePrice: Number(item.basePrice || 0),
-        unitPrice: Number(item.unitPrice || 0),
-        totalPrice: Number(item.totalPrice || 0),
-        quantity: Number(item.quantity || 0),
+        unitPrice,
+        totalPrice: unitPrice * quantity,
+        quantity,
         imageUrl: item.imageUrl || "",
         isCustom: item.isCustom === true,
         selectedOptions: Array.isArray(item.selectedOptions)
@@ -3020,7 +3694,7 @@ async function submitManualAddOrder() {
         0
       );
 
-      const totalPrice = state.cartItems.reduce(
+      const totalPrice = orderItems.reduce(
         (acc, item) => acc + Number(item.totalPrice || 0),
         0
       );
@@ -3674,6 +4348,11 @@ onMounted(() => {
   subscribeCategories();
   subscribeProducts();
   subscribeChat();
+  loadMarketHistory();
+  marketHistoryTimer = setInterval(
+    recordMarketHistorySample,
+    MARKET_HISTORY_SAMPLE_MS
+  );
 });
 
 onUnmounted(() => {
@@ -3684,6 +4363,10 @@ onUnmounted(() => {
   if (unsubscribeChatMessages) unsubscribeChatMessages();
   if (unsubscribeChatTables) unsubscribeChatTables();
   if (chatFeedbackTimer) clearTimeout(chatFeedbackTimer);
+  if (marketHistoryTimer) {
+    clearInterval(marketHistoryTimer);
+    marketHistoryTimer = null;
+  }
 });
 </script>
 
@@ -3784,6 +4467,263 @@ onUnmounted(() => {
   margin: 0;
   font-size: 14px;
   color: rgba(255, 255, 255, 0.68);
+}
+.market-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.market-summary-card {
+  display: grid;
+  gap: 4px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.market-summary-label {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.6);
+}
+.market-summary-card strong {
+  font-size: 22px;
+  font-weight: 800;
+}
+.market-summary-change {
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.62);
+}
+.market-summary-change.up,
+.market-table-row .up {
+  color: #4ade80;
+}
+.market-summary-change.down,
+.market-table-row .down {
+  color: #f87171;
+}
+.market-controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.market-field {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.06);
+
+  span {
+    font-size: 12px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.66);
+  }
+
+  input {
+    height: 40px;
+    padding: 0 12px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 12px;
+    background: rgba(9, 12, 22, 0.55);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 700;
+  }
+}
+.market-report-block {
+  display: grid;
+  gap: 10px;
+
+  h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 800;
+  }
+}
+.market-report-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.market-report-stat {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.06);
+
+  span {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  strong {
+    font-size: 18px;
+    font-weight: 800;
+  }
+
+  .up {
+    color: #4ade80;
+  }
+
+  .down {
+    color: #f87171;
+  }
+
+  .market-report-delta {
+    font-weight: 800;
+    color: rgba(255, 255, 255, 0.78);
+  }
+}
+.market-report-chart {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.06);
+
+  svg {
+    width: 100%;
+    height: auto;
+  }
+}
+.market-report-note,
+.market-report-empty {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.62);
+}
+.market-report-error {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fecaca;
+}
+.market-category-block,
+.market-table-block {
+  display: grid;
+  gap: 8px;
+
+  h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 800;
+  }
+
+  p {
+    margin: 0;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.62);
+  }
+}
+.market-category-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.market-category-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.76);
+  cursor: pointer;
+
+  input {
+    display: none;
+  }
+
+  &.active {
+    border-color: rgba(74, 222, 128, 0.6);
+    background: rgba(74, 222, 128, 0.18);
+    color: #dcfce7;
+  }
+}
+.market-ingredient-chip {
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.78);
+}
+.market-checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.78);
+}
+.market-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.market-action-button {
+  min-width: 120px;
+  height: 44px;
+  padding: 0 18px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+
+  &.primary {
+    border-color: transparent;
+    background: #22c55e;
+    color: #052e16;
+  }
+
+  &.warn {
+    border-color: rgba(248, 113, 113, 0.5);
+    color: #fecaca;
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+}
+.market-table {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.market-table-row {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr 1fr 0.9fr;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+
+  &.head {
+    font-size: 12px;
+    font-weight: 800;
+    color: rgba(255, 255, 255, 0.58);
+    background: rgba(255, 255, 255, 0.06);
+  }
+}
+.market-table-name {
+  font-weight: 700;
+}
+.market-toggle.live {
+  border-color: rgba(74, 222, 128, 0.6);
+  background: rgba(74, 222, 128, 0.18);
+  color: #dcfce7;
 }
 .empty-box,
 .list-card,

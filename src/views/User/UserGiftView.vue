@@ -113,8 +113,15 @@
             </div>
             <strong>{{ product.productName }}</strong>
             <span class="product-price"
-              >{{ formatPrice(product.basePrice) }}원</span
+              >{{ formatPrice(displayPriceOf(product)) }}원</span
             >
+            <MarketSparkline
+              v-if="productSparklines[product.id]"
+              class="product-sparkline"
+              :values="productSparklines[product.id]"
+              :width="54"
+              :height="18"
+            />
             <span v-if="isSoldOutProduct(product)" class="soldout-text"
               >품절</span
             >
@@ -140,7 +147,7 @@
               }}
             </p>
             <span class="basket-price"
-              >{{ formatPrice(item.totalPrice) }}원</span
+              >{{ formatPrice(linePriceOf(item)) }}원</span
             >
           </div>
 
@@ -201,7 +208,8 @@
           <div class="option-sheet">
             <h3>{{ selectedProduct.productName }}</h3>
             <p class="option-sheet-price">
-              기본 {{ formatPrice(selectedProduct.basePrice) }}원
+              {{ isMarketOn ? "실시간 시세" : "기본" }}
+              {{ formatPrice(sheetBasePrice) }}원
             </p>
 
             <div
@@ -299,9 +307,17 @@ import { normalizeTableNumber } from "@/lib/orderSheet";
 import { runGlobalBusy } from "@/lib/globalBusy";
 import { formatTableLabel } from "@/lib/chat";
 import { fetchTodayGiftRanking, sendGiftOrder } from "@/lib/gift";
+import { useMarketFeed } from "@/lib/market";
+import MarketSparkline from "@/components/MarketSparkline.vue";
 
 const route = useRoute();
 const router = useRouter();
+
+// 선물 금액도 시세를 따라갑니다. 선물 확정 시점 가격으로 합산됩니다.
+const market = useMarketFeed({ minTickMs: 5000, dataPollMs: 45000 });
+const isMarketOn = computed(
+  () => market.enabled.value && market.isActive.value
+);
 
 const isMobile = ref(false);
 const tableNumber = ref("");
@@ -370,11 +386,34 @@ const filteredProductList = computed(() => {
 });
 
 const giftTotalPrice = computed(() => {
-  return giftItems.value.reduce(
-    (total, item) => total + Number(item.totalPrice || 0),
-    0
-  );
+  return giftItems.value.reduce((total, item) => total + linePriceOf(item), 0);
 });
+
+function displayPriceOf(product) {
+  return market.priceFor(product);
+}
+
+const productSparklines = computed(() => {
+  if (!isMarketOn.value) {
+    return {};
+  }
+
+  const map = {};
+
+  for (const product of productList.value) {
+    const values = market.sparkline(product?.id, 16, 60000);
+
+    if (values.length > 1) {
+      map[product.id] = values;
+    }
+  }
+
+  return map;
+});
+
+function linePriceOf(item) {
+  return market.priceForCartItem(item) * Number(item.quantity || 0);
+}
 
 const canSendGift = computed(() => {
   return Boolean(targetTableNumber.value) && giftItems.value.length > 0;
@@ -408,6 +447,9 @@ const selectedOptionsFlat = computed(() => {
   return result;
 });
 
+// 옵션 시트의 기준 가격. 시세가 켜져 있으면 실시간 가격을 씁니다.
+const sheetBasePrice = computed(() => market.priceFor(selectedProduct.value));
+
 const sheetUnitPrice = computed(() => {
   if (!selectedProduct.value) return 0;
 
@@ -416,7 +458,7 @@ const sheetUnitPrice = computed(() => {
     0
   );
 
-  return Number(selectedProduct.value.basePrice || 0) + additionalPrice;
+  return sheetBasePrice.value + additionalPrice;
 });
 
 const sheetTotalPrice = computed(() => {
@@ -780,25 +822,31 @@ function removeGiftItem(item) {
 }
 
 function buildOrderItems() {
-  return giftItems.value.map((item) => ({
-    orderSheetId: orderSheetId.value,
-    tableNumber: tableNumber.value,
-    displayName: displayName.value,
-    productId: item.productId,
-    productName: item.productName,
-    basePrice: Number(item.basePrice || 0),
-    unitPrice: Number(item.unitPrice || 0),
-    totalPrice: Number(item.totalPrice || 0),
-    quantity: Number(item.quantity || 0),
-    imageUrl: item.imageUrl || "",
-    selectedOptions: item.selectedOptions.map((option) => ({
-      groupId: option.groupId,
-      groupName: option.groupName,
-      optionId: option.optionId,
-      optionName: option.optionName,
-      additionalPrice: Number(option.additionalPrice || 0),
-    })),
-  }));
+  return giftItems.value.map((item) => {
+    // 선물 확정 시점의 시세로 단가를 고정합니다.
+    const unitPrice = market.livePriceForCartItem(item);
+    const quantity = Number(item.quantity || 0);
+
+    return {
+      orderSheetId: orderSheetId.value,
+      tableNumber: tableNumber.value,
+      displayName: displayName.value,
+      productId: item.productId,
+      productName: item.productName,
+      basePrice: Number(item.basePrice || 0),
+      unitPrice,
+      totalPrice: unitPrice * quantity,
+      quantity,
+      imageUrl: item.imageUrl || "",
+      selectedOptions: item.selectedOptions.map((option) => ({
+        groupId: option.groupId,
+        groupName: option.groupName,
+        optionId: option.optionId,
+        optionName: option.optionName,
+        additionalPrice: Number(option.additionalPrice || 0),
+      })),
+    };
+  });
 }
 
 async function handleSendGift() {
@@ -1201,6 +1249,10 @@ onUnmounted(() => {
   font-size: 13px;
   font-weight: 700;
   color: rgba(255, 255, 255, 0.75);
+}
+
+.product-sparkline {
+  margin-top: 2px;
 }
 
 .soldout-text {

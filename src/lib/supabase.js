@@ -44,6 +44,8 @@ const TABLE_MAPS = {
   push_subscriptions: "push_subscriptions",
   appSettings: "app_settings",
   app_settings: "app_settings",
+  marketHistory: "market_history",
+  market_history: "market_history",
   hearts: "hearts",
 };
 
@@ -135,6 +137,9 @@ const FIELD_MAPS = {
     updatedAt: "updated_at",
   },
   app_settings: {
+    updatedAt: "updated_at",
+  },
+  market_history: {
     updatedAt: "updated_at",
   },
   hearts: {

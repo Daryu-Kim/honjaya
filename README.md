@@ -50,6 +50,8 @@ pnpm lint
 - [supabase/patch-008-hearts.sql](supabase/patch-008-hearts.sql) — 익명 하트 테이블(`hearts`) + 상호 하트 공개 컬럼(`is_revealed`) + Realtime 등록 패치
 - [supabase/patch-009-drop-bar-notes.sql](supabase/patch-009-drop-bar-notes.sql) — 제거된 '오늘의 한 줄' 테이블(`bar_notes`) 정리 패치
 - [supabase/patch-010-character-style.sql](supabase/patch-010-character-style.sql) — 손님 캐릭터(`order_sheets.character_style`) 컬럼 패치
+- [supabase/patch-011-market.sql](supabase/patch-011-market.sql) — 실시간 시세(`app_settings` 쓰기 권한 + Realtime 등록 + `market` 설정 시드)
+- [supabase/patch-012-market-history.sql](supabase/patch-012-market-history.sql) — 영업일 시세 히스토리 테이블(`market_history`) + 권한/정책 패치
 
 > `patch-001` → `patch-002` 순서로 Supabase SQL Editor에서 실행하세요. 두 패치는 여러 번 실행해도 안전합니다.
 > `patch-003`은 스키마가 아니라 데이터만 바꾸는 선택 패치라서, 메뉴를 전면 교체할 때만 실행하면 됩니다.
@@ -59,6 +61,8 @@ pnpm lint
 > `patch-008`은 익명 하트를 켤 때 한 번 실행하면 되고, 여러 번 실행해도 안전합니다.
 > `patch-009`는 '오늘의 한 줄' 기능을 제거한 뒤 한 번 실행하면 되고, 여러 번 실행해도 안전합니다.
 > `patch-010`은 캐릭터 스킨 설정을 켤 때 한 번 실행하면 되고, 여러 번 실행해도 안전합니다.
+> `patch-011`은 실시간 시세를 쓰기 전에 한 번 실행하세요. 이 패치를 적용하지 않으면 태블릿에서 시세를 켤 수 없습니다(조회만 가능).
+> `patch-012`는 시세 리포트/히스토리를 쓰기 전에 실행하세요. 이 패치를 적용하지 않아도 시세 자체는 동작하지만, `시세` 탭 리포트에 기록 오류 안내가 표시됩니다.
 
 ### Menu import
 
@@ -145,6 +149,31 @@ pnpm menu:import -- --file menu-data/menu.json --apply    # 반영
 - 운영 편의: 5시 자동 새로고침, 20~60초 폴링 백업, 오프라인 시 `OFFLINE` 표시, 3초 뒤 마우스 커서 숨김.
 - 하단 푸터에 `바 N · 홀 M` 형태로 존별 착석 수를 표시하고, 표시 한도를 넘으면 `외 N팀`으로 요약합니다.
 - 캐릭터는 실제 마인크래프트 스킨 텍스처에서 정면 6면만 뽑아 64×64 격자(정면 16×32 논리 픽셀) 스프라이트로 만들고, 색상별로 묶어 `<path>` 몇 개로 그립니다(가로 픽셀 run 병합으로 DOM 최소화). 색상은 CSS 변수가 아니라 path마다 `fill`로 직접 지정합니다. 좌석 아바타는 64의 정확히 2배인 128px로 그려 픽셀 경계가 흐려지지 않습니다. 스킨마다 그림이 달라 `<defs>/<use>` 대신 좌석마다 `<path>`를 직접 그립니다.
+
+### Live market pricing (실시간 칵테일 시세)
+
+메뉴 가격을 주식/코인 시세처럼 초 단위로 움직이게 하는 기능입니다.
+
+- 태블릿 운영판 헤더의 `📉 시세 OFF` / `📈 시세 ON` 버튼으로 관리자가 직접 켜고 끕니다. 켤 때는 참여 메뉴 수와 "손님 주문 금액에 실제 반영" 경고를 확인합니다.
+- `시세` 탭에서 갱신 주기(초) · 최대 변동폭(%) · 변동성 · 주문 수요 가중치 · 재료 연쇄 가중치 · 수요 기준 수량 · 참여 카테고리를 조절하고, `5분 거래 정지`로 잠시 가격을 고정할 수 있습니다.
+- TV(`/tv`)는 시세가 켜지면 좌석·카운터 캐릭터 영역을 감추고 **시세 보드**로 바꿉니다: 혼자야 지수 · 등락 상위 12개 카드 · 스파크라인 · 재료 시세 · 체결 티커. 캐릭터는 시세가 꺼지면 그대로 돌아옵니다.
+- 가격 규칙
+  - 기준가(`products.base_price`)에 결정론적 노이즈(느린/중간/빠른 3중 파동)를 곱해 100원 단위로 반올림합니다. 같은 초에는 어느 화면에서나 같은 가격이 나옵니다.
+  - `주문 수요` — 최근 30분 판매량이 수요 기준 수량을 넘으면 그 메뉴 가격이 올라갑니다(수요는 가격을 올리기만 합니다).
+  - `재료 연쇄` — 인기 재료(예: 라임즙)를 많이 쓰는 메뉴가 함께 오르고, 그 재료를 안 쓰는 메뉴는 영향이 0입니다.
+  - 변동폭은 최대 변동폭(기본 ±60%)으로 제한되고, 최저 100원입니다.
+- 손님 화면(`/user/order` · `/user/cart` · `/user/gift`)은 5초 간격으로 갱신되는 실시간 가격을 보여주고, **주문(선물)을 확정하는 순간의 가격**으로 단가를 고정해 저장합니다. 장바구니 화면과 메뉴 목록에 "주문 완료 시점의 가격으로 결제돼요" 안내가 표시됩니다.
+- 태블릿의 수동 주문 추가도 같은 시세를 씁니다. 저장된 단가는 `orders.items[].unitPrice`에 그대로 남으므로 매출/결제/주문 내역 화면은 기존 로직 그대로 동작합니다.
+- 시세 설정은 `app_settings` id `market` 한 줄에 jsonb로 저장됩니다(계산: [src/lib/marketEngine.js](src/lib/marketEngine.js), 레시피 그래프: [src/lib/recipeGraph.js](src/lib/recipeGraph.js), 연동: [src/lib/market.js](src/lib/market.js)).
+- 처음 적용하는 프로젝트에서는 Supabase SQL Editor에서 [supabase/patch-011-market.sql](supabase/patch-011-market.sql)을 실행하세요. 여러 번 실행해도 안전합니다.
+
+#### 시세 리포트 · 히스토리
+
+- 시세가 켜져 있는 동안 태블릿이 **5분마다** 혼자야 지수 한 점을 남깁니다. 지수만 저장하고 메뉴별 과거 가격은 저장하지 않습니다(가격은 설정·메뉴·주문으로 언제든 다시 계산되기 때문입니다).
+- `시세` 탭 상단의 `오늘의 시세 리포트`에서 시가 / 고가 / 저가 / 현재와 등락, 오늘 하루 지수 곡선을 볼 수 있습니다. 기록이 비어 있는 구간은 시세 엔진으로 되짚어 곡선을 복원합니다.
+- `최근 영업일` 표에는 지난 영업일의 종가 · 등락 · 고가/저가가 최근 7일까지 남습니다(보관 14영업일).
+- 손님 화면 메뉴 카드 · 장바구니 · 선물 목록에는 최근 16분 흐름을 보여주는 미니 스파크라인이 붙습니다([src/components/MarketSparkline.vue](src/components/MarketSparkline.vue)).
+- 기록은 `market_history` 테이블 한 줄 = 영업일(`id`)로 저장됩니다([src/lib/marketHistory.js](src/lib/marketHistory.js)). 처음 적용하는 프로젝트에서는 [supabase/patch-012-market-history.sql](supabase/patch-012-market-history.sql)을 추가로 실행하세요. 여러 번 실행해도 안전합니다.
 
 ### Web push notifications
 

@@ -41,6 +41,10 @@
             placeholder="상품명을 검색해보세요"
           />
         </div>
+
+        <p v-if="isMarketOn" class="market-notice">
+          📈 실시간 시세 적용 중 · 주문 완료 시점의 가격으로 결제돼요
+        </p>
       </header>
 
       <section class="category-section">
@@ -114,9 +118,25 @@
               </div>
 
               <div class="product-bottom">
-                <strong class="product-price">
-                  {{ formatPrice(product.basePrice) }}원~
-                </strong>
+                <div class="product-price-wrap">
+                  <strong class="product-price">
+                    {{ formatPrice(displayPriceOf(product)) }}원~
+                  </strong>
+                  <span
+                    v-if="marketChangeOf(product)"
+                    class="product-price-delta"
+                    :class="marketChangeOf(product) > 0 ? 'up' : 'down'"
+                  >
+                    {{ marketChangeOf(product) > 0 ? "▲" : "▼" }}
+                    {{ Math.abs(marketChangeOf(product)).toFixed(1) }}%
+                  </span>
+                  <MarketSparkline
+                    v-if="productSparklines[product.id]"
+                    :values="productSparklines[product.id]"
+                    :width="54"
+                    :height="18"
+                  />
+                </div>
 
                 <div class="product-actions">
                   <button
@@ -188,8 +208,8 @@
             </div>
 
             <div class="sheet-price-box">
-              <span>기본 가격</span>
-              <strong>{{ formatPrice(selectedProduct.basePrice) }}원</strong>
+              <span>{{ isMarketOn ? "실시간 시세" : "기본 가격" }}</span>
+              <strong>{{ formatPrice(sheetBasePrice) }}원</strong>
             </div>
 
             <div
@@ -294,8 +314,17 @@ import {
   getOrderSheetStatus,
   isBlockedOrderSheetStatus,
 } from "@/lib/userOrderSheetGuard";
+import { useMarketFeed } from "@/lib/market";
+import MarketSparkline from "@/components/MarketSparkline.vue";
 
 const router = useRouter();
+
+// 시세가 켜져 있으면 메뉴 가격이 실시간으로 바뀝니다.
+// 손님 화면은 5초 간격으로만 갱신해 저사양 기기에서도 부담이 없게 합니다.
+const market = useMarketFeed({ minTickMs: 5000, dataPollMs: 45000 });
+const isMarketOn = computed(
+  () => market.enabled.value && market.isActive.value
+);
 
 const isMobile = ref(false);
 const tableNumber = ref("");
@@ -435,6 +464,9 @@ const selectedOptionsFlat = computed(() => {
   return result;
 });
 
+// 옵션 시트의 기준 가격. 시세가 켜져 있으면 실시간 가격을 씁니다.
+const sheetBasePrice = computed(() => market.priceFor(selectedProduct.value));
+
 const sheetUnitPrice = computed(() => {
   if (!selectedProduct.value) return 0;
 
@@ -443,11 +475,46 @@ const sheetUnitPrice = computed(() => {
     0
   );
 
-  return Number(selectedProduct.value.basePrice || 0) + additionalPrice;
+  return sheetBasePrice.value + additionalPrice;
 });
 
 const sheetTotalPrice = computed(() => {
   return sheetUnitPrice.value * Number(sheetQuantity.value || 1);
+});
+
+function displayPriceOf(product) {
+  return market.priceFor(product);
+}
+
+function marketChangeOf(product) {
+  if (!isMarketOn.value) {
+    return 0;
+  }
+
+  const basePrice = Number(product?.basePrice || 0);
+  const price = market.priceFor(product);
+  const changePct = basePrice > 0 ? ((price - basePrice) / basePrice) * 100 : 0;
+
+  return Math.abs(changePct) < 0.05 ? 0 : changePct;
+}
+
+// 카드마다 스파크라인을 그려야 해서 한 번에 모아 계산합니다.
+const productSparklines = computed(() => {
+  if (!isMarketOn.value) {
+    return {};
+  }
+
+  const map = {};
+
+  for (const product of productList.value) {
+    const values = market.sparkline(product?.id, 16, 60000);
+
+    if (values.length > 1) {
+      map[product.id] = values;
+    }
+  }
+
+  return map;
 });
 
 function detectMobile() {
@@ -922,6 +989,19 @@ onUnmounted(() => {
   }
 }
 
+.market-notice {
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(74, 222, 128, 0.14);
+  border: 1px solid rgba(74, 222, 128, 0.35);
+  color: #bbf7d0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  word-break: keep-all;
+}
+
 .category-section {
   margin-bottom: 16px;
 }
@@ -1085,9 +1165,33 @@ onUnmounted(() => {
   margin-top: 12px;
 }
 
+.product-price-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+
 .product-price {
   font-size: 18px;
   font-weight: 800;
+}
+
+.product-price-delta {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.product-price-delta.up {
+  color: #4ade80;
+}
+
+.product-price-delta.down {
+  color: #f87171;
+}
+
+.product-price-wrap :deep(.market-sparkline) {
+  align-self: center;
 }
 
 .product-actions {
