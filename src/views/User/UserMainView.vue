@@ -757,17 +757,20 @@ onMounted(() => {
 
 .menu-section {
   display: grid;
-  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .menu-card {
   width: 100%;
+  height: 100%;
   display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 18px 16px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 16px 14px;
   border: none;
-  border-radius: 22px;
+  border-radius: 20px;
   background: rgba(255, 255, 255, 0.08);
   color: #fff;
   text-align: left;
@@ -775,20 +778,20 @@ onMounted(() => {
 }
 
 .menu-icon {
-  width: 56px;
-  height: 56px;
-  border-radius: 18px;
+  width: 50px;
+  height: 50px;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.12);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 26px;
+  font-size: 24px;
   flex-shrink: 0;
 }
 
 .character-mini {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   image-rendering: pixelated;
 }
 
@@ -826,8 +829,9 @@ onMounted(() => {
   p {
     margin: 0;
     font-size: 13px;
-    line-height: 1.6;
+    line-height: 1.55;
     color: rgba(255, 255, 255, 0.72);
+    word-break: keep-all;
   }
 }
 

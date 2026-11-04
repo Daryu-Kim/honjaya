@@ -61,3 +61,8 @@ export function buildGuestParts(value, tableNumber) {
 export function buildStaffParts() {
   return defaultSkinParts("staff");
 }
+
+// 카운터 뒤 직원 옆에 함께 서는 사장 캐릭터입니다.
+export function buildBossParts() {
+  return defaultSkinParts("boss");
+}

@@ -21,10 +21,12 @@ const SPRITE_OFFSET_X = 16;
 const TEXTURE_API = "https://mc-heads.net/skin/";
 
 // 마인크래프트 기본 스킨입니다. 남자는 스티브, 여자는 알렉스입니다.
+// 매장 직원과 사장은 각자 쓰는 닉네임 스킨을 그대로 사용합니다.
 const DEFAULT_SKIN_NAMES = {
   male: "MHF_Steve",
   female: "MHF_Alex",
-  staff: "MHF_Steve",
+  staff: "cheesaceke",
+  boss: "Gunchick_",
 };
 
 const CACHE_KEY = "honjaya.minecraft-skins.v2";

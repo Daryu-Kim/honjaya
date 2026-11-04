@@ -39,6 +39,20 @@
       <main class="tv-main">
         <section class="tv-scene">
           <div class="scene-wall" aria-hidden="true">
+            <svg
+              class="scene-lantern is-left"
+              viewBox="0 0 12 11"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path
+                v-for="part in lanternParts"
+                :key="part.tone"
+                :d="part.d"
+                :fill="part.tone"
+              />
+            </svg>
+
             <div class="scene-neon">BAR</div>
             <div class="scene-shelf">
               <span
@@ -48,6 +62,20 @@
                 :style="bottle.style"
               ></span>
             </div>
+
+            <svg
+              class="scene-lantern is-right"
+              viewBox="0 0 12 11"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path
+                v-for="part in lanternParts"
+                :key="part.tone"
+                :d="part.d"
+                :fill="part.tone"
+              />
+            </svg>
           </div>
 
           <div
@@ -147,21 +175,40 @@
           <div class="scene-counter" aria-hidden="true">
             <div class="counter-top"></div>
             <div class="counter-front">
-              <div class="counter-staff">
-                <svg
-                  class="staff-figure"
-                  :viewBox="STAFF_SPRITE_VIEW_BOX"
-                  aria-hidden="true"
-                  focusable="false"
-                >
-                  <path
-                    v-for="part in staffParts"
-                    :key="part.fill"
-                    :d="part.d"
-                    :fill="part.fill"
-                  />
-                </svg>
-                <span class="staff-plate">직원</span>
+              <div class="counter-crew">
+                <div class="counter-person is-boss">
+                  <svg
+                    class="staff-figure"
+                    :viewBox="STAFF_SPRITE_VIEW_BOX"
+                    aria-hidden="true"
+                    focusable="false"
+                  >
+                    <path
+                      v-for="part in bossParts"
+                      :key="`boss-${part.fill}`"
+                      :d="part.d"
+                      :fill="part.fill"
+                    />
+                  </svg>
+                  <span class="staff-plate is-boss">사장</span>
+                </div>
+
+                <div class="counter-person is-staff">
+                  <svg
+                    class="staff-figure"
+                    :viewBox="STAFF_SPRITE_VIEW_BOX"
+                    aria-hidden="true"
+                    focusable="false"
+                  >
+                    <path
+                      v-for="part in staffParts"
+                      :key="`staff-${part.fill}`"
+                      :d="part.d"
+                      :fill="part.fill"
+                    />
+                  </svg>
+                  <span class="staff-plate">직원</span>
+                </div>
               </div>
             </div>
           </div>
@@ -238,6 +285,7 @@ import { normalizeCharacterStyle } from "@/lib/characterStyle";
 import {
   GUEST_SPRITE_VIEW_BOX,
   STAFF_SPRITE_VIEW_BOX,
+  buildBossParts,
   buildGuestParts,
   buildSpritePaths,
   buildStaffParts,
@@ -283,8 +331,9 @@ const MESSAGE_TYPE_SYSTEM = "SYSTEM";
 // 따뜻한 바 분위기에 맞춘 병 색(앰버·로즈·민트).
 const SHELF_COLORS = ["#ffb066", "#ff7a90", "#8ce6d2", "#ffd166", "#c9a2ff"];
 
-// 직원 캐릭터입니다. 스킨을 받아오는 동안은 비어 있다가 도착하면 채워집니다.
+// 직원·사장 캐릭터입니다. 스킨을 받아오는 동안은 비어 있다가 도착하면 채워집니다.
 const staffParts = computed(() => buildStaffParts());
+const bossParts = computed(() => buildBossParts());
 
 // 가구는 24x12 픽셀 그리드입니다. w = 나무, d = 그늘.
 const FURNITURE_TONES = {
@@ -333,6 +382,30 @@ const furnitureSprites = [
   { key: "stool", parts: furnitureParts.stool },
   { key: "table", parts: furnitureParts.table },
 ];
+
+// 벽에 매다는 랜턴입니다. 톤 이름 자리에 색을 그대로 넣어 path fill로 씁니다.
+const LANTERN_SPRITE = [
+  ".....cc.....",
+  ".....cc.....",
+  "....cccc....",
+  "...cffffc...",
+  "...fggggf...",
+  "...fgyygf...",
+  "...fgyygf...",
+  "...fggggf...",
+  "...cffffc...",
+  "....cccc....",
+  ".....ff.....",
+];
+
+const LANTERN_COLORS = {
+  c: "#2b2118",
+  f: "#463628",
+  g: "#ffcf6b",
+  y: "#fff2c4",
+};
+
+const lanternParts = buildSpritePaths(LANTERN_SPRITE, LANTERN_COLORS);
 
 const shelfBottles = Array.from({ length: 13 }, (_, index) => {
   const height = 12 + ((index * 7) % 22);
@@ -1040,7 +1113,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  background: radial-gradient(circle at 50% 15%, #2a1a22 0%, #0b0709 72%);
+  background: radial-gradient(circle at 50% 12%, #26170f 0%, #070505 74%);
   cursor: none;
   user-select: none;
 }
@@ -1066,11 +1139,17 @@ onUnmounted(() => {
   flex-direction: column;
   padding: 28px 40px 36px;
   box-sizing: border-box;
-  background: repeating-linear-gradient(
-    90deg,
-    #170f16 0 40px,
-    #1d141c 40px 80px
-  );
+  /* 바 바깥 벽: 다크 오크 판자를 옆으로 이어 붙인 느낌입니다. */
+  /* prettier-ignore */
+  background-image:
+    repeating-linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.28) 0 4px,
+      transparent 4px 120px
+    ),
+    repeating-linear-gradient(180deg, #241a10 0 28px, #1a120a 28px 34px);
+  background-repeat: no-repeat;
+  background-size: 100% 100%, 100% 100%;
   color: #fdf3f6;
   font-family: "DungGeunMo", "NeoDunggeunmo", "Malgun Gothic",
     "Apple SD Gothic Neo", monospace;
@@ -1102,7 +1181,7 @@ onUnmounted(() => {
 .tv-brand-sub {
   font-size: 18px;
   letter-spacing: 0.4em;
-  color: #9d8fd0;
+  color: #c9a26a;
 }
 
 .tv-status {
@@ -1154,10 +1233,21 @@ onUnmounted(() => {
   justify-content: flex-end;
   gap: 8px;
   overflow: hidden;
-  background: linear-gradient(180deg, #2b1a22 0%, #34202a 46%, #402733 100%);
+  /* 바닥: 다크 오크 판자 */
+  /* prettier-ignore */
+  background-image:
+    repeating-linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.3) 0 4px,
+      transparent 4px 128px
+    ),
+    repeating-linear-gradient(180deg, #4b3520 0 28px, #3a2817 28px 33px);
+  background-repeat: no-repeat;
+  background-size: 100% 100%, 100% 100%;
   box-shadow: inset 0 0 0 6px #120b10;
 }
 
+/* 벽: 위쪽은 참나무 판자, 아래쪽은 석재 벽돌 마감입니다. */
 .scene-wall {
   position: absolute;
   inset: 0 0 52% 0;
@@ -1167,14 +1257,59 @@ onUnmounted(() => {
   justify-content: flex-start;
   padding-top: 8px;
   gap: 6px;
+  /* 벽면은 참나무 판자, 아래쪽은 석재 벽돌 마감입니다. */
+  /* prettier-ignore */
+  background-image:
+    /* 참나무 판자 세로 이음새 */
+    repeating-linear-gradient(
+      90deg,
+      #8d6940 0 4px,
+      transparent 4px 136px
+    ),
+    /* 석재 벽돌 세로 이음새 */
+    repeating-linear-gradient(
+      90deg,
+      #4b4b50 0 4px,
+      transparent 4px 72px
+    ),
+    /* 참나무 판자 */
+    repeating-linear-gradient(180deg, #a67f4e 0 28px, #93703f 28px 34px),
+    /* 석재 벽돌 */
+    repeating-linear-gradient(180deg, #74747a 0 26px, #5f5f65 26px 30px);
+  background-repeat: no-repeat;
+  background-size: 100% 72%, 100% 28%, 100% 72%, 100% 28%;
+  background-position: top left, bottom left, top left, bottom left;
+}
+
+/* 벽에 매다는 랜턴입니다. 네온 간판 양옆에서 따뜻한 빛을 냅니다. */
+.scene-lantern {
+  position: absolute;
+  top: 0;
+  width: 76px;
+  height: 70px;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 0 26px rgba(255, 202, 112, 0.55));
+}
+
+.scene-lantern.is-left {
+  left: 36px;
+}
+
+.scene-lantern.is-right {
+  right: 36px;
 }
 
 .scene-neon {
-  font-size: 44px;
+  font-size: 38px;
   letter-spacing: 0.28em;
-  color: #ff5d8f;
-  text-shadow: 0 0 16px rgba(255, 93, 143, 0.72),
-    0 0 36px rgba(255, 93, 143, 0.36), 5px 5px 0 rgba(48, 0, 22, 0.6);
+  padding: 2px 18px 6px;
+  color: #ff7ba5;
+  /* 나무 간판에 네온을 건 느낌입니다. */
+  background: #4a3320;
+  box-shadow: inset 0 0 0 4px #2b1c11, 0 0 20px rgba(255, 93, 143, 0.45),
+    6px 6px 0 rgba(0, 0, 0, 0.35);
+  text-shadow: 0 0 14px rgba(255, 93, 143, 0.85),
+    0 0 30px rgba(255, 93, 143, 0.4);
 }
 
 .scene-shelf {
@@ -1183,14 +1318,17 @@ onUnmounted(() => {
   gap: 9px;
   padding: 0 30px 4px;
   height: 38px;
-  border-bottom: 5px solid #6a4632;
-  box-shadow: 0 8px 14px rgba(0, 0, 0, 0.35);
+  background: rgba(0, 0, 0, 0.24);
+  border-bottom: 8px solid #6b4a2f;
+  box-shadow: inset 0 4px 0 rgba(255, 255, 255, 0.08),
+    0 8px 12px rgba(0, 0, 0, 0.4);
 }
 
 .shelf-bottle {
   display: block;
   width: 11px;
-  box-shadow: inset 0 -5px 0 rgba(0, 0, 0, 0.25);
+  box-shadow: inset -3px 0 0 rgba(0, 0, 0, 0.3),
+    inset 2px 0 0 rgba(255, 255, 255, 0.24), 0 0 0 2px rgba(0, 0, 0, 0.35);
 }
 
 .scene-zone {
@@ -1304,7 +1442,7 @@ onUnmounted(() => {
 }
 
 .seat.is-empty .seat-plate-name {
-  color: #a88a95;
+  color: #a89078;
 }
 
 .seat-plate {
@@ -1317,8 +1455,8 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   gap: 0;
-  background: #1a1018;
-  box-shadow: 0 0 0 4px #4a2f3a, 4px 4px 0 4px rgba(0, 0, 0, 0.4);
+  background: #1b1209;
+  box-shadow: 0 0 0 4px #4a341f, 4px 4px 0 4px rgba(0, 0, 0, 0.4);
 }
 
 .seat-plate-name {
@@ -1336,7 +1474,7 @@ onUnmounted(() => {
 .seat-plate-table {
   font-size: var(--no-size);
   line-height: 1.2;
-  color: #c9a3b4;
+  color: #c9b39a;
 }
 
 /* 명패 레이아웃을 밀지 않도록 하트 배지는 절대 위치로 띄웁니다. */
@@ -1459,33 +1597,49 @@ onUnmounted(() => {
   height: 14px;
   background: repeating-linear-gradient(
     90deg,
-    #b9793f 0 34px,
-    #c6884a 34px 68px
+    #b98a53 0 30px,
+    #a87a45 30px 34px
   );
-  box-shadow: inset 0 -6px 0 rgba(0, 0, 0, 0.28),
-    inset 0 4px 0 rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 -6px 0 rgba(0, 0, 0, 0.32),
+    inset 0 4px 0 rgba(255, 255, 255, 0.2);
 }
 
 .counter-front {
   position: relative;
   height: 98px;
-  background: repeating-linear-gradient(
-    90deg,
-    #7a4a2b 0 68px,
-    #845230 68px 136px
-  );
-  box-shadow: inset 0 8px 0 rgba(0, 0, 0, 0.35);
+  /* prettier-ignore */
+  background-image:
+    repeating-linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.34) 0 4px,
+      transparent 4px 96px
+    ),
+    repeating-linear-gradient(180deg, #6a4a2e 0 30px, #5a3e26 30px 36px);
+  background-repeat: no-repeat;
+  background-size: 100% 100%, 100% 100%;
+  box-shadow: inset 0 8px 0 rgba(0, 0, 0, 0.38);
 }
 
-/* 직원은 카운터 앞쪽에 서 있는 픽셀 캐릭터로 그립니다. */
-.counter-staff {
+/* 직원과 사장은 카운터 앞쪽에 서 있는 픽셀 캐릭터로 그립니다. */
+.counter-crew {
   position: absolute;
   bottom: 4px;
   left: 50%;
   display: flex;
+  align-items: flex-end;
+  gap: 26px;
+  transform: translateX(-50%);
+}
+
+.counter-person {
+  display: flex;
   flex-direction: column;
   align-items: center;
-  transform: translateX(-50%);
+}
+
+/* 한 명만 움직이면 어색하니 숨쉬기 위상을 반 박자 어긋나게 둡니다. */
+.counter-person.is-boss .staff-figure {
+  animation-delay: -2.2s;
 }
 
 .staff-figure {
@@ -1515,8 +1669,14 @@ onUnmounted(() => {
   padding: 2px 9px;
   font-size: 12px;
   color: #ffd166;
-  background: #1a1018;
-  box-shadow: 0 0 0 3px #4a2f3a;
+  background: #1b1209;
+  box-shadow: 0 0 0 3px #4a341f;
+}
+
+/* 사장 이름표는 직원과 구분되도록 색을 달리합니다. */
+.staff-plate.is-boss {
+  color: #ffe9b0;
+  box-shadow: 0 0 0 3px #7c5a2a;
 }
 
 .tv-side {
@@ -1532,8 +1692,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: #1a1018;
-  box-shadow: inset 0 0 0 6px #3a2028;
+  background: #1b1209;
+  box-shadow: inset 0 0 0 6px #4a341f;
   padding: 22px 22px 16px;
   box-sizing: border-box;
 }
@@ -1543,7 +1703,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   padding-bottom: 14px;
-  border-bottom: 4px solid #3a2028;
+  border-bottom: 4px solid #4a341f;
 }
 
 .tv-chat-head h2 {
@@ -1554,9 +1714,9 @@ onUnmounted(() => {
 
 .tv-chat-room {
   font-size: 18px;
-  color: #e4b7c4;
+  color: #e4cbb0;
   padding: 4px 12px;
-  background: #2a1820;
+  background: #2a1e12;
 }
 
 .tv-chat-list {
@@ -1577,13 +1737,13 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 4px;
   padding: 11px 13px;
-  background: #221419;
-  box-shadow: inset 0 0 0 3px #3a2028;
+  background: #241a10;
+  box-shadow: inset 0 0 0 3px #3d2b1a;
 }
 
 .tv-chat-item.is-staff {
-  background: #2b1c22;
-  box-shadow: inset 0 0 0 3px #6b3a44;
+  background: #2b2013;
+  box-shadow: inset 0 0 0 3px #8a5c2c;
 }
 
 .tv-chat-from {
@@ -1601,7 +1761,7 @@ onUnmounted(() => {
 
 .tv-chat-empty {
   font-size: 21px;
-  color: #c9a3b4;
+  color: #c9b39a;
   line-height: 1.45;
 }
 
@@ -1611,9 +1771,9 @@ onUnmounted(() => {
   justify-content: space-between;
   padding-top: 14px;
   margin-top: 12px;
-  border-top: 4px solid #3a2028;
+  border-top: 4px solid #4a341f;
   font-size: 18px;
-  color: #c9a3b4;
+  color: #c9b39a;
 }
 
 .tv-chat-foot-dot {
@@ -1631,7 +1791,7 @@ onUnmounted(() => {
   gap: 14px;
   padding: 16px 26px;
   max-width: 1180px;
-  background: #241419;
+  background: #241a10;
   box-shadow: 0 0 0 6px #ffd166, 8px 8px 0 6px rgba(0, 0, 0, 0.4);
   z-index: 60;
 }
@@ -1643,7 +1803,7 @@ onUnmounted(() => {
 .tv-banner-tag {
   font-size: 19px;
   padding: 4px 11px;
-  color: #241419;
+  color: #241a10;
   background: #ffd166;
 }
 
@@ -1706,14 +1866,14 @@ onUnmounted(() => {
   max-width: 1440px;
   padding: 56px 78px;
   text-align: center;
-  background: #1a1435;
+  background: #1b1209;
   box-shadow: 0 0 0 10px #7cf29c, 22px 22px 0 10px rgba(0, 0, 0, 0.45);
 }
 
 .tv-announce-tag {
   font-size: 30px;
   padding: 8px 24px;
-  color: #10102a;
+  color: #10160f;
   background: #7cf29c;
 }
 
