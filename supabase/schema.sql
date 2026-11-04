@@ -54,6 +54,7 @@ create table if not exists public.order_sheets (
   table_number text not null default '',
   display_name text not null default '',
   table_nickname text not null default '',
+  character_style jsonb not null default '{}'::jsonb, -- { skin, hair, shirt } 색상 id (TV 픽셀 캐릭터)
   status text not null default 'OPEN', -- OPEN | CLOSED (legacy: PAYMENT_REQUESTED)
   payment_status text not null default 'UNPAID', -- UNPAID | COMPLETED (legacy: REQUESTED)
   payment_method text not null default '',

@@ -241,6 +241,11 @@ import {
   getChatDayStartIso,
 } from "@/lib/chat";
 import { normalizeTableNumber } from "@/lib/orderSheet";
+import {
+  getCharacterPalette,
+  normalizeCharacterStyle,
+} from "@/lib/characterStyle";
+import { GUEST_PARTS, buildSpritePaths } from "@/lib/pixelGuest";
 import { fetchTodayHearts } from "@/lib/hearts";
 import {
   TV_CHIME,
@@ -277,127 +282,10 @@ const ROOM_TYPE_GLOBAL = "GLOBAL";
 const MESSAGE_TYPE_STAFF = "ADMIN";
 const MESSAGE_TYPE_SYSTEM = "SYSTEM";
 
-const CELL_TONES = {
-  h: "hair",
-  H: "hair-light",
-  f: "skin",
-  F: "skin-shadow",
-  s: "skin",
-  S: "skin-shadow",
-  t: "shirt",
-  T: "shirt-dark",
-  e: "eye",
-  r: "blush",
-  m: "mouth",
-};
-
-// 24x24 픽셀 그리드. 앉은 자세라 무릎 아래는 가구가 가립니다.
-const GUEST_SPRITE = [
-  "........................",
-  "........hhhhhhhh........",
-  "......hhhhhhhhhhhh......",
-  ".....hHhhhhhhhhhhHh.....",
-  ".....hhhhhhhhhhhhhh.....",
-  ".....hhffffffffffhh.....",
-  ".....hhffeeffeeffhh.....",
-  ".....hhffeeffeeffhh.....",
-  ".....hhrrffffffrrhh.....",
-  ".....hhffffmmffffhh.....",
-  "......hffffffffffh......",
-  "..........fFFf..........",
-  "......TttttTTttttT......",
-  "....TttttttttttttttT....",
-  "...ssTttttttttttttTss...",
-  "...sSTttttttttttttTSs...",
-  "...ssTttttttttttttTss...",
-  "....STttttttttttttTS....",
-  ".....TttttttttttttT.....",
-  ".....TTttttttttttTT.....",
-  "......TTTTTTTTTTTT......",
-  "........................",
-  "........................",
-  "........................",
-];
-
-// 픽셀은 CSS 변수로 색을 바꿀 수 있게 톤별 path 하나로 묶어 그립니다.
-const SEAT_PALETTES = [
-  {
-    hair: "#241f33",
-    hairLight: "#3d3459",
-    shirt: "#ff8a5c",
-    shirtDark: "#c95f33",
-  },
-  {
-    hair: "#4a2f1f",
-    hairLight: "#6f4a2e",
-    shirt: "#5bc0eb",
-    shirtDark: "#3a8fb8",
-  },
-  {
-    hair: "#1b2430",
-    hairLight: "#35455b",
-    shirt: "#9ee37d",
-    shirtDark: "#6fae52",
-  },
-  {
-    hair: "#5c3b6e",
-    hairLight: "#82569a",
-    shirt: "#ffd166",
-    shirtDark: "#c99b2e",
-  },
-  {
-    hair: "#2b2b2b",
-    hairLight: "#4d4a4a",
-    shirt: "#ef476f",
-    shirtDark: "#b32a4e",
-  },
-  {
-    hair: "#6b3f1d",
-    hairLight: "#95602f",
-    shirt: "#2ec4b6",
-    shirtDark: "#1f8f85",
-  },
-];
-
 // 따뜻한 바 분위기에 맞춘 병 색(앰버·로즈·민트).
 const SHELF_COLORS = ["#ffb066", "#ff7a90", "#8ce6d2", "#ffd166", "#c9a2ff"];
 
-function buildSpritePaths(rows, toneMap) {
-  const segmentsByTone = new Map();
-
-  rows.forEach((row, y) => {
-    let x = 0;
-
-    while (x < row.length) {
-      const tone = toneMap[row[x]];
-
-      if (!tone) {
-        x += 1;
-        continue;
-      }
-
-      let end = x + 1;
-
-      while (end < row.length && toneMap[row[end]] === tone) {
-        end += 1;
-      }
-
-      const width = end - x;
-      const segments = segmentsByTone.get(tone) || [];
-
-      segments.push(`M${x} ${y}h${width}v1h-${width}z`);
-      segmentsByTone.set(tone, segments);
-      x = end;
-    }
-  });
-
-  return [...segmentsByTone].map(([tone, segments]) => ({
-    tone,
-    d: segments.join(""),
-  }));
-}
-
-const guestParts = buildSpritePaths(GUEST_SPRITE, CELL_TONES);
+const guestParts = GUEST_PARTS;
 
 // 가구는 24x12 픽셀 그리드입니다. w = 나무, d = 그늘.
 const FURNITURE_TONES = {
@@ -675,6 +563,7 @@ let announceTimer = null;
 let cursorTimer = null;
 let clockTimer = null;
 let dawnTimer = null;
+let seatsReloadTimer = null;
 
 function truncate(value, limit) {
   const text = String(value || "")
@@ -685,14 +574,14 @@ function truncate(value, limit) {
 }
 
 function seatStyle(seat) {
-  const paletteIndex =
-    Math.abs(Number(seat.tableNumber) || 0) % SEAT_PALETTES.length;
-  const palette = SEAT_PALETTES[paletteIndex];
+  const palette = getCharacterPalette(seat.characterStyle, seat.tableNumber);
   const layer = bubbleLayerOf(seat.tableNumber);
 
   return {
     "--hair": palette.hair,
     "--hair-light": palette.hairLight,
+    "--skin": palette.skin,
+    "--skin-shadow": palette.skinShadow,
     "--shirt": palette.shirt,
     "--shirt-dark": palette.shirtDark,
     ...(layer > 0 ? { zIndex: String(6 + layer) } : {}),
@@ -727,6 +616,21 @@ function updateClock() {
   clockText.value = `${hours}:${minutes}`;
 }
 
+async function fetchSeatProfiles(sheetIds) {
+  try {
+    return await fetchList("orderSheets", {
+      columns: ["id", "tableNickname", "characterStyle"],
+      filters: [["id", "in", sheetIds]],
+    });
+  } catch (error) {
+    // character_style 패치(patch-010) 적용 전 DB에서도 TV가 멈추지 않게 합니다.
+    return fetchList("orderSheets", {
+      columns: ["id", "tableNickname"],
+      filters: [["id", "in", sheetIds]],
+    });
+  }
+}
+
 async function loadSeats() {
   try {
     const activeSheets = await fetchList("activeOrderSheets", {
@@ -737,27 +641,29 @@ async function loadSeats() {
       .map((sheet) => sheet.orderSheetId)
       .filter(Boolean);
 
-    const nicknameMap = {};
+    const sheetInfoMap = {};
 
     if (sheetIds.length > 0) {
-      const sheetRows = await fetchList("orderSheets", {
-        columns: ["id", "tableNickname"],
-        filters: [["id", "in", sheetIds]],
-      });
+      const sheetRows = await fetchSeatProfiles(sheetIds);
 
       sheetRows.forEach((row) => {
-        nicknameMap[row.id] = row.tableNickname || "";
+        sheetInfoMap[row.id] = {
+          nickname: row.tableNickname || "",
+          characterStyle: normalizeCharacterStyle(row.characterStyle),
+        };
       });
     }
 
     const sortedSeats = activeSheets
       .map((sheet) => {
         const tableNumber = normalizeTableNumber(sheet.tableNumber);
-        const nickname = String(nicknameMap[sheet.orderSheetId] || "").trim();
+        const sheetInfo = sheetInfoMap[sheet.orderSheetId] || {};
+        const nickname = String(sheetInfo.nickname || "").trim();
 
         return {
           tableNumber,
           nickname,
+          characterStyle: sheetInfo.characterStyle || {},
           label: nickname || "손님",
         };
       })
@@ -999,6 +905,19 @@ function handleOnline() {
   loadHearts();
 }
 
+// 캐릭터 꾸미기는 order_sheets에 저장되기 때문에 주문서 변경도 좌석 갱신 대상입니다.
+// 주문 한 건마다 이벤트가 오므로 잠깐 모아서 한 번만 다시 그립니다.
+function scheduleSeatsReload() {
+  if (seatsReloadTimer) {
+    clearTimeout(seatsReloadTimer);
+  }
+
+  seatsReloadTimer = setTimeout(() => {
+    seatsReloadTimer = null;
+    loadSeats();
+  }, 1500);
+}
+
 function handleOffline() {
   isOnline.value = false;
 }
@@ -1052,6 +971,7 @@ onMounted(() => {
 
   subscriptionStops.push(
     subscribeTable("activeOrderSheets", loadSeats, { pollMs: 60000 }),
+    subscribeTable("orderSheets", scheduleSeatsReload, { pollMs: 0 }),
     subscribeTable("chatMessages", loadMessages, { pollMs: 20000 }),
     subscribeTable("hearts", loadHearts, { pollMs: 20000 })
   );
@@ -1076,13 +996,18 @@ onUnmounted(() => {
   heartBurstTimers.forEach((timer) => clearTimeout(timer));
   heartBurstTimers.clear();
 
-  [clockTimer, bannerTimer, announceTimer, dawnTimer, cursorTimer].forEach(
-    (timer) => {
-      if (timer) {
-        clearTimeout(timer);
-      }
+  [
+    clockTimer,
+    bannerTimer,
+    announceTimer,
+    dawnTimer,
+    cursorTimer,
+    seatsReloadTimer,
+  ].forEach((timer) => {
+    if (timer) {
+      clearTimeout(timer);
     }
-  );
+  });
 
   announceQueue.length = 0;
   announcement.value = null;
@@ -1092,6 +1017,7 @@ onUnmounted(() => {
   announceTimer = null;
   dawnTimer = null;
   cursorTimer = null;
+  seatsReloadTimer = null;
 });
 </script>
 

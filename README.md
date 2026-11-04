@@ -49,6 +49,7 @@ pnpm lint
 - [supabase/patch-007-web-push-trigger.sql](supabase/patch-007-web-push-trigger.sql) — 새 채팅 메시지를 `send-chat-push` Edge Function으로 넘기는 `pg_net` 트리거
 - [supabase/patch-008-hearts.sql](supabase/patch-008-hearts.sql) — 익명 하트 테이블(`hearts`) + 상호 하트 공개 컬럼(`is_revealed`) + Realtime 등록 패치
 - [supabase/patch-009-drop-bar-notes.sql](supabase/patch-009-drop-bar-notes.sql) — 제거된 '오늘의 한 줄' 테이블(`bar_notes`) 정리 패치
+- [supabase/patch-010-character-style.sql](supabase/patch-010-character-style.sql) — 손님 캐릭터 꾸미기 색상 컬럼(`order_sheets.character_style`) 패치
 
 > `patch-001` → `patch-002` 순서로 Supabase SQL Editor에서 실행하세요. 두 패치는 여러 번 실행해도 안전합니다.
 > `patch-003`은 스키마가 아니라 데이터만 바꾸는 선택 패치라서, 메뉴를 전면 교체할 때만 실행하면 됩니다.
@@ -57,6 +58,7 @@ pnpm lint
 > `patch-006` → `patch-007`은 Web Push를 켤 때 순서대로 실행하세요. `patch-007`은 아래 배포 절차를 마친 뒤에 실행합니다.
 > `patch-008`은 익명 하트를 켤 때 한 번 실행하면 되고, 여러 번 실행해도 안전합니다.
 > `patch-009`는 '오늘의 한 줄' 기능을 제거한 뒤 한 번 실행하면 되고, 여러 번 실행해도 안전합니다.
+> `patch-010`은 캐릭터 꾸미기를 켤 때 한 번 실행하면 되고, 여러 번 실행해도 안전합니다.
 
 ### Menu import
 
@@ -92,6 +94,15 @@ pnpm menu:import -- --file menu-data/menu.json --apply    # 반영
 - 처음 적용하는 프로젝트에서는 Supabase SQL Editor에서 [supabase/patch-008-hearts.sql](supabase/patch-008-hearts.sql)을 실행하세요. 여러 번 실행해도 안전합니다.
 - 익명성은 화면 표시 기준입니다. 앱은 anon key로 동작하므로 DB 레벨에서 보낸 테이블을 숨기지는 않습니다.
 
+### Character styling
+
+- 고객 메인(`/user/main`)의 `내 캐릭터` 카드 → 피부 · 헤어 · 의상 색을 고르고 저장하면 TV 좌석 캐릭터에 그대로 반영됩니다.
+- 값은 `order_sheets.character_style`(`{ skin, hair, shirt }` 색상 id)에 저장하고, 실제 색상표는 [src/lib/characterStyle.js](src/lib/characterStyle.js) 한 곳에서 관리합니다.
+- 아직 꾸미지 않은 테이블은 기존처럼 **테이블 번호 기준 기본 색**을 씁니다. 그래서 패치 전 주문서도 화면이 그대로 유지됩니다.
+- 픽셀 스프라이트는 [src/lib/pixelGuest.js](src/lib/pixelGuest.js)에 있어 TV 화면과 편집 화면이 같은 그림을 공유합니다.
+- `order_sheets` 변경도 실시간으로 감지해 TV가 1.5초 안에 다시 그립니다.
+- 처음 적용하는 프로젝트에서는 Supabase SQL Editor에서 [supabase/patch-010-character-style.sql](supabase/patch-010-character-style.sql)을 실행하세요. 여러 번 실행해도 안전합니다.
+
 ### Business day
 
 - 매장 영업일은 **KST 15:00:00 ~ 익일 14:59:59**(영업은 새벽 4시까지) 기준입니다.
@@ -107,7 +118,7 @@ pnpm menu:import -- --file menu-data/menu.json --apply    # 반영
   - **바 존** — 카운터 바로 위에 12, 11, 10, 9, 8, 7, 6, 5, 4, 3번
 - 매장에 없는 **25번 테이블은 좌석으로 그리지 않습니다.** 총 31석이며, 손님이 있으면 캐릭터가, 없으면 빈 의자(스툴/테이블)만 표시되고 이름표는 `빈자리`가 됩니다.
 - 좌석 가구(바 스툴 · 홀 테이블)는 픽셀 스프라이트를 캐릭터 앞에 겹쳐 그려 앉아 있는 모습을 만듭니다. 카운터 앞에는 직원 픽셀 캐릭터가 상시 서 있습니다.
-- 착석 좌석은 `active_order_sheets` 기준이고, 이름표는 `order_sheets.table_nickname`(없으면 `손님`)을 사용합니다. 배치에 없는 번호의 주문은 좌석 없이 `외 N팀`으로만 집계합니다.
+- 착석 좌석은 `active_order_sheets` 기준이고, 이름표는 `order_sheets.table_nickname`(없으면 `손님`)을 사용합니다. 캐릭터 옷·머리·피부 색은 `order_sheets.character_style` 값을 따르고, 비어 있으면 테이블 번호 기준 기본 색입니다. 배치에 없는 번호의 주문은 좌석 없이 `외 N팀`으로만 집계합니다.
 - 멀리서도 읽히도록 화면 전체가 큰 글씨 기준으로 맞춰져 있습니다(말풍선 26px, 최근 채팅 24px, 배너 30px). 맨 위 브랜드 영역만 기존 크기를 유지합니다. 말풍선은 `word-break: keep-all`로 단어 중간이 끊기지 않게 하고, 줄의 양 끝 좌석은 말풍선을 안쪽으로 붙여 화면 밖으로 잘리지 않게 정렬합니다.
 - 여러 좌석이 동시에 말풍선을 띄우면 **가장 최근에 채팅한 좌석의 말풍선이 맨 앞**에 오도록 좌석·줄 `z-index`를 갱신합니다.
 - 벽면은 네온 `BAR` + 병 진열장을 낮게 붙여 좌석 공간을 넓히고, 카운터와 직원 캐릭터는 작게 그려 좌석 가독성을 우선합니다. 색감은 매장 조명에 맞춘 다크 로즈/앰버 톤입니다.

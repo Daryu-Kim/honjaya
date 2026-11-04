@@ -1,5 +1,17 @@
 <template>
   <div class="user-main-view">
+    <svg class="character-defs" aria-hidden="true" focusable="false">
+      <defs>
+        <g
+          v-for="part in guestParts"
+          :id="`user-guest-${part.tone}`"
+          :key="`character-${part.tone}`"
+        >
+          <path :d="part.d" />
+        </g>
+      </defs>
+    </svg>
+
     <div v-if="!isMobile" class="desktop-block">
       <div class="desktop-card">
         <p class="desktop-eyebrow">MOBILE ONLY</p>
@@ -85,6 +97,29 @@
           <div class="menu-text">
             <strong>익명 하트</strong>
             <p>다른 테이블에 누가 보냈는지 모르게 하트를 보낼 수 있어요.</p>
+          </div>
+        </button>
+
+        <button type="button" class="menu-card" @click="openCharacterSheet">
+          <div class="menu-icon">
+            <svg
+              class="character-mini"
+              viewBox="0 0 24 24"
+              :style="characterPaletteStyle(characterStyle)"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <use
+                v-for="part in guestParts"
+                :key="`mini-${part.tone}`"
+                :href="`#user-guest-${part.tone}`"
+                :class="`guest-${part.tone}`"
+              />
+            </svg>
+          </div>
+          <div class="menu-text">
+            <strong>내 캐릭터</strong>
+            <p>TV 화면에 보이는 내 픽셀 캐릭터 색을 바꿀 수 있어요.</p>
           </div>
         </button>
       </section>
@@ -252,11 +287,89 @@
         </div>
       </div>
     </transition>
+
+    <transition name="fade">
+      <div
+        v-if="isCharacterSheetOpen"
+        class="sheet-overlay"
+        @click.self="closeCharacterSheet"
+      >
+        <div class="sheet-card character-sheet">
+          <h3>내 캐릭터 꾸미기</h3>
+          <p class="sheet-description">
+            TV 화면에 앉아 있는 내 픽셀 캐릭터예요. 저장하면 바로 TV에 보여요.
+          </p>
+
+          <div class="character-preview">
+            <svg
+              class="character-preview-figure"
+              viewBox="0 0 24 24"
+              :style="characterPaletteStyle(characterDraft)"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <use
+                v-for="part in guestParts"
+                :key="`preview-${part.tone}`"
+                :href="`#user-guest-${part.tone}`"
+                :class="`guest-${part.tone}`"
+              />
+            </svg>
+            <span class="character-preview-name">
+              {{ tableNicknameText }}
+            </span>
+          </div>
+
+          <div
+            v-for="group in characterStyleGroups"
+            :key="group.key"
+            class="character-group"
+          >
+            <p class="character-group-label">{{ group.label }}</p>
+            <div class="character-swatch-row">
+              <button
+                v-for="option in group.options"
+                :key="option.id"
+                type="button"
+                class="character-swatch"
+                :class="{ active: characterDraft[group.key] === option.id }"
+                :style="{ background: option[group.key] }"
+                :aria-label="option.label"
+                @click="characterDraft[group.key] = option.id"
+              >
+                <span class="character-swatch-label">{{ option.label }}</span>
+              </button>
+            </div>
+          </div>
+
+          <p v-if="characterError" class="sheet-error">{{ characterError }}</p>
+
+          <div class="sheet-actions">
+            <button
+              type="button"
+              class="sheet-button is-ghost"
+              :disabled="isSavingCharacter"
+              @click="closeCharacterSheet"
+            >
+              취소
+            </button>
+            <button
+              type="button"
+              class="sheet-button is-primary"
+              :disabled="isSavingCharacter"
+              @click="saveCharacterStyle"
+            >
+              {{ isSavingCharacter ? "저장 중..." : "저장" }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import PushNotificationToggle from "@/components/PushNotificationToggle.vue";
 import { totalUnread } from "@/lib/chatAlerts";
@@ -264,8 +377,15 @@ import { runGlobalBusy } from "@/lib/globalBusy";
 import {
   getActiveOrderSheetInfo,
   getTableNicknameErrorMessage,
+  updateOrderSheetCharacterStyle,
   updateOrderSheetNickname,
 } from "@/lib/orderSheet";
+import {
+  CHARACTER_STYLE_GROUPS,
+  getCharacterPalette,
+  resolveCharacterStyle,
+} from "@/lib/characterStyle";
+import { GUEST_PARTS } from "@/lib/pixelGuest";
 import { fetchHeartTargets, sendAnonymousHeart } from "@/lib/hearts";
 
 const router = useRouter();
@@ -278,6 +398,13 @@ const tableNickname = ref("");
 const isNicknameEditorOpen = ref(false);
 const nicknameDraft = ref("");
 const isSavingNickname = ref(false);
+const characterStyle = ref({});
+const isCharacterSheetOpen = ref(false);
+const isSavingCharacter = ref(false);
+const characterError = ref("");
+const characterDraft = reactive({ skin: "", hair: "", shirt: "" });
+const guestParts = GUEST_PARTS;
+const characterStyleGroups = CHARACTER_STYLE_GROUPS;
 const isHeartSheetOpen = ref(false);
 const isLoadingHeartTargets = ref(false);
 const isSendingHeart = ref(false);
@@ -359,10 +486,70 @@ async function refreshTableNickname() {
     if (!activeInfo || activeInfo.orderSheetId !== orderSheetId.value) return;
 
     tableNickname.value = activeInfo.tableNickname || "";
+    characterStyle.value = activeInfo.characterStyle || {};
     persistTableNickname(tableNickname.value);
   } catch (error) {
     console.error("닉네임 정보 조회 실패:", error);
   }
+}
+
+// TV 화면과 같은 색상 규칙으로 캐릭터 CSS 변수를 만들어 줍니다.
+function characterPaletteStyle(value) {
+  const palette = getCharacterPalette(value, tableNumber.value);
+
+  return {
+    "--skin": palette.skin,
+    "--skin-shadow": palette.skinShadow,
+    "--hair": palette.hair,
+    "--hair-light": palette.hairLight,
+    "--shirt": palette.shirt,
+    "--shirt-dark": palette.shirtDark,
+  };
+}
+
+function openCharacterSheet() {
+  const current = resolveCharacterStyle(
+    characterStyle.value,
+    tableNumber.value
+  );
+
+  characterDraft.skin = current.skin;
+  characterDraft.hair = current.hair;
+  characterDraft.shirt = current.shirt;
+  characterError.value = "";
+  isCharacterSheetOpen.value = true;
+}
+
+function closeCharacterSheet() {
+  if (isSavingCharacter.value) return;
+
+  isCharacterSheetOpen.value = false;
+}
+
+async function saveCharacterStyle() {
+  if (isSavingCharacter.value || !orderSheetId.value) return;
+
+  characterError.value = "";
+
+  await runGlobalBusy(async () => {
+    isSavingCharacter.value = true;
+
+    try {
+      const savedStyle = await updateOrderSheetCharacterStyle({
+        orderSheetId: orderSheetId.value,
+        characterStyle: characterDraft,
+      });
+
+      characterStyle.value = savedStyle;
+      isCharacterSheetOpen.value = false;
+    } catch (error) {
+      console.error("캐릭터 저장 실패:", error);
+      characterError.value =
+        error?.message || "캐릭터를 저장하는 중 문제가 발생했어요.";
+    } finally {
+      isSavingCharacter.value = false;
+    }
+  }, "캐릭터를 저장하는 중이에요.");
 }
 
 function openNicknameEditor() {
@@ -658,6 +845,138 @@ onMounted(() => {
   justify-content: center;
   font-size: 26px;
   flex-shrink: 0;
+}
+
+.character-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.character-mini {
+  width: 44px;
+  height: 44px;
+  image-rendering: pixelated;
+  --eye: #241b33;
+  --mouth: #c8627a;
+  --blush: #f6a2ae;
+}
+
+.guest-hair {
+  fill: var(--hair);
+}
+
+.guest-hair-light {
+  fill: var(--hair-light);
+}
+
+.guest-skin {
+  fill: var(--skin);
+}
+
+.guest-skin-shadow {
+  fill: var(--skin-shadow);
+}
+
+.guest-shirt {
+  fill: var(--shirt);
+}
+
+.guest-shirt-dark {
+  fill: var(--shirt-dark);
+}
+
+.guest-eye {
+  fill: var(--eye);
+}
+
+.guest-blush {
+  fill: var(--blush);
+}
+
+.guest-mouth {
+  fill: var(--mouth);
+}
+
+.character-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 0 18px;
+  border-radius: 20px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.character-sheet {
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+}
+
+.character-preview-figure {
+  width: 104px;
+  height: 104px;
+  image-rendering: pixelated;
+  --eye: #241b33;
+  --mouth: #c8627a;
+  --blush: #f6a2ae;
+}
+
+.character-preview-name {
+  max-width: 100%;
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.72);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.character-group {
+  margin-top: 16px;
+}
+
+.character-group-label {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.character-swatch-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.character-swatch {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 14px;
+  box-shadow: inset 0 -6px 0 rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+
+  &.active {
+    border-color: #ffffff;
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35),
+      inset 0 -6px 0 rgba(0, 0, 0, 0.2);
+  }
+}
+
+.character-swatch-label {
+  font-size: 10px;
+  font-weight: 800;
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
 
 .menu-badge {

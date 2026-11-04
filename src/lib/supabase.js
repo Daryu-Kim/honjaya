@@ -77,6 +77,7 @@ const FIELD_MAPS = {
     tableNumber: "table_number",
     displayName: "display_name",
     tableNickname: "table_nickname",
+    characterStyle: "character_style",
     paymentStatus: "payment_status",
     paymentMethod: "payment_method",
     totalAmount: "total_amount",
