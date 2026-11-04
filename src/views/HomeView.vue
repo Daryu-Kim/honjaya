@@ -50,6 +50,28 @@
           </p>
         </div>
 
+        <div class="gender-box">
+          <p class="nickname-label">
+            성별 <span class="gender-required">필수</span>
+          </p>
+          <div class="gender-options">
+            <button
+              v-for="option in genderOptions"
+              :key="option.id"
+              type="button"
+              class="gender-option"
+              :class="{ active: selectedGender === option.id }"
+              @click="selectedGender = option.id"
+            >
+              <span class="gender-emoji">{{ option.emoji }}</span>
+              <span class="gender-name">{{ option.label }}</span>
+            </button>
+          </div>
+          <p class="nickname-helper">
+            고른 성별은 TV 화면 캐릭터에 그대로 반영돼요.
+          </p>
+        </div>
+
         <div v-if="entryErrorMessage" class="error-box">
           {{ entryErrorMessage }}
         </div>
@@ -71,11 +93,13 @@
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { runGlobalBusy } from "@/lib/globalBusy";
+import { CHARACTER_GENDERS, resolveCharacterStyle } from "@/lib/characterStyle";
 import {
   getActiveOrderSheetInfo,
   getOrCreateOpenOrderSheet,
   getTableNicknameErrorMessage,
   normalizeTableNumber,
+  updateOrderSheetCharacterStyle,
   updateOrderSheetNickname,
 } from "@/lib/orderSheet";
 
@@ -86,8 +110,11 @@ const isMobile = ref(false);
 const tableNumber = ref("");
 const displayName = ref("");
 const tableNickname = ref("");
+const selectedGender = ref("");
 const isPreparingEntry = ref(false);
 const entryErrorMessage = ref("");
+
+const genderOptions = CHARACTER_GENDERS;
 
 const nicknameErrorMessage = computed(() => {
   return getTableNicknameErrorMessage(tableNickname.value);
@@ -104,7 +131,11 @@ const displayNameText = computed(() => {
 });
 
 const canStart = computed(() => {
-  return hasTableInfo.value && !nicknameErrorMessage.value;
+  return (
+    hasTableInfo.value &&
+    Boolean(selectedGender.value) &&
+    !nicknameErrorMessage.value
+  );
 });
 
 const hasTableInfo = computed(() => {
@@ -123,9 +154,10 @@ const entryDescription = computed(() => {
 
 const startButtonText = computed(() => {
   if (isPreparingEntry.value) return "입장 준비 중...";
-  return hasTableInfo.value
-    ? "시작하기"
-    : "테이블 오더 카드를 다시 접촉해주세요";
+  if (!hasTableInfo.value) return "테이블 오더 카드를 다시 접촉해주세요";
+  if (!selectedGender.value) return "성별을 선택해주세요";
+
+  return "시작하기";
 });
 
 function detectMobile() {
@@ -149,17 +181,20 @@ function initializeEntryInfo() {
   displayName.value = resolvedTableNumber ? `No.${resolvedTableNumber}` : "";
 }
 
-async function prefillTableNickname() {
+async function prefillEntryInfo() {
   if (!tableNumber.value) return;
 
   try {
     const activeInfo = await getActiveOrderSheetInfo(tableNumber.value);
 
     if (activeInfo?.isReusable) {
+      const savedStyle = activeInfo.characterStyle || {};
+
       tableNickname.value = activeInfo.tableNickname || "";
+      selectedGender.value = savedStyle.gender || "";
     }
   } catch (error) {
-    console.error("닉네임 정보 조회 실패:", error);
+    console.error("입장 정보 조회 실패:", error);
   }
 }
 
@@ -181,6 +216,28 @@ async function handleStart() {
           orderSheetId: result.orderSheetId,
           nickname: submittedNickname,
         });
+      }
+
+      // 캐릭터 저장이 실패해도 입장 자체는 막지 않습니다. (patch-010 미적용 DB 대비)
+      try {
+        const savedStyle = result.characterStyle || {};
+        // 고른 성별로 다시 계산해서 성별에 맞지 않는 체형/헤어는 기본값으로 바꿉니다.
+        const nextStyle = resolveCharacterStyle(
+          { ...savedStyle, gender: selectedGender.value },
+          tableNumber.value
+        );
+        const needsSave = Object.keys(nextStyle).some(
+          (key) => nextStyle[key] !== savedStyle[key]
+        );
+
+        if (needsSave) {
+          await updateOrderSheetCharacterStyle({
+            orderSheetId: result.orderSheetId,
+            characterStyle: nextStyle,
+          });
+        }
+      } catch (styleError) {
+        console.error("캐릭터 정보 저장 실패:", styleError);
       }
 
       sessionStorage.setItem(
@@ -208,7 +265,7 @@ async function handleStart() {
 onMounted(() => {
   detectMobile();
   initializeEntryInfo();
-  prefillTableNickname();
+  prefillEntryInfo();
 
   if (!tableNumber.value) {
     entryErrorMessage.value =
@@ -404,6 +461,56 @@ onMounted(() => {
   font-size: 12px;
   font-weight: 700;
   color: #fca5a5;
+}
+
+.gender-box {
+  margin-bottom: 16px;
+  padding: 16px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.gender-required {
+  margin-left: 4px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(248, 113, 113, 0.22);
+  color: #fca5a5;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.gender-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.gender-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 52px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.6);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+
+  &.active {
+    border-color: rgba(255, 255, 255, 0.85);
+    background: rgba(255, 255, 255, 0.16);
+    color: #ffffff;
+  }
+}
+
+.gender-emoji {
+  font-size: 20px;
+  line-height: 1;
 }
 
 .error-box {

@@ -7,7 +7,10 @@ import {
   updateRow,
   upsertRow,
 } from "@/lib/supabase";
-import { normalizeCharacterStyle } from "@/lib/characterStyle";
+import {
+  isCompleteCharacterStyle,
+  normalizeCharacterStyle,
+} from "@/lib/characterStyle";
 
 export async function finalizeOrderSheetCleanup({ orderSheetId }) {
   const safeOrderSheetId = String(orderSheetId || "").trim();
@@ -257,7 +260,7 @@ export async function updateOrderSheetNickname({ orderSheetId, nickname }) {
   return safeNickname;
 }
 
-// 손님 캐릭터(피부·헤어·의상) 색을 저장합니다. TV 화면이 이 값을 그대로 그립니다.
+// 손님 캐릭터(성별·피부·헤어·눈·의상) 설정을 저장합니다. TV 화면이 이 값을 그대로 그립니다.
 export async function updateOrderSheetCharacterStyle({
   orderSheetId,
   characterStyle,
@@ -269,7 +272,7 @@ export async function updateOrderSheetCharacterStyle({
     throw new Error("주문서 정보가 올바르지 않아요.");
   }
 
-  if (!normalized.skin || !normalized.hair || !normalized.shirt) {
+  if (!isCompleteCharacterStyle(normalized)) {
     throw new Error("캐릭터 정보가 올바르지 않아요.");
   }
 

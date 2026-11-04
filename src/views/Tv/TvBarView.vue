@@ -7,13 +7,6 @@
     <div class="tv-stage" :style="stageStyle">
       <svg class="sprite-defs" aria-hidden="true" focusable="false">
         <defs>
-          <g
-            v-for="part in guestParts"
-            :id="`tv-guest-${part.tone}`"
-            :key="`guest-${part.tone}`"
-          >
-            <path :d="part.d" />
-          </g>
           <template v-for="furniture in furnitureSprites" :key="furniture.key">
             <g
               v-for="part in furniture.parts"
@@ -114,10 +107,10 @@
                   aria-hidden="true"
                   focusable="false"
                 >
-                  <use
-                    v-for="part in guestParts"
+                  <path
+                    v-for="part in slot.seat.parts"
                     :key="part.tone"
-                    :href="`#tv-guest-${part.tone}`"
+                    :d="part.d"
                     :class="`guest-${part.tone}`"
                   />
                 </svg>
@@ -161,10 +154,10 @@
                   aria-hidden="true"
                   focusable="false"
                 >
-                  <use
-                    v-for="part in guestParts"
+                  <path
+                    v-for="part in staffParts"
                     :key="part.tone"
-                    :href="`#tv-guest-${part.tone}`"
+                    :d="part.d"
                     :class="`guest-${part.tone}`"
                   />
                 </svg>
@@ -245,7 +238,11 @@ import {
   getCharacterPalette,
   normalizeCharacterStyle,
 } from "@/lib/characterStyle";
-import { GUEST_PARTS, buildSpritePaths } from "@/lib/pixelGuest";
+import {
+  STAFF_PARTS,
+  buildGuestParts,
+  buildSpritePaths,
+} from "@/lib/pixelGuest";
 import { fetchTodayHearts } from "@/lib/hearts";
 import {
   TV_CHIME,
@@ -285,7 +282,7 @@ const MESSAGE_TYPE_SYSTEM = "SYSTEM";
 // 따뜻한 바 분위기에 맞춘 병 색(앰버·로즈·민트).
 const SHELF_COLORS = ["#ffb066", "#ff7a90", "#8ce6d2", "#ffd166", "#c9a2ff"];
 
-const guestParts = GUEST_PARTS;
+const staffParts = STAFF_PARTS;
 
 // 가구는 24x12 픽셀 그리드입니다. w = 나무, d = 그늘.
 const FURNITURE_TONES = {
@@ -664,6 +661,7 @@ async function loadSeats() {
           tableNumber,
           nickname,
           characterStyle: sheetInfo.characterStyle || {},
+          parts: buildGuestParts(sheetInfo.characterStyle, tableNumber),
           label: nickname || "손님",
         };
       })

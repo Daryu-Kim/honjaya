@@ -1,17 +1,5 @@
 <template>
   <div class="user-main-view">
-    <svg class="character-defs" aria-hidden="true" focusable="false">
-      <defs>
-        <g
-          v-for="part in guestParts"
-          :id="`user-guest-${part.tone}`"
-          :key="`character-${part.tone}`"
-        >
-          <path :d="part.d" />
-        </g>
-      </defs>
-    </svg>
-
     <div v-if="!isMobile" class="desktop-block">
       <div class="desktop-card">
         <p class="desktop-eyebrow">MOBILE ONLY</p>
@@ -109,17 +97,17 @@
               aria-hidden="true"
               focusable="false"
             >
-              <use
-                v-for="part in guestParts"
+              <path
+                v-for="part in characterParts"
                 :key="`mini-${part.tone}`"
-                :href="`#user-guest-${part.tone}`"
+                :d="part.d"
                 :class="`guest-${part.tone}`"
               />
             </svg>
           </div>
           <div class="menu-text">
             <strong>내 캐릭터</strong>
-            <p>TV 화면에 보이는 내 픽셀 캐릭터 색을 바꿀 수 있어요.</p>
+            <p>성별·헤어·눈·의상을 골라 TV 속 내 캐릭터를 꾸밀 수 있어요.</p>
           </div>
         </button>
       </section>
@@ -308,10 +296,10 @@
               aria-hidden="true"
               focusable="false"
             >
-              <use
-                v-for="part in guestParts"
+              <path
+                v-for="part in draftParts"
                 :key="`preview-${part.tone}`"
-                :href="`#user-guest-${part.tone}`"
+                :d="part.d"
                 :class="`guest-${part.tone}`"
               />
             </svg>
@@ -326,7 +314,8 @@
             class="character-group"
           >
             <p class="character-group-label">{{ group.label }}</p>
-            <div class="character-swatch-row">
+
+            <div v-if="group.type === 'color'" class="character-swatch-row">
               <button
                 v-for="option in group.options"
                 :key="option.id"
@@ -338,6 +327,22 @@
                 @click="characterDraft[group.key] = option.id"
               >
                 <span class="character-swatch-label">{{ option.label }}</span>
+              </button>
+            </div>
+
+            <div v-else class="character-chip-row">
+              <button
+                v-for="option in group.options"
+                :key="option.id"
+                type="button"
+                class="character-chip"
+                :class="{ active: characterDraft[group.key] === option.id }"
+                @click="selectCharacterOption(group.key, option.id)"
+              >
+                <span v-if="option.emoji" class="character-chip-emoji">
+                  {{ option.emoji }}
+                </span>
+                {{ option.label }}
               </button>
             </div>
           </div>
@@ -381,11 +386,13 @@ import {
   updateOrderSheetNickname,
 } from "@/lib/orderSheet";
 import {
+  CHARACTER_GENDERS,
   CHARACTER_STYLE_GROUPS,
+  getCharacterBodyOptions,
   getCharacterPalette,
   resolveCharacterStyle,
 } from "@/lib/characterStyle";
-import { GUEST_PARTS } from "@/lib/pixelGuest";
+import { buildGuestParts } from "@/lib/pixelGuest";
 import { fetchHeartTargets, sendAnonymousHeart } from "@/lib/hearts";
 
 const router = useRouter();
@@ -402,9 +409,24 @@ const characterStyle = ref({});
 const isCharacterSheetOpen = ref(false);
 const isSavingCharacter = ref(false);
 const characterError = ref("");
-const characterDraft = reactive({ skin: "", hair: "", shirt: "" });
-const guestParts = GUEST_PARTS;
-const characterStyleGroups = CHARACTER_STYLE_GROUPS;
+const characterDraft = reactive(resolveCharacterStyle({}));
+
+// 체형 목록은 고른 성별에 따라 달라집니다.
+const characterStyleGroups = computed(() => {
+  const bodyOptions = getCharacterBodyOptions(characterDraft.gender);
+
+  return CHARACTER_STYLE_GROUPS.map((group) =>
+    group.key === "body" ? { ...group, options: bodyOptions } : group
+  );
+});
+
+const characterParts = computed(() => {
+  return buildGuestParts(characterStyle.value, tableNumber.value);
+});
+
+const draftParts = computed(() => {
+  return buildGuestParts(characterDraft, tableNumber.value);
+});
 const isHeartSheetOpen = ref(false);
 const isLoadingHeartTargets = ref(false);
 const isSendingHeart = ref(false);
@@ -513,11 +535,31 @@ function openCharacterSheet() {
     tableNumber.value
   );
 
-  characterDraft.skin = current.skin;
-  characterDraft.hair = current.hair;
-  characterDraft.shirt = current.shirt;
+  Object.assign(characterDraft, current);
   characterError.value = "";
   isCharacterSheetOpen.value = true;
+}
+
+// 성별을 바꾸면 헤어스타일·체형 기본값도 함께 맞춰 줍니다.
+function selectCharacterOption(key, value) {
+  characterDraft[key] = value;
+
+  if (key !== "gender") return;
+
+  const defaults = CHARACTER_GENDERS.map((gender) => gender.defaultHairstyle);
+  const target = CHARACTER_GENDERS.find((gender) => gender.id === value);
+
+  if (!target) return;
+
+  if (defaults.includes(characterDraft.hairstyle)) {
+    characterDraft.hairstyle = target.defaultHairstyle;
+  }
+
+  const bodyIds = getCharacterBodyOptions(value).map((option) => option.id);
+
+  if (!bodyIds.includes(characterDraft.body)) {
+    characterDraft.body = target.defaultBody;
+  }
 }
 
 function closeCharacterSheet() {
@@ -847,14 +889,6 @@ onMounted(() => {
   flex-shrink: 0;
 }
 
-.character-defs {
-  position: absolute;
-  width: 0;
-  height: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-
 .character-mini {
   width: 44px;
   height: 44px;
@@ -977,6 +1011,38 @@ onMounted(() => {
   font-weight: 800;
   color: #ffffff;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+.character-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.character-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.6);
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+
+  &.active {
+    border-color: rgba(255, 255, 255, 0.85);
+    background: rgba(255, 255, 255, 0.16);
+    color: #ffffff;
+  }
+}
+
+.character-chip-emoji {
+  font-size: 15px;
+  line-height: 1;
 }
 
 .menu-badge {
