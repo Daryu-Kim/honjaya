@@ -1,12 +1,17 @@
-// 32x32 pixel guest sprite. The TV scene and the guest style editor share this module.
-// Layers are stacked in order: body (gender + build) -> outfit -> hair -> eyes.
+// 64x64 pixel guest sprite shared by the bar TV scene and the guest style editor.
+// Layers stack bottom-up: body (gender + build) -> outfit -> face -> hair -> eyes.
+// On the TV the seat furniture hides the legs, so silhouette detail is concentrated
+// above the waist while the editor preview shows the whole figure.
 
 import { resolveCharacterStyle } from "./characterStyle";
 
-export const GUEST_SPRITE_SIZE = 32;
+export const GUEST_SPRITE_SIZE = 64;
 
 // Ready to use as an SVG viewBox attribute.
 export const GUEST_SPRITE_VIEW_BOX = `0 0 ${GUEST_SPRITE_SIZE} ${GUEST_SPRITE_SIZE}`;
+
+// The bar counter hides the lower body, so the staff figure only needs the bust.
+export const STAFF_SPRITE_VIEW_BOX = `0 0 ${GUEST_SPRITE_SIZE} 44`;
 
 export const GUEST_CELL_TONES = {
   h: "hair",
@@ -20,20 +25,34 @@ export const GUEST_CELL_TONES = {
   E: "eye-light",
   r: "blush",
   m: "mouth",
+  n: "shoes",
 };
 
 const SIZE = GUEST_SPRITE_SIZE;
 const CENTER = SIZE / 2;
-const HEAD_WIDTH = 12;
-const NECK_ROW = 14;
-const SHOULDER_ROW = 16;
+const HEAD_TOP = 4;
+const BROW_ROW = 11;
+const EYE_TOP = 14;
+const NOSE_ROW = 20;
+const MOUTH_ROW = 22;
+const CHIN_ROW = 27;
+const NECK_TOP = 28;
+const SHOULDER_ROW = 32;
+const CHEST_ROW = 37;
+const WAIST_ROW = 43;
+const HIP_ROW = 51;
+const LEG_TOP = 54;
+const LAST_ROW = SIZE - 1;
 
 function createGrid() {
   return Array.from({ length: SIZE }, () => new Array(SIZE).fill("."));
 }
 
 function range(from, to) {
-  return Array.from({ length: to - from + 1 }, (_, index) => from + index);
+  return Array.from(
+    { length: Math.max(0, to - from + 1) },
+    (_, index) => from + index
+  );
 }
 
 // Paints [y, [[startColumn, "chars"], ...]] entries onto the grid.
@@ -66,32 +85,6 @@ function paintLayer(grid, layer, clip = null, margin = 0) {
   });
 }
 
-function buildSpanMap(layer) {
-  const spans = new Map();
-
-  layer.forEach(([y, runs]) => {
-    runs.forEach(([start, chars]) => {
-      const width = [...chars].length;
-
-      if (width === 0) {
-        return;
-      }
-
-      const span = spans.get(y);
-
-      if (!span) {
-        spans.set(y, { left: start, right: start + width - 1 });
-        return;
-      }
-
-      span.left = Math.min(span.left, start);
-      span.right = Math.max(span.right, start + width - 1);
-    });
-  });
-
-  return spans;
-}
-
 function solidRow(y, left, right, tone) {
   if (right < left) {
     return [y, []];
@@ -103,19 +96,6 @@ function solidRow(y, left, right, tone) {
 // Centered row of an even width, with optional extra runs painted on top.
 function centeredRow(y, width, tone, accents = []) {
   return [y, [[CENTER - width / 2, tone.repeat(width)], ...accents]];
-}
-
-// Paints the same run on both sides so every layer stays symmetric.
-function mirrorRow(y, left, chars) {
-  const width = [...chars].length;
-
-  return [
-    y,
-    [
-      [left, chars],
-      [SIZE - left - width, [...chars].reverse().join("")],
-    ],
-  ];
 }
 
 // Row with a darker outline on both ends.
@@ -133,356 +113,351 @@ function edgedRow(y, left, right, tone = "t", edge = "T") {
   return [y, [[left, `${edge}${tone.repeat(width - 2)}${edge}`]]];
 }
 
+// Left run copied to the mirrored column, keeping the pattern readable as pixel art.
+function mirrored(y, left, right, tone, edge = tone) {
+  const width = right - left + 1;
+
+  if (width <= 0) {
+    return [y, []];
+  }
+
+  const chars =
+    width > 2 ? `${edge}${tone.repeat(width - 2)}${edge}` : tone.repeat(width);
+
+  return [
+    y,
+    [
+      [left, chars],
+      [SIZE - 1 - right, chars],
+    ],
+  ];
+}
+
 function verticalBar(fromY, toY, left, right, tone) {
   return range(fromY, toY).map((y) => solidRow(y, left, right, tone));
 }
 
-// 16..31 row widths. Even widths keep the silhouette centered; rows below 20 sit
-// behind the seat furniture on the TV scene, so detail belongs to the upper chest.
-const BODY_WIDTHS = {
-  female: {
-    slim: [10, 12, 12, 12, 12, 12, 10, 10, 10, 12, 12, 14, 14, 14, 14, 12],
-    normal: [12, 14, 14, 14, 14, 14, 12, 12, 12, 14, 14, 16, 16, 16, 16, 14],
-    curvy: [12, 14, 16, 16, 16, 16, 12, 12, 12, 14, 16, 20, 20, 20, 20, 18],
-    petite: [10, 10, 10, 12, 12, 12, 10, 10, 10, 10, 12, 12, 12, 12, 12, 10],
-  },
-  male: {
-    slim: [14, 16, 14, 14, 14, 14, 12, 12, 12, 12, 12, 12, 12, 12, 12, 10],
-    normal: [16, 18, 16, 16, 16, 16, 14, 14, 14, 14, 14, 14, 14, 14, 14, 12],
-    muscle: [20, 22, 20, 20, 20, 18, 14, 14, 14, 14, 14, 14, 14, 14, 14, 12],
-    sturdy: [18, 20, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 16],
-  },
-};
-
-// Jaw and neck width per gender. Men get a wider jaw and a thicker neck.
-const BODY_HEADS = {
-  female: { chin: 8, neck: 4 },
-  male: { chin: 10, neck: 6 },
-};
-
-const FACE = [
-  centeredRow(2, 10, "f"),
-  centeredRow(3, 10, "f"),
-  ...range(4, 11).map((y) => centeredRow(y, HEAD_WIDTH, "f")),
-  centeredRow(12, 10, "f"),
-];
-
-const EARS = range(8, 9).flatMap((y) => [
-  solidRow(y, 9, 9, "f"),
-  solidRow(y, 22, 22, "f"),
-]);
-
-// Barely visible skin shading plus the facial features the hair layer never covers.
-const FACE_DETAILS = [
-  ...range(5, 11).flatMap((y) => [
-    solidRow(y, 10, 10, "F"),
-    solidRow(y, 21, 21, "F"),
-  ]),
-  ...EARS,
-  solidRow(12, 11, 11, "F"),
-  solidRow(12, 20, 20, "F"),
-  solidRow(7, 12, 13, "h"),
-  solidRow(7, 18, 19, "h"),
-  solidRow(10, 15, 15, "F"),
-  solidRow(10, 11, 12, "r"),
-  solidRow(10, 19, 20, "r"),
-  solidRow(11, 15, 16, "m"),
-];
-
-function neckSpanOf(gender) {
-  const width = BODY_HEADS[gender].neck;
-  const left = CENTER - width / 2;
-
-  return { left, right: left + width - 1 };
+// Silhouette widths only change every few rows, so keypoints are interpolated to keep
+// the body from reading as a straight tube. Even widths keep the sprite symmetric.
+function evenWidth(value) {
+  return Math.max(2, Math.round(value / 2) * 2);
 }
 
-function buildBody(gender, body) {
-  const widths = BODY_WIDTHS[gender][body];
-  const head = BODY_HEADS[gender];
-  const chinLeft = CENTER - head.chin / 2;
-  const neck = neckSpanOf(gender);
-  const torso = widths.map((width, index) => {
-    const left = CENTER - width / 2;
-
-    return edgedRow(SHOULDER_ROW + index, left, left + width - 1, "f", "F");
-  });
-
-  return [
-    ...FACE,
-    ...FACE_DETAILS,
-    edgedRow(13, chinLeft, chinLeft + head.chin - 1, "f", "F"),
-    edgedRow(NECK_ROW, neck.left, neck.right, "f", "F"),
-    solidRow(NECK_ROW, 15, 16, "S"),
-    edgedRow(15, neck.left, neck.right, "f", "F"),
-    ...torso,
-  ];
-}
-
-export const GUEST_BODIES = {
-  female: {
-    slim: buildBody("female", "slim"),
-    normal: buildBody("female", "normal"),
-    curvy: buildBody("female", "curvy"),
-    petite: buildBody("female", "petite"),
-  },
-  male: {
-    slim: buildBody("male", "slim"),
-    normal: buildBody("male", "normal"),
-    muscle: buildBody("male", "muscle"),
-    sturdy: buildBody("male", "sturdy"),
-  },
-};
-
-export const GUEST_DEFAULT_BODY = { female: "normal", male: "normal" };
-// Shared cap every hairstyle inherits. Highlights keep the pixel art from reading flat.
-const HAIR_CAP = [
-  centeredRow(0, 6, "h"),
-  centeredRow(1, 10, "h", [[12, "H"]]),
-  centeredRow(2, 12, "h", [
-    [11, "H"],
-    [20, "H"],
-  ]),
-  centeredRow(3, 14, "h", [
-    [9, "H"],
-    [13, "H"],
-    [18, "H"],
-    [22, "H"],
-  ]),
-  centeredRow(4, 14, "h", [
-    [10, "H"],
-    [15, "H"],
-    [21, "H"],
-  ]),
-];
-
-const HAIR_SIDES = range(5, 8).map((y) => mirrorRow(y, 9, "h"));
-
-export const GUEST_HAIRSTYLES = {
-  // 긴 생머리: 어깨까지 흘러내립니다.
-  long: [
-    ...HAIR_CAP,
-    ...range(5, 7).map((y) => mirrorRow(y, 9, "h")),
-    ...range(8, 11).map((y) => mirrorRow(y, 8, "hH")),
-    ...range(12, 13).map((y) => mirrorRow(y, 9, "hHh")),
-    ...range(14, 15).map((y) => mirrorRow(y, 8, "hH")),
-    ...range(16, 19).map((y) => mirrorRow(y, 8, "hh")),
-    ...range(20, 24).map((y) => mirrorRow(y, 7, "hh")),
-  ],
-  // 짧은 머리: 귀가 드러납니다.
-  short: [...HAIR_CAP, ...HAIR_SIDES],
-  // 단발: 턱선까지 오는 일자 컷.
-  bob: [
-    ...HAIR_CAP,
-    ...range(5, 7).map((y) => mirrorRow(y, 9, "h")),
-    ...range(8, 11).map((y) => mirrorRow(y, 8, "hh")),
-    ...range(12, 13).map((y) => mirrorRow(y, 9, "hHh")),
-  ],
-  // 묶은 머리: 오른쪽 뒤로 꼬리가 길게 빠집니다.
-  ponytail: [
-    ...HAIR_CAP,
-    ...range(5, 9).map((y) => mirrorRow(y, 9, "h")),
-    [5, [[22, "hhh"]]],
-    [6, [[22, "Hhh"]]],
-    [7, [[22, "hhh"]]],
-    [8, [[22, "Hhh"]]],
-    [9, [[22, "hhh"]]],
-    [10, [[22, "Hhh"]]],
-    [11, [[22, "hhh"]]],
-    [12, [[22, "Hhh"]]],
-    [13, [[22, "hh"]]],
-    [14, [[22, "hh"]]],
-    [15, [[22, "Hh"]]],
-  ],
-  // 올림머리: 정수리 위 묶음.
-  bun: [
-    centeredRow(0, 6, "h", [[14, "H"]]),
-    centeredRow(1, 8, "h", [
-      [13, "H"],
-      [18, "H"],
-    ]),
-    centeredRow(2, 12, "h"),
-    centeredRow(3, 14, "h", [
-      [9, "H"],
-      [22, "H"],
-    ]),
-    centeredRow(4, 14, "h"),
-    ...range(5, 7).map((y) => mirrorRow(y, 9, "h")),
-  ],
-  // 삭발: 짧은 머리선과 옆면 잔털만 남습니다.
-  buzz: [
-    centeredRow(2, 10, "h", [
-      [11, "H"],
-      [20, "H"],
-    ]),
-    centeredRow(3, 10, "h", [
-      [13, "H"],
-      [18, "H"],
-    ]),
-    [4, [[10, "HhHhHhHhHhHh"]]],
-    ...range(5, 7).map((y) => mirrorRow(y, 9, "H")),
-  ],
-  // 투블럭: 위는 넓게 덮고 옆은 바싹 밀어냅니다.
-  twoblock: [
-    centeredRow(0, 8, "h"),
-    centeredRow(1, 12, "h", [[12, "H"]]),
-    centeredRow(2, 14, "h", [
-      [10, "H"],
-      [21, "H"],
-    ]),
-    centeredRow(3, 14, "h", [
-      [13, "H"],
-      [18, "H"],
-    ]),
-    centeredRow(4, 14, "h"),
-    [5, [[9, "HhhhhhhhhhhhhH"]]],
-    [6, [[10, "hhhhhhhhhhhh"]]],
-    ...range(5, 7).map((y) => mirrorRow(y, 9, "H")),
-  ],
-  // 상륙돌격: 가운데만 남긴 짧은 스트립.
-  landing: [
-    centeredRow(2, 6, "h", [[14, "H"]]),
-    centeredRow(3, 6, "h"),
-    centeredRow(4, 6, "h", [[15, "H"]]),
-    centeredRow(5, 4, "h"),
-    ...range(5, 7).map((y) => mirrorRow(y, 9, "H")),
-  ],
-};
-
-const EYE_LAYERS = {
-  round: [
-    [
-      8,
-      [
-        [12, "Ee"],
-        [18, "Ee"],
-      ],
-    ],
-    [
-      9,
-      [
-        [12, "ee"],
-        [18, "ee"],
-      ],
-    ],
-  ],
-  smile: [
-    [
-      8,
-      [
-        [12, "ee"],
-        [18, "ee"],
-      ],
-    ],
-    [
-      9,
-      [
-        [11, "e"],
-        [14, "e"],
-        [17, "e"],
-        [20, "e"],
-      ],
-    ],
-  ],
-  wink: [
-    [
-      8,
-      [
-        [12, "Ee"],
-        [17, "e"],
-        [20, "e"],
-      ],
-    ],
-    [
-      9,
-      [
-        [12, "ee"],
-        [18, "ee"],
-      ],
-    ],
-  ],
-  heart: [
-    [
-      8,
-      [
-        [11, "r.r"],
-        [18, "r.r"],
-      ],
-    ],
-    [
-      9,
-      [
-        [11, "rrr"],
-        [18, "rrr"],
-      ],
-    ],
-    [
-      10,
-      [
-        [12, "r"],
-        [19, "r"],
-      ],
-    ],
-  ],
-  shades: [
-    [8, [[10, "eEeeeeeeeeEe"]]],
-    [
-      9,
-      [
-        [10, "eeee"],
-        [18, "eeee"],
-      ],
-    ],
-  ],
-};
-
-// Women get one extra lash pixel per eye, which widens the visual gap between genders.
-function buildEyes(eyes, gender) {
-  const layer = EYE_LAYERS[eyes] || EYE_LAYERS.round;
-
-  if (gender !== "female" || eyes === "shades") {
-    return layer;
+function widthAt(profile, y) {
+  if (y <= profile[0][0]) {
+    return evenWidth(profile[0][1]);
   }
 
-  return [
-    ...layer,
-    [
-      8,
-      [
-        [11, "e"],
-        [20, "e"],
-      ],
-    ],
-  ];
+  for (let index = 1; index < profile.length; index += 1) {
+    const [row, width] = profile[index];
+
+    if (y <= row) {
+      const [prevRow, prevWidth] = profile[index - 1];
+      const ratio = row === prevRow ? 0 : (y - prevRow) / (row - prevRow);
+
+      return evenWidth(prevWidth + (width - prevWidth) * ratio);
+    }
+  }
+
+  return evenWidth(profile[profile.length - 1][1]);
 }
-// Built from the body span map, so every outfit hugs the silhouette of the build.
-function torsoOutfit({ spans, neck }, options = {}) {
+
+// Jaw and neck width. Men get a square jaw and a thicker neck.
+const HEAD_PROFILES = {
+  female: [
+    [HEAD_TOP, 12],
+    [8, 20],
+    [20, 20],
+    [23, 16],
+    [25, 12],
+    [CHIN_ROW - 1, 12],
+    [CHIN_ROW, 10],
+  ],
+  male: [
+    [HEAD_TOP, 14],
+    [8, 22],
+    [21, 22],
+    [24, 18],
+    [26, 14],
+    [CHIN_ROW, 12],
+  ],
+};
+
+const NECK_WIDTH = { female: 6, male: 8 };
+
+// shoulder / chest / waist / hip are torso widths without the arms.
+const BODY_SPECS = {
+  female: {
+    slim: { shoulder: 18, chest: 18, waist: 14, hip: 18, arm: 4 },
+    normal: { shoulder: 20, chest: 20, waist: 16, hip: 22, arm: 4 },
+    curvy: { shoulder: 22, chest: 22, waist: 16, hip: 28, arm: 4 },
+    petite: { shoulder: 16, chest: 16, waist: 12, hip: 18, arm: 3 },
+  },
+  male: {
+    slim: { shoulder: 22, chest: 20, waist: 18, hip: 20, arm: 4 },
+    normal: { shoulder: 26, chest: 24, waist: 20, hip: 24, arm: 5 },
+    muscle: { shoulder: 32, chest: 30, waist: 22, hip: 26, arm: 6 },
+    sturdy: { shoulder: 28, chest: 28, waist: 26, hip: 28, arm: 5 },
+  },
+};
+
+// 연령대는 실루엣(어깨·허리)과 얼굴 주름, 머리카락 광택량으로만 드러냅니다.
+const AGE_BUILD = {
+  youth: { shoulder: 0, waist: 0, creases: 0, shine: 3 },
+  middle: { shoulder: 2, waist: 2, creases: 1, shine: 2 },
+  senior: { shoulder: -2, waist: 4, creases: 2, shine: 1 },
+};
+
+function buildSkeleton(gender, bodyId, age) {
+  const genderKey = BODY_SPECS[gender] ? gender : "female";
+  const specSet = BODY_SPECS[genderKey];
+  const baseSpec = specSet[bodyId] || specSet.normal;
+  const ageKey = AGE_BUILD[age] ? age : "youth";
+  const ageConfig = AGE_BUILD[ageKey];
+  const spec = {
+    ...baseSpec,
+    shoulder: baseSpec.shoulder + ageConfig.shoulder,
+    waist: baseSpec.waist + ageConfig.waist,
+  };
+  const headProfile = HEAD_PROFILES[genderKey];
+
+  const head = range(HEAD_TOP, CHIN_ROW).map((y) => {
+    const width = widthAt(headProfile, y);
+    const left = CENTER - width / 2;
+
+    return { y, width, left, right: left + width - 1 };
+  });
+  const headByRow = new Map(head.map((row) => [row.y, row]));
+
+  const neckWidth = NECK_WIDTH[genderKey];
+  const neck = {
+    left: CENTER - neckWidth / 2,
+    right: CENTER + neckWidth / 2 - 1,
+  };
+
+  const torsoProfile = [
+    [SHOULDER_ROW + 2, spec.shoulder],
+    [CHEST_ROW, spec.chest],
+    [WAIST_ROW, spec.waist],
+    [HIP_ROW - 4, evenWidth((spec.waist + spec.hip) / 2)],
+    [HIP_ROW, spec.hip],
+    [LEG_TOP - 1, spec.hip - 2],
+  ];
+  const torso = range(SHOULDER_ROW + 2, LEG_TOP - 1).map((y) => {
+    const width = widthAt(torsoProfile, y);
+    const left = CENTER - width / 2;
+
+    return { y, width, left, right: left + width - 1 };
+  });
+  const torsoByRow = new Map(torso.map((row) => [row.y, row]));
+
+  const armFrame = 2 * (spec.arm + 1);
+  const shoulders = [SHOULDER_ROW, SHOULDER_ROW + 1].map((y) => {
+    const trim = y === SHOULDER_ROW ? 8 : 3;
+    const width = evenWidth(spec.shoulder + armFrame - trim);
+    const left = CENTER - width / 2;
+
+    return { y, width, left, right: left + width - 1 };
+  });
+
+  const arms = range(SHOULDER_ROW + 2, 46).map((y) => {
+    const torsoRow = torsoByRow.get(Math.min(y, LEG_TOP - 1));
+    const right = torsoRow.left - 2;
+
+    return { y, left: right - spec.arm + 1, right };
+  });
+  const wrist = arms[arms.length - 1];
+  const hands = range(47, 49).map((y, index) => {
+    const width = spec.arm + (index < 2 ? 1 : 0);
+
+    return { y, left: wrist.right - width + 1, right: wrist.right };
+  });
+
+  const legGap = 2;
+  const legWidth = evenWidth(spec.hip / 2 - 1);
+  const legPair = (y, width, extra = 0) => {
+    const leftWidth = width + extra;
+    const startLeft = CENTER - legGap / 2 - leftWidth;
+    const startRight = CENTER + legGap / 2;
+
+    return [
+      { y, left: startLeft, right: startLeft + leftWidth - 1 },
+      { y, left: startRight, right: startRight + leftWidth - 1 },
+    ];
+  };
+  const legs = range(LEG_TOP, LAST_ROW).flatMap((y) =>
+    legPair(y, Math.max(4, legWidth - (y >= 60 ? 2 : 0)))
+  );
+  const shoes = range(61, LAST_ROW).flatMap((y) =>
+    legPair(y, Math.max(4, legWidth - 2), 2)
+  );
+
+  const silhouette = new Map();
+  const addSpan = (span) => {
+    const existing = silhouette.get(span.y);
+
+    silhouette.set(
+      span.y,
+      existing
+        ? {
+            left: Math.min(existing.left, span.left),
+            right: Math.max(existing.right, span.right),
+          }
+        : { left: span.left, right: span.right }
+    );
+  };
+
+  head.forEach(addSpan);
+  torso.forEach(addSpan);
+  legs.forEach(addSpan);
+
+  return {
+    gender: genderKey,
+    age: ageKey,
+    ageConfig,
+    spec,
+    head,
+    headByRow,
+    neck,
+    shoulders,
+    torso,
+    torsoByRow,
+    arms,
+    hands,
+    legs,
+    shoes,
+    silhouette,
+  };
+}
+
+function buildBodyLayer(skeleton) {
+  const { head, headByRow, neck, torso, arms, hands, legs, shoes } = skeleton;
+  const rows = [];
+
+  legs.forEach(({ y, left, right }) =>
+    rows.push(edgedRow(y, left, right, "f", "F"))
+  );
+  shoes.forEach(({ y, left, right }) =>
+    rows.push(solidRow(y, left, right, "n"))
+  );
+  shoes
+    .filter(({ y }) => y === LAST_ROW)
+    .forEach(({ y, left, right }) => rows.push(solidRow(y, left, right, "e")));
+
+  torso.forEach(({ y, left, right }) =>
+    rows.push(edgedRow(y, left, right, "f", "F"))
+  );
+  arms.forEach(({ y, left, right }) =>
+    rows.push(edgedRow(y, left, right, "f", "F"))
+  );
+  hands.forEach(({ y, left, right }) =>
+    rows.push(mirrored(y, left, right, "f", "F"))
+  );
+
+  head.forEach(({ y, left, right }) =>
+    rows.push(
+      y < 20
+        ? solidRow(y, left, right, "f")
+        : edgedRow(y, left, right, "f", "F")
+    )
+  );
+
+  const earRow = headByRow.get(16);
+  range(15, 18).forEach((y) => {
+    const row = headByRow.get(y) || earRow;
+
+    rows.push(mirrored(y, row.left - 1, row.left - 1, y === 18 ? "F" : "f"));
+  });
+
+  rows.push(solidRow(NECK_TOP, neck.left, neck.right, "F"));
+  range(NECK_TOP + 1, SHOULDER_ROW - 1).forEach((y) => {
+    rows.push(edgedRow(y, neck.left, neck.right, "f", "F"));
+  });
+  rows.push(solidRow(NECK_TOP + 2, CENTER - 1, CENTER, "S"));
+
+  return rows;
+}
+
+export const GUEST_DEFAULT_BODY = { female: "normal", male: "normal" };
+
+// Neckline opening: skin shows through the collar and a shadow line closes it off.
+function collarRows(skeleton, depth = 2) {
+  const { neck } = skeleton;
+  const rows = [];
+
+  range(0, depth).forEach((step) => {
+    const pad = Math.max(0, 1 - step);
+
+    rows.push(
+      solidRow(
+        SHOULDER_ROW + step,
+        neck.left - pad - 1,
+        neck.right + pad + 1,
+        "f"
+      )
+    );
+  });
+  rows.push(solidRow(SHOULDER_ROW + depth + 1, neck.left, neck.right, "F"));
+
+  return rows;
+}
+
+function hemRows(skeleton, rowsToPaint, tone = "T") {
+  return rowsToPaint
+    .map((y) => skeleton.torsoByRow.get(y))
+    .filter(Boolean)
+    .map(({ y, left, right }) => solidRow(y, left, right, tone));
+}
+
+// Torso + sleeves in one pass. Sleeves stop at sleeveEnd so the forearms stay bare.
+function sleeveOutfit(skeleton, options = {}) {
   const {
-    sleeveRows = 3,
-    inset = 2,
+    sleeveEnd = 39,
+    shoulders = true,
+    sleevelessPad = 0,
+    cuff = true,
     tone = "t",
     edge = "T",
-    neckRows = 1,
-    details = [],
   } = options;
   const rows = [];
 
-  spans.forEach((span, y) => {
-    if (y < SHOULDER_ROW) {
+  if (shoulders) {
+    skeleton.shoulders.forEach(({ y, left, right }) =>
+      rows.push(
+        edgedRow(y, left + sleevelessPad, right - sleevelessPad, tone, edge)
+      )
+    );
+  } else {
+    skeleton.shoulders.forEach(({ y, left, right }) =>
+      rows.push(
+        edgedRow(y, left + sleevelessPad, right - sleevelessPad, "f", "F")
+      )
+    );
+  }
+
+  skeleton.torso.forEach(({ y, left, right }) =>
+    rows.push(edgedRow(y, left, right, tone, edge))
+  );
+
+  skeleton.arms.forEach(({ y, left, right }) => {
+    if (y <= sleeveEnd) {
+      // A single outline keeps the sleeve reading as part of the shirt.
+      rows.push(mirrored(y, left, right, tone, tone));
+      rows.push(mirrored(y, left, left, edge));
+      rows.push(mirrored(y, right + 1, right + 1, edge));
+
+      if (cuff && y === sleeveEnd) {
+        rows.push(mirrored(y, left, right, edge, edge));
+      }
+
       return;
     }
 
-    const pad = y < SHOULDER_ROW + sleeveRows ? 0 : inset;
-
-    rows.push(edgedRow(y, span.left + pad, span.right - pad, tone, edge));
+    rows.push(mirrored(y, left, right, "f", "F"));
+    rows.push(mirrored(y, right + 1, right + 1, "F"));
   });
 
-  if (neck) {
-    range(0, neckRows - 1).forEach((row) => {
-      rows.push(solidRow(SHOULDER_ROW + row, neck.left, neck.right, "f"));
-    });
-  }
-
-  return [...rows, ...details];
+  return rows;
 }
 
 function ribbedRow(y, left, right) {
@@ -499,127 +474,485 @@ function ribbedRow(y, left, right) {
   return [y, [[left, chars]]];
 }
 
+function strapRows(skeleton) {
+  const { neck } = skeleton;
+
+  return range(SHOULDER_ROW, SHOULDER_ROW + 1).map((y) =>
+    edgedRow(y, neck.left - 4, neck.right + 3, "t", "T")
+  );
+}
+
 const OUTFIT_BUILDERS = {
-  // 반팔 티셔츠
-  tee: (context) =>
-    torsoOutfit(context, {
-      sleeveRows: 3,
-      inset: 2,
-      details: [solidRow(19, 13, 14, "T"), solidRow(20, 13, 14, "T")],
-    }),
+  // 반팔 티셔츠: 크루넥에 밑단 배색
+  tee: (skeleton) => [
+    ...sleeveOutfit(skeleton, { sleeveEnd: 39 }),
+    ...collarRows(skeleton, 2),
+    ...hemRows(skeleton, [52, 53]),
+  ],
 
-  // 셔츠: 긴 소매, 카라, 단추 여밈
-  shirt: (context) =>
-    torsoOutfit(context, {
-      sleeveRows: 16,
-      inset: 0,
-      details: [
-        solidRow(SHOULDER_ROW, 14, 14, "T"),
-        solidRow(SHOULDER_ROW, 17, 17, "T"),
-        ...verticalBar(17, 31, 15, 16, "T"),
-        solidRow(19, 15, 16, "E"),
-        solidRow(23, 15, 16, "E"),
-        solidRow(27, 15, 16, "E"),
-      ],
-    }),
+  // 셔츠: V 카라, 단추 여밈, 긴 소매 커프스
+  shirt: (skeleton) => {
+    const { neck } = skeleton;
+    const details = [
+      solidRow(SHOULDER_ROW + 1, neck.left - 2, neck.right + 2, "f"),
+      solidRow(SHOULDER_ROW + 1, neck.left - 3, neck.left - 3, "T"),
+      solidRow(SHOULDER_ROW + 1, neck.right + 3, neck.right + 3, "T"),
+      solidRow(SHOULDER_ROW + 2, neck.left - 1, neck.right + 1, "f"),
+      solidRow(SHOULDER_ROW + 2, neck.left - 2, neck.left - 2, "T"),
+      solidRow(SHOULDER_ROW + 2, neck.right + 2, neck.right + 2, "T"),
+      solidRow(SHOULDER_ROW + 3, neck.left, neck.right, "f"),
+      solidRow(SHOULDER_ROW + 3, neck.left - 1, neck.left - 1, "T"),
+      solidRow(SHOULDER_ROW + 3, neck.right + 1, neck.right + 1, "T"),
+      ...verticalBar(SHOULDER_ROW + 4, LEG_TOP - 2, CENTER - 1, CENTER, "T"),
+      ...range(0, 2).map((index) =>
+        solidRow(38 + index * 6, CENTER - 1, CENTER, "E")
+      ),
+    ];
 
-  // 후디: 어깨를 감싸는 후드와 스트링
-  hoodie: (context) =>
-    torsoOutfit(context, {
-      sleeveRows: 16,
-      inset: 0,
-      details: [
-        solidRow(15, 12, 13, "t"),
-        solidRow(15, 18, 19, "t"),
-        solidRow(14, 13, 13, "T"),
-        solidRow(14, 18, 18, "T"),
-        solidRow(SHOULDER_ROW, 12, 19, "T"),
-        ...verticalBar(17, 22, 14, 14, "T"),
-        ...verticalBar(17, 22, 17, 17, "T"),
-        solidRow(23, 12, 19, "T"),
-      ],
-    }),
-
-  // 니트: 긴 소매에 세로 골지
-  knit: (context) => {
-    const rows = torsoOutfit(context, { sleeveRows: 16, inset: 0 });
-    const ribs = [];
-
-    context.spans.forEach((span, y) => {
-      if (y >= SHOULDER_ROW + 2) {
-        ribs.push(ribbedRow(y, span.left + 1, span.right - 1));
-      }
-    });
-
-    return [...rows, ...ribs];
+    return [...sleeveOutfit(skeleton, { sleeveEnd: 46 }), ...details];
   },
 
-  // 민소매: 어깨를 드러내고 가는 끈만 남깁니다.
-  slip: (context) =>
-    torsoOutfit(context, {
-      sleeveRows: 0,
-      inset: 3,
-      neckRows: 2,
-      details: [
-        solidRow(15, 13, 14, "t"),
-        solidRow(15, 17, 18, "t"),
-        solidRow(SHOULDER_ROW, 13, 14, "t"),
-        solidRow(SHOULDER_ROW, 17, 18, "t"),
-      ],
-    }),
-
-  // 원피스: 민소매 상체에 허리 벨트와 퍼지는 스커트
-  dress: (context) => {
-    const rows = torsoOutfit(context, { sleeveRows: 0, inset: 3, neckRows: 2 });
-    const skirt = [];
-
-    context.spans.forEach((span, y) => {
-      if (y < 22) {
-        return;
-      }
-
-      const pad = y < 24 ? 2 : 0;
-
-      skirt.push(
-        y === 22
-          ? solidRow(y, span.left + pad, span.right - pad, "T")
-          : edgedRow(y, span.left + pad, span.right - pad)
-      );
-    });
+  // 후디: 넉넉한 후드와 스트링, 캥거루 포켓
+  hoodie: (skeleton) => {
+    const { neck } = skeleton;
+    const details = [
+      ...range(SHOULDER_ROW, SHOULDER_ROW + 1).map((y) =>
+        solidRow(y, neck.left - 4, neck.right + 4, "T")
+      ),
+      solidRow(SHOULDER_ROW, neck.left - 2, neck.right + 2, "f"),
+      solidRow(SHOULDER_ROW + 1, neck.left - 1, neck.right + 1, "f"),
+      solidRow(SHOULDER_ROW + 2, neck.left, neck.right, "f"),
+      ...verticalBar(
+        SHOULDER_ROW + 4,
+        SHOULDER_ROW + 9,
+        neck.left - 3,
+        neck.left - 3,
+        "E"
+      ),
+      ...verticalBar(
+        SHOULDER_ROW + 4,
+        SHOULDER_ROW + 9,
+        neck.right + 3,
+        neck.right + 3,
+        "E"
+      ),
+    ];
+    const pocket = range(46, 51).map((y) =>
+      y === 46 || y === 51
+        ? solidRow(y, 26, 37, "T")
+        : edgedRow(y, 26, 37, "t", "T")
+    );
 
     return [
-      ...rows,
-      solidRow(15, 13, 14, "t"),
-      solidRow(15, 17, 18, "t"),
+      ...sleeveOutfit(skeleton, { sleeveEnd: 46 }),
+      ...details,
+      ...pocket,
+      ...hemRows(skeleton, [52, 53]),
+    ];
+  },
+
+  // 니트: 깃과 밑단에만 세로 골지를 넣고 소매는 시보리로 마감합니다.
+  knit: (skeleton) => [
+    ...sleeveOutfit(skeleton, { sleeveEnd: 46 }),
+    ...collarRows(skeleton, 1),
+    ...range(SHOULDER_ROW + 3, SHOULDER_ROW + 6)
+      .map((y) => skeleton.torsoByRow.get(y))
+      .filter(Boolean)
+      .map(({ y, left, right }) => ribbedRow(y, left + 1, right - 1)),
+    ...range(50, 53)
+      .map((y) => skeleton.torsoByRow.get(y))
+      .filter(Boolean)
+      .map(({ y, left, right }) => ribbedRow(y, left, right)),
+    ...range(44, 46).flatMap((y) => {
+      const arm = skeleton.arms.find((row) => row.y === y);
+
+      return arm ? [mirrored(y, arm.left, arm.right, "T", "t")] : [];
+    }),
+  ],
+
+  // 민소매: 어깨를 드러내고 가는 끈만 남깁니다.
+  slip: (skeleton) => [
+    ...sleeveOutfit(skeleton, {
+      sleeveEnd: SHOULDER_ROW + 1,
+      shoulders: false,
+    }),
+    ...strapRows(skeleton),
+    solidRow(
+      SHOULDER_ROW + 2,
+      skeleton.neck.left - 1,
+      skeleton.neck.right + 1,
+      "f"
+    ),
+  ],
+
+  // 원피스: 민소매 상체에 허리 벨트와 퍼지는 스커트
+  dress: (skeleton) => {
+    const { spec, neck } = skeleton;
+    const skirtFrom = WAIST_ROW + 1;
+    const skirtTo = 58;
+    const skirt = range(skirtFrom, skirtTo).map((y) => {
+      const ratio = (y - skirtFrom) / (skirtTo - skirtFrom);
+      const top = spec.waist + 2;
+      const hem = spec.hip + 8;
+      const width = evenWidth(top + ratio * (hem - top));
+      const left = CENTER - width / 2;
+
+      return edgedRow(y, left, left + width - 1);
+    });
+    const pleats = range(skirtFrom + 2, skirtTo - 2)
+      .filter((y) => y % 4 === 0)
+      .flatMap((y) => [
+        solidRow(y, CENTER - 5, CENTER - 5, "T"),
+        solidRow(y, CENTER + 4, CENTER + 4, "T"),
+      ]);
+
+    return [
+      ...sleeveOutfit(skeleton, {
+        sleeveEnd: SHOULDER_ROW + 1,
+        shoulders: false,
+      }),
+      ...strapRows(skeleton),
+      solidRow(SHOULDER_ROW + 2, neck.left - 1, neck.right + 1, "f"),
+      solidRow(
+        WAIST_ROW,
+        CENTER - spec.waist / 2 + 1,
+        CENTER + spec.waist / 2 - 2,
+        "T"
+      ),
       ...skirt,
+      ...pleats,
     ];
   },
 };
 
-function composeLayers(value, tableNumber) {
-  const style = resolveCharacterStyle(value, tableNumber);
-  const bodySet = GUEST_BODIES[style.gender] || GUEST_BODIES.female;
-  const body = bodySet[style.body] || bodySet[GUEST_DEFAULT_BODY.female];
-  const spans = buildSpanMap(body);
-  const context = { spans, neck: neckSpanOf(style.gender) };
-  const buildOutfit = OUTFIT_BUILDERS[style.outfit] || OUTFIT_BUILDERS.tee;
-  const outfit = buildOutfit(context);
-  const hair = GUEST_HAIRSTYLES[style.hairstyle] || GUEST_HAIRSTYLES.long;
-  const eyes = buildEyes(style.eyes, style.gender);
-  const grid = createGrid();
-  // Hair only needs to follow the shoulders; around the neck it frames the face freely.
-  const hairClip = new Map();
+const FACE_EYE_LEFT = CENTER - 7;
 
-  spans.forEach((span, y) => {
-    if (y >= SHOULDER_ROW) {
-      hairClip.set(y, span);
+const EYE_SHAPES = {
+  round: [".eee.", "eeEee", ".eee."],
+  smile: ["e...e", ".eee."],
+  heart: [".m.m.", "mmmmm", ".mmm.", "..m.."],
+};
+
+// 눈 모양에 맞춰 입매도 함께 바뀌어 표정이 어색하지 않게 합니다.
+const MOUTH_SHAPES = {
+  soft: [
+    [
+      MOUTH_ROW - 1,
+      [
+        [CENTER - 3, "m"],
+        [CENTER + 2, "m"],
+      ],
+    ],
+    [MOUTH_ROW, [[CENTER - 2, "mmmm"]]],
+  ],
+  grin: [
+    [
+      MOUTH_ROW - 1,
+      [
+        [CENTER - 4, "m"],
+        [CENTER + 3, "m"],
+      ],
+    ],
+    [MOUTH_ROW, [[CENTER - 3, "mmmmmm"]]],
+  ],
+  flat: [[MOUTH_ROW, [[CENTER - 2, "mmmm"]]]],
+};
+
+// 여성은 가는 눈썹, 남성은 두껍고 각진 눈썹.
+function buildBrows(gender) {
+  const width = gender === "male" ? 6 : 5;
+  const left = CENTER - 7;
+
+  return gender === "male"
+    ? [
+        mirrored(BROW_ROW, left, left + width - 1, "h"),
+        mirrored(BROW_ROW + 1, left, left + 2, "h"),
+      ]
+    : [
+        mirrored(BROW_ROW, left, left + width - 1, "h"),
+        mirrored(BROW_ROW + 1, left, left, "h"),
+      ];
+}
+
+function buildMouth(eyes) {
+  if (eyes === "heart") return MOUTH_SHAPES.grin;
+  if (eyes === "shades") return MOUTH_SHAPES.flat;
+
+  return MOUTH_SHAPES.soft;
+}
+
+// 눈 밑 그늘과 팔자주름으로 연령대를 표현합니다.
+function buildAgeMarks(creases) {
+  if (creases <= 0) return [];
+
+  const marks = [
+    mirrored(EYE_TOP + 3, FACE_EYE_LEFT + 1, FACE_EYE_LEFT + 2, "F"),
+  ];
+
+  if (creases >= 2) {
+    marks.push(
+      mirrored(EYE_TOP + 2, FACE_EYE_LEFT - 1, FACE_EYE_LEFT - 1, "F")
+    );
+    marks.push(mirrored(MOUTH_ROW - 1, CENTER - 5, CENTER - 5, "F"));
+  }
+
+  return marks;
+}
+
+function buildFaceLayer(skeleton, eyes) {
+  return [
+    ...buildBrows(skeleton.gender),
+    mirrored(NOSE_ROW - 1, CENTER - 6, CENTER - 5, "r"),
+    solidRow(NOSE_ROW, CENTER - 1, CENTER, "F"),
+    solidRow(NOSE_ROW + 1, CENTER - 1, CENTER, "F"),
+    ...buildMouth(eyes),
+    ...buildAgeMarks(skeleton.ageConfig.creases),
+  ];
+}
+
+function lineRuns(startX, line) {
+  const runs = [];
+
+  [...line].forEach((cell, index) => {
+    if (cell === ".") {
+      return;
     }
+
+    const last = runs[runs.length - 1];
+
+    if (
+      last &&
+      last.x + last.chars.length === startX + index &&
+      last.chars[0] === cell
+    ) {
+      last.chars += cell;
+      return;
+    }
+
+    runs.push({ x: startX + index, chars: cell });
   });
 
-  paintLayer(grid, body);
-  paintLayer(grid, outfit);
-  paintLayer(grid, hair, hairClip, 3);
-  paintLayer(grid, eyes);
+  return runs.map((run) => [run.x, run.chars]);
+}
+
+function buildEyes(eyes) {
+  const leftEye = FACE_EYE_LEFT;
+  const rightEye = SIZE - leftEye - 5;
+
+  if (eyes === "shades") {
+    const shadeLeft = leftEye - 2;
+
+    return [
+      ...[EYE_TOP, EYE_TOP + 1, EYE_TOP + 2].map((y) =>
+        mirrored(y, shadeLeft, CENTER - 1, "e")
+      ),
+      mirrored(EYE_TOP, shadeLeft + 3, shadeLeft + 4, "E"),
+      mirrored(EYE_TOP + 3, shadeLeft + 1, CENTER - 1, "T"),
+      mirrored(EYE_TOP, shadeLeft - 1, shadeLeft - 1, "T"),
+      mirrored(EYE_TOP + 1, shadeLeft - 1, shadeLeft - 1, "T"),
+    ];
+  }
+
+  const leftKey = eyes === "wink" ? "smile" : EYE_SHAPES[eyes] ? eyes : "round";
+  const rightKey = eyes === "wink" ? "round" : leftKey;
+  const rowsByY = new Map();
+
+  const drawEye = (shape, startX, flip) => {
+    shape.forEach((line, dy) => {
+      const runs = lineRuns(startX, flip ? [...line].reverse().join("") : line);
+
+      if (!runs.length) return;
+
+      const y = EYE_TOP + dy;
+
+      rowsByY.set(y, [...(rowsByY.get(y) || []), ...runs]);
+    });
+  };
+
+  drawEye(EYE_SHAPES[leftKey], leftEye, false);
+  drawEye(EYE_SHAPES[rightKey], rightEye, true);
+
+  return [...rowsByY.entries()].sort((a, b) => a[0] - b[0]);
+}
+
+// Fringe shapes paint over the forehead; the sides frame the face down to the jaw.
+function hairCap(
+  skeleton,
+  { top = 2, bottom = 10, flare = 2, tone = "h" } = {}
+) {
+  const headTop = skeleton.headByRow.get(HEAD_TOP);
+  const dome = [
+    evenWidth(headTop.width * 0.45),
+    evenWidth(headTop.width * 0.8),
+  ];
+  const rows = [];
+
+  range(top, HEAD_TOP - 1).forEach((y, index) => {
+    rows.push(centeredRow(y, dome[Math.min(index, dome.length - 1)], tone));
+  });
+  range(HEAD_TOP, bottom).forEach((y) => {
+    const head = skeleton.headByRow.get(y) || headTop;
+
+    rows.push(centeredRow(y, evenWidth(head.width + flare), tone));
+  });
+
+  return rows;
+}
+
+// Hair columns hug the head above the jaw, then slide out past the sleeve line so the
+// strands fall in front of the shoulder instead of cutting through the arm.
+function sideBaseLeft(skeleton, y) {
+  const chin = skeleton.headByRow.get(CHIN_ROW);
+
+  if (y <= CHIN_ROW) {
+    return (skeleton.headByRow.get(Math.max(y, HEAD_TOP)) || chin).left;
+  }
+
+  const arm = skeleton.arms.find(
+    (item) => item.y === Math.max(SHOULDER_ROW + 2, Math.min(y, 46))
+  );
+  const target = (arm ? arm.left : chin.left) + 1;
+  const ratio = Math.min(1, (y - CHIN_ROW) / (SHOULDER_ROW + 2 - CHIN_ROW));
+
+  return Math.round(chin.left + (target - chin.left) * ratio);
+}
+
+function hairSides(skeleton, { from, to, thickness = 2, tone = "h" } = {}) {
+  return range(from, to).map((y) => {
+    const base = sideBaseLeft(skeleton, y);
+
+    return mirrored(y, base - thickness, base - 1, tone);
+  });
+}
+
+function hairShine(skeleton) {
+  const crown = skeleton.headByRow.get(6);
+  const runs = [
+    mirrored(6, crown.left + 3, crown.left + 5, "H"),
+    mirrored(7, crown.left + 3, crown.left + 3, "H"),
+    mirrored(9, crown.left + 2, crown.left + 2, "H"),
+  ];
+
+  return runs.slice(0, Math.max(1, skeleton.ageConfig.shine));
+}
+
+const HAIR_BUILDERS = {
+  // 긴 생머리: 어깨 아래까지 흘러내립니다.
+  long: (skeleton) => [
+    ...hairCap(skeleton, { top: 2, bottom: 9, flare: 2 }),
+    ...hairSides(skeleton, { from: 9, to: 44, thickness: 2 }),
+    ...hairShine(skeleton),
+    mirrored(
+      12,
+      sideBaseLeft(skeleton, 12) - 2,
+      sideBaseLeft(skeleton, 12) - 2,
+      "H"
+    ),
+  ],
+
+  // 짧은 머리: 귀가 드러납니다.
+  short: (skeleton) => [
+    ...hairCap(skeleton, { top: 3, bottom: 9, flare: 1 }),
+    ...hairSides(skeleton, { from: 8, to: 15, thickness: 1 }),
+    ...hairShine(skeleton),
+  ],
+
+  // 단발: 턱선에서 수평으로 잘리는 컷.
+  bob: (skeleton) => [
+    ...hairCap(skeleton, { top: 2, bottom: 10, flare: 2 }),
+    ...hairSides(skeleton, { from: 9, to: 21, thickness: 2 }),
+    ...hairShine(skeleton),
+    mirrored(
+      21,
+      sideBaseLeft(skeleton, 21) - 3,
+      sideBaseLeft(skeleton, 21) - 1,
+      "h"
+    ),
+  ],
+
+  // 묶은 머리: 오른쪽 뒤로 꼬리가 빠지고 머리끈이 보입니다.
+  ponytail: (skeleton) => {
+    const tie = range(8, 9).map((y) =>
+      solidRow(
+        y,
+        SIZE - sideBaseLeft(skeleton, y),
+        SIZE - sideBaseLeft(skeleton, y) + 2,
+        "T"
+      )
+    );
+    const tail = range(10, 38).map((y) => {
+      const base = SIZE - sideBaseLeft(skeleton, y);
+      const width = y < 24 ? 4 : y < 32 ? 3 : 2;
+
+      return [y, [[base, `H${"h".repeat(width - 1)}`]]];
+    });
+
+    return [
+      ...hairCap(skeleton, { top: 2, bottom: 10, flare: 2 }),
+      ...hairSides(skeleton, { from: 9, to: 16, thickness: 1 }),
+      ...hairShine(skeleton),
+      ...tie,
+      ...tail,
+    ];
+  },
+
+  // 올림머리: 정수리 위 묶음.
+  bun: (skeleton) => [
+    centeredRow(1, 8, "h"),
+    centeredRow(2, 10, "h", [[CENTER - 1, "H"]]),
+    centeredRow(3, 8, "h"),
+    solidRow(3, CENTER - 3, CENTER + 2, "T"),
+    ...hairCap(skeleton, { top: 5, bottom: 9, flare: 2 }),
+    ...hairSides(skeleton, { from: 8, to: 13, thickness: 1 }),
+    ...hairShine(skeleton),
+  ],
+
+  // 삭발: 정수리에 얇게 붙은 머리선만 남깁니다.
+  buzz: (skeleton) => [
+    ...hairCap(skeleton, { top: HEAD_TOP, bottom: 8, flare: 0 }),
+    ...hairSides(skeleton, { from: 7, to: 11, thickness: 1 }),
+    mirrored(6, CENTER - 3, CENTER + 2, "H"),
+  ],
+
+  // 투블럭: 윗머리는 넓게 덮고 옆은 밀어 올려 수평으로 끊습니다.
+  twoblock: (skeleton) => [
+    ...hairCap(skeleton, { top: 2, bottom: 9, flare: 2 }),
+    ...hairSides(skeleton, { from: 9, to: 10, thickness: 2 }),
+    ...hairShine(skeleton),
+    solidRow(9, CENTER - 11, CENTER + 10, "h"),
+  ],
+
+  // 상륙돌격: 가운데만 남긴 짧은 스트립.
+  landing: () => [
+    centeredRow(2, 6, "h"),
+    centeredRow(3, 8, "h", [[CENTER - 2, "H"]]),
+    centeredRow(4, 6, "h"),
+    centeredRow(5, 6, "h", [[CENTER - 1, "H"]]),
+    centeredRow(6, 6, "h"),
+    centeredRow(7, 4, "h"),
+    centeredRow(8, 4, "h", [[CENTER - 1, "H"]]),
+    centeredRow(9, 4, "h"),
+    centeredRow(10, 2, "h"),
+  ],
+};
+
+function composeLayers(value, tableNumber) {
+  const style = resolveCharacterStyle(value, tableNumber);
+  const gender = BODY_SPECS[style.gender] ? style.gender : "female";
+  const bodyId = BODY_SPECS[gender][style.body]
+    ? style.body
+    : GUEST_DEFAULT_BODY[gender];
+  const skeleton = buildSkeleton(gender, bodyId, style.age);
+  const buildOutfit = OUTFIT_BUILDERS[style.outfit] || OUTFIT_BUILDERS.tee;
+  const buildHair = HAIR_BUILDERS[style.hairstyle] || HAIR_BUILDERS.long;
+  const grid = createGrid();
+
+  paintLayer(grid, buildBodyLayer(skeleton));
+  paintLayer(grid, buildOutfit(skeleton));
+  paintLayer(grid, buildFaceLayer(skeleton, style.eyes));
+  // Hair only needs to follow the shoulders; around the neck it frames the face freely.
+  paintLayer(grid, buildHair(skeleton), skeleton.silhouette, 6);
+  paintLayer(grid, buildEyes(style.eyes));
 
   return grid.map((row) => row.join(""));
 }

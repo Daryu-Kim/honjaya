@@ -150,7 +150,7 @@
               <div class="counter-staff">
                 <svg
                   class="staff-figure"
-                  :viewBox="GUEST_SPRITE_VIEW_BOX"
+                  :viewBox="STAFF_SPRITE_VIEW_BOX"
                   aria-hidden="true"
                   focusable="false"
                 >
@@ -241,6 +241,7 @@ import {
 import {
   GUEST_SPRITE_VIEW_BOX,
   STAFF_PARTS,
+  STAFF_SPRITE_VIEW_BOX,
   buildGuestParts,
   buildSpritePaths,
 } from "@/lib/pixelGuest";
@@ -256,9 +257,11 @@ const DESIGN_WIDTH = 1920;
 const DESIGN_HEIGHT = 1080;
 // 실제 매장 배치(사진) 기준 좌석 번호입니다. 배열 순서 = 화면 왼쪽 → 오른쪽.
 // 바 카운터는 3~12번, 홀은 1~2번 · 13~24번 · 26~32번이고 25번 테이블은 없습니다.
+// 홀은 사진처럼 세 줄입니다. 13번에서 시작해 32번까지 지그재그로 이어집니다.
 const BAR_TABLE_NUMBERS = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3];
-const HALL_BACK_TABLE_NUMBERS = [23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13];
-const HALL_FRONT_TABLE_NUMBERS = [24, 26, 27, 28, 29, 30, 31, 32];
+const HALL_BACK_TABLE_NUMBERS = [13, 14, 15, 16, 17, 18, 19];
+const HALL_MIDDLE_TABLE_NUMBERS = [27, 26, 24, 23, 22, 21, 20];
+const HALL_FRONT_TABLE_NUMBERS = [28, 29, 30, 31, 32];
 const SIDE_TABLE_NUMBERS = [2, 1];
 const PANEL_LIMIT = 8;
 const BUBBLE_DURATION_MS = 6000;
@@ -333,8 +336,8 @@ const furnitureSprites = [
   { key: "table", parts: furnitureParts.table },
 ];
 
-const shelfBottles = Array.from({ length: 14 }, (_, index) => {
-  const height = 16 + ((index * 9) % 24);
+const shelfBottles = Array.from({ length: 13 }, (_, index) => {
+  const height = 12 + ((index * 7) % 22);
   const color = SHELF_COLORS[index % SHELF_COLORS.length];
 
   return {
@@ -370,6 +373,7 @@ const HALL_TABLE_SET = new Set(
   [
     ...SIDE_TABLE_NUMBERS,
     ...HALL_BACK_TABLE_NUMBERS,
+    ...HALL_MIDDLE_TABLE_NUMBERS,
     ...HALL_FRONT_TABLE_NUMBERS,
   ].map(String)
 );
@@ -418,9 +422,13 @@ const occupiedTableMap = computed(() => {
 });
 
 // 빈자리도 항상 그려야 해서 좌석은 고정 슬롯입니다.
-// 사진처럼 홀 안쪽 줄 → 홀 바깥 줄(1·2번 테이블 + 24·26~32번) → 바 카운터 순서입니다.
+// 사진처럼 홀 안쪽 줄 → 홀 가운데 줄 → 홀 바깥 줄(1·2번 테이블 + 28~32번) → 바 카운터 순서입니다.
 const hallBackSlots = computed(() =>
   buildTableSlots(HALL_BACK_TABLE_NUMBERS, occupiedTableMap.value, "table")
+);
+
+const hallMiddleSlots = computed(() =>
+  buildTableSlots(HALL_MIDDLE_TABLE_NUMBERS, occupiedTableMap.value, "table")
 );
 
 const hallFrontSlots = computed(() => [
@@ -454,6 +462,7 @@ function withBubbleAlign(slots) {
 
 const seatZones = computed(() => [
   { key: "hall-back", slots: withBubbleAlign(hallBackSlots.value) },
+  { key: "hall-middle", slots: withBubbleAlign(hallMiddleSlots.value) },
   { key: "hall-front", slots: withBubbleAlign(hallFrontSlots.value) },
   { key: "bar", slots: withBubbleAlign(barSlots.value) },
 ]);
@@ -574,6 +583,7 @@ function truncate(value, limit) {
 function seatStyle(seat) {
   const palette = getCharacterPalette(seat.characterStyle, seat.tableNumber);
   const layer = bubbleLayerOf(seat.tableNumber);
+  const delaySeed = Math.abs(Number(seat.tableNumber) || 0) % 7;
 
   return {
     "--hair": palette.hair,
@@ -583,6 +593,9 @@ function seatStyle(seat) {
     "--skin-light": palette.skinLight,
     "--shirt": palette.shirt,
     "--shirt-dark": palette.shirtDark,
+    "--shoes": palette.shoes,
+    // 테이블마다 숨쉬는 타이밍을 어긋나게 해서 한꺼번에 움직이지 않게 합니다.
+    "--breath-delay": `${(delaySeed * 0.31).toFixed(2)}s`,
     ...(layer > 0 ? { zIndex: String(6 + layer) } : {}),
   };
 }
@@ -1141,7 +1154,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 8px;
   overflow: hidden;
   background: linear-gradient(180deg, #2b1a22 0%, #34202a 46%, #402733 100%);
   box-shadow: inset 0 0 0 6px #120b10;
@@ -1154,13 +1167,13 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  padding-top: 18px;
-  gap: 10px;
+  padding-top: 8px;
+  gap: 6px;
 }
 
 .scene-neon {
-  font-size: 60px;
-  letter-spacing: 0.3em;
+  font-size: 44px;
+  letter-spacing: 0.28em;
   color: #ff5d8f;
   text-shadow: 0 0 16px rgba(255, 93, 143, 0.72),
     0 0 36px rgba(255, 93, 143, 0.36), 5px 5px 0 rgba(48, 0, 22, 0.6);
@@ -1169,16 +1182,16 @@ onUnmounted(() => {
 .scene-shelf {
   display: flex;
   align-items: flex-end;
-  gap: 10px;
-  padding: 0 34px 8px;
-  height: 76px;
-  border-bottom: 6px solid #6a4632;
+  gap: 9px;
+  padding: 0 30px 4px;
+  height: 38px;
+  border-bottom: 5px solid #6a4632;
   box-shadow: 0 8px 14px rgba(0, 0, 0, 0.35);
 }
 
 .shelf-bottle {
   display: block;
-  width: 15px;
+  width: 11px;
   box-shadow: inset 0 -5px 0 rgba(0, 0, 0, 0.25);
 }
 
@@ -1189,28 +1202,25 @@ onUnmounted(() => {
   flex-wrap: nowrap;
   align-items: flex-end;
   justify-content: center;
-  gap: 6px 8px;
-  padding: 0 40px;
-  --avatar: 94px;
-  --name-size: 15px;
-  --no-size: 12px;
+  gap: 8px 10px;
+  padding: 0 26px;
+  --avatar: 128px;
+  --name-size: 16px;
+  --no-size: 13px;
   --wood: #b9793f;
   --wood-dark: #7a4a2b;
 }
 
-/* 홀은 사진처럼 두 줄입니다. 안쪽 줄 23~13번, 바깥 줄 1·2번 + 24·26~32번. */
+/* 홀은 사진처럼 세 줄입니다. 안쪽 13~19번, 가운데 20~27번, 바깥 1·2번 + 28~32번. */
 .scene-zone.is-hall-back,
+.scene-zone.is-hall-middle,
 .scene-zone.is-hall-front {
-  gap: 6px 8px;
-}
-
-.scene-zone.is-hall-front {
-  --avatar: 99px;
+  gap: 8px 10px;
 }
 
 .scene-zone.is-bar {
-  gap: 8px;
-  --avatar: 104px;
+  gap: 4px;
+  padding: 0 8px;
   --name-size: 19px;
   --no-size: 15px;
   --wood: #d99a5f;
@@ -1219,7 +1229,7 @@ onUnmounted(() => {
 
 .seat {
   position: relative;
-  width: calc(var(--avatar) + 14px);
+  width: var(--avatar);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1230,6 +1240,7 @@ onUnmounted(() => {
   --eye-light: #fff6fa;
   --mouth: #c8627a;
   --blush: #f6a2ae;
+  --shoes: #3b3348;
 }
 
 .seat.has-bubble {
@@ -1249,6 +1260,20 @@ onUnmounted(() => {
   height: 100%;
   image-rendering: pixelated;
   filter: drop-shadow(0 8px 0 rgba(0, 0, 0, 0.28));
+  animation: guest-breathe 4.2s ease-in-out infinite;
+  animation-delay: var(--breath-delay, 0s);
+  transform-origin: 50% 100%;
+}
+
+@keyframes guest-breathe {
+  0%,
+  100% {
+    transform: translateY(0) scaleY(1);
+  }
+
+  50% {
+    transform: translateY(-3px) scaleY(1.012);
+  }
 }
 
 /* 가구는 캐릭터 앞쪽에 겹쳐 그려서 앉아 있는 것처럼 보이게 합니다. */
@@ -1333,27 +1358,31 @@ onUnmounted(() => {
   fill: var(--mouth);
 }
 
+.guest-shoes {
+  fill: var(--shoes);
+}
+
 .seat-plate {
   position: relative;
-  width: 100%;
+  width: calc(100% - 12px);
   box-sizing: border-box;
   margin-top: -2px;
-  padding: 6px 6px;
+  padding: 4px 4px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  gap: 0;
   background: #1a1018;
   box-shadow: 0 0 0 4px #4a2f3a, 4px 4px 0 4px rgba(0, 0, 0, 0.4);
 }
 
 .seat-plate-name {
   font-size: var(--name-size);
-  line-height: 1.2;
+  line-height: 1.15;
   color: #ffd166;
   text-align: center;
-  min-height: calc(1.2em + 2px);
-  max-height: calc(2.4em + 2px);
+  min-height: calc(1.15em + 1px);
+  max-height: calc(2.3em + 1px);
   word-break: keep-all;
   overflow-wrap: anywhere;
   overflow: hidden;
@@ -1361,6 +1390,7 @@ onUnmounted(() => {
 
 .seat-plate-table {
   font-size: var(--no-size);
+  line-height: 1.2;
   color: #c9a3b4;
 }
 
@@ -1522,13 +1552,27 @@ onUnmounted(() => {
   --blush: #f6a2ae;
   --shirt: #f4f1ea;
   --shirt-dark: #cfc7ba;
+  --shoes: #3b3348;
 }
 
 .staff-figure {
-  width: 58px;
-  height: 58px;
+  width: 128px;
+  height: 88px;
   image-rendering: pixelated;
   filter: drop-shadow(0 6px 0 rgba(0, 0, 0, 0.3));
+  animation: staff-breathe 5.2s ease-in-out infinite;
+  transform-origin: 50% 100%;
+}
+
+@keyframes staff-breathe {
+  0%,
+  100% {
+    transform: translateY(0) scaleY(1);
+  }
+
+  50% {
+    transform: translateY(-2px) scaleY(1.01);
+  }
 }
 
 .staff-plate {
@@ -1781,6 +1825,13 @@ onUnmounted(() => {
 @keyframes tv-blink {
   50% {
     opacity: 0.2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seat-guest,
+  .staff-figure {
+    animation: none;
   }
 }
 </style>

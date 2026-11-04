@@ -2,6 +2,13 @@
 // order_sheets.character_style 에는 아래 id만 저장합니다.
 // 예: { gender: "female", skin: "warm", hairstyle: "long", hair: "ink", eyes: "round", outfit: "tee", shirt: "peach" }
 
+// 연령대는 얼굴 주름과 실루엣(어깨·허리)에 반영됩니다.
+export const CHARACTER_AGES = [
+  { id: "youth", label: "청년" },
+  { id: "middle", label: "중년" },
+  { id: "senior", label: "노년" },
+];
+
 export const CHARACTER_GENDERS = [
   {
     id: "female",
@@ -100,6 +107,14 @@ export const CHARACTER_SHIRT_TONES = [
   { id: "mint", label: "민트", shirt: "#2ec4b6", shirtDark: "#1f8f85" },
   { id: "lilac", label: "라일락", shirt: "#b8a1ff", shirtDark: "#8871cc" },
   { id: "sand", label: "샌드", shirt: "#e8d6b3", shirtDark: "#bda480" },
+  { id: "white", label: "화이트", shirt: "#f8f5ef", shirtDark: "#c6bfb4" },
+  { id: "cream", label: "크림", shirt: "#f1e2c6", shirtDark: "#c2ae8d" },
+  { id: "black", label: "블랙", shirt: "#2b2733", shirtDark: "#17141d" },
+  { id: "charcoal", label: "차콜", shirt: "#4a4f5c", shirtDark: "#2c303a" },
+  { id: "navy", label: "네이비", shirt: "#35507f", shirtDark: "#223454" },
+  { id: "olive", label: "카키", shirt: "#6f7d4e", shirtDark: "#4a5633" },
+  { id: "wine", label: "버건디", shirt: "#83334a", shirtDark: "#5a2032" },
+  { id: "brown", label: "브라운", shirt: "#8a6146", shirtDark: "#5f402c" },
 ];
 
 export const CHARACTER_HAIRSTYLES = [
@@ -134,6 +149,7 @@ export const CHARACTER_OUTFITS = [
 // type: "color" → 색상 스와치, "choice" → 이름 버튼
 export const CHARACTER_STYLE_GROUPS = [
   { key: "gender", label: "성별", type: "choice", options: CHARACTER_GENDERS },
+  { key: "age", label: "연령대", type: "choice", options: CHARACTER_AGES },
   { key: "body", label: "체형", type: "choice", options: [] },
   {
     key: "hairstyle",
@@ -190,6 +206,7 @@ export function getFallbackCharacterStyle(tableNumber) {
   const genderOption = findGender(gender);
 
   return {
+    age: CHARACTER_AGES[0].id,
     gender,
     body: genderOption.defaultBody,
     skin: CHARACTER_SKIN_TONES[0].id,
@@ -208,6 +225,10 @@ export function normalizeCharacterStyle(value) {
   const body = findOption(getCharacterBodyOptions(gender), source.body);
 
   return {
+    // 연령대는 나중에 추가된 항목이라 기존 저장값도 항상 완성 상태로 보이게 기본값을 채웁니다.
+    age: findOption(CHARACTER_AGES, source.age)
+      ? source.age
+      : CHARACTER_AGES[0].id,
     gender,
     body: body ? body.id : "",
     skin: findOption(CHARACTER_SKIN_TONES, source.skin) ? source.skin : "",
@@ -230,6 +251,7 @@ export function resolveCharacterStyle(value, tableNumber) {
   const body = findOption(getCharacterBodyOptions(gender), normalized.body);
 
   return {
+    age: normalized.age || fallback.age,
     gender,
     body: body ? body.id : genderOption.defaultBody,
     skin: normalized.skin || fallback.skin,
@@ -268,5 +290,7 @@ export function getCharacterPalette(value, tableNumber) {
     hairLight: hair.hairLight,
     shirt: shirt.shirt,
     shirtDark: shirt.shirtDark,
+    shoes: "#3b3348",
+    shoesDark: "#241f2e",
   };
 }

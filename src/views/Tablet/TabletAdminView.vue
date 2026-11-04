@@ -429,6 +429,42 @@
                 </button>
               </div>
             </div>
+            <div class="modal-info-row">
+              <span>캐릭터</span>
+              <div class="modal-character-row">
+                <svg
+                  class="table-character-mini"
+                  :viewBox="GUEST_SPRITE_VIEW_BOX"
+                  :style="{
+                    '--skin': selectedTableCharacter?.palette.skin,
+                    '--skin-shadow': selectedTableCharacter?.palette.skinShadow,
+                    '--skin-light': selectedTableCharacter?.palette.skinLight,
+                    '--hair': selectedTableCharacter?.palette.hair,
+                    '--hair-light': selectedTableCharacter?.palette.hairLight,
+                    '--shirt': selectedTableCharacter?.palette.shirt,
+                    '--shirt-dark': selectedTableCharacter?.palette.shirtDark,
+                    '--shoes': selectedTableCharacter?.palette.shoes,
+                  }"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <path
+                    v-for="part in selectedTableCharacter?.parts || []"
+                    :key="`table-character-${part.tone}`"
+                    :d="part.d"
+                    :class="`guest-${part.tone}`"
+                  />
+                </svg>
+                <button
+                  type="button"
+                  class="nickname-change-button"
+                  :disabled="!selectedTable.orderSheetId"
+                  @click="openTableCharacterModal(selectedTable)"
+                >
+                  변경
+                </button>
+              </div>
+            </div>
           </div>
 
           <div
@@ -727,6 +763,52 @@
             @click="saveTableNickname"
           >
             {{ tableNicknameModalState.isSaving ? "저장 중..." : "저장" }}
+          </button>
+        </div>
+      </div>
+    </transition>
+
+    <!-- 캐릭터 변경 모달 -->
+    <transition name="fade">
+      <div
+        v-if="tableCharacterModalState.isOpen"
+        class="modal-overlay"
+        @click.self="closeTableCharacterModal"
+      >
+        <div class="modal-card table-character-modal">
+          <div class="modal-head">
+            <div>
+              <h3>캐릭터 변경</h3>
+              <p>{{ tableCharacterModalState.displayName }}</p>
+            </div>
+            <button
+              type="button"
+              class="close-button"
+              @click="closeTableCharacterModal"
+            >
+              ✕
+            </button>
+          </div>
+
+          <CharacterStudio
+            v-model="tableCharacterModalState.draft"
+            :table-number="tableCharacterModalState.tableNumber"
+            :nickname="tableCharacterModalState.nickname"
+            sticky
+          />
+
+          <p class="table-nickname-modal-helper">
+            손님 대신 캐릭터를 바꿔줄 수 있어요. 저장하면 손님 화면과 TV에 바로
+            반영돼요.
+          </p>
+
+          <button
+            type="button"
+            class="confirm-button"
+            :disabled="tableCharacterModalState.isSaving"
+            @click="saveTableCharacter"
+          >
+            {{ tableCharacterModalState.isSaving ? "저장 중..." : "저장" }}
           </button>
         </div>
       </div>
@@ -1541,6 +1623,12 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import CharacterStudio from "@/components/CharacterStudio.vue";
+import {
+  getCharacterPalette,
+  resolveCharacterStyle,
+} from "@/lib/characterStyle";
+import { buildGuestParts, GUEST_SPRITE_VIEW_BOX } from "@/lib/pixelGuest";
 import {
   fetchList,
   insertRow,
@@ -1557,6 +1645,7 @@ import {
   getOrCreateOpenOrderSheet,
   getTableNicknameErrorMessage,
   normalizeTableNumber,
+  updateOrderSheetCharacterStyle,
   updateOrderSheetNickname,
 } from "@/lib/orderSheet";
 import { recalculateOrderSheetTotals } from "@/lib/orderSheetTotals";
@@ -1642,6 +1731,31 @@ const tableNicknameModalError = computed(() => {
   if (!tableNicknameModalState.value.isOpen) return "";
 
   return getTableNicknameErrorMessage(tableNicknameModalState.value.nickname);
+});
+
+const tableCharacterModalState = ref({
+  isOpen: false,
+  orderSheetId: "",
+  tableNumber: "",
+  displayName: "",
+  nickname: "",
+  draft: resolveCharacterStyle({}),
+  isSaving: false,
+});
+
+// 테이블 상세 모달에 보여줄 미니 캐릭터입니다.
+const selectedTableCharacter = computed(() => {
+  const table = selectedTable.value;
+
+  if (!table) return null;
+
+  const tableNumber = String(table.tableNumber ?? "");
+  const style = resolveCharacterStyle(table.characterStyle, tableNumber);
+
+  return {
+    parts: buildGuestParts(style, tableNumber),
+    palette: getCharacterPalette(style, tableNumber),
+  };
 });
 
 const manualAddModalState = ref({
@@ -2504,6 +2618,63 @@ async function saveTableNickname() {
       state.isSaving = false;
     }
   }, "닉네임을 변경하는 중이에요.");
+}
+
+function openTableCharacterModal(table) {
+  if (!table?.orderSheetId) return;
+
+  const tableNumber = String(table.tableNumber ?? "");
+
+  tableCharacterModalState.value = {
+    isOpen: true,
+    orderSheetId: table.orderSheetId,
+    tableNumber,
+    displayName: table.displayName || table.tableLabel || "",
+    nickname: table.tableNickname || "",
+    draft: resolveCharacterStyle(table.characterStyle, tableNumber),
+    isSaving: false,
+  };
+}
+
+function closeTableCharacterModal() {
+  tableCharacterModalState.value = {
+    isOpen: false,
+    orderSheetId: "",
+    tableNumber: "",
+    displayName: "",
+    nickname: "",
+    draft: resolveCharacterStyle({}),
+    isSaving: false,
+  };
+}
+
+async function saveTableCharacter() {
+  const state = tableCharacterModalState.value;
+  if (!state.isOpen || !state.orderSheetId || state.isSaving) return;
+
+  await runGlobalBusy(async () => {
+    state.isSaving = true;
+
+    try {
+      const savedStyle = await updateOrderSheetCharacterStyle({
+        orderSheetId: state.orderSheetId,
+        characterStyle: state.draft,
+      });
+
+      if (selectedTable.value?.orderSheetId === state.orderSheetId) {
+        selectedTable.value = {
+          ...selectedTable.value,
+          characterStyle: savedStyle,
+        };
+      }
+
+      closeTableCharacterModal();
+    } catch (error) {
+      console.error("캐릭터 변경 실패:", error);
+      alert("캐릭터 변경 중 문제가 발생했어요.");
+      state.isSaving = false;
+    }
+  }, "캐릭터를 저장하는 중이에요.");
 }
 
 function openManualAddModal(table) {
@@ -4457,6 +4628,69 @@ onUnmounted(() => {
 }
 .table-nickname-modal {
   max-width: 480px;
+}
+.table-character-modal {
+  --studio-pad-top: 20px;
+  --studio-bleed: 20px;
+  --studio-sticky-bg: #0f172a;
+  max-width: 560px;
+}
+.table-character-modal .confirm-button {
+  width: 100%;
+  margin-top: 14px;
+}
+.modal-character-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.table-character-mini {
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  image-rendering: pixelated;
+  --eye: #241b33;
+  --eye-light: #fff6fa;
+  --mouth: #c8627a;
+  --blush: #f6a2ae;
+  --shoes: #3b3348;
+}
+.guest-hair {
+  fill: var(--hair);
+}
+.guest-hair-light {
+  fill: var(--hair-light);
+}
+.guest-skin {
+  fill: var(--skin);
+}
+.guest-skin-shadow {
+  fill: var(--skin-shadow);
+}
+.guest-skin-light {
+  fill: var(--skin-light);
+}
+.guest-shirt {
+  fill: var(--shirt);
+}
+.guest-shirt-dark {
+  fill: var(--shirt-dark);
+}
+.guest-eye {
+  fill: var(--eye);
+}
+.guest-eye-light {
+  fill: var(--eye-light);
+}
+.guest-blush {
+  fill: var(--blush);
+}
+.guest-mouth {
+  fill: var(--mouth);
+}
+.guest-shoes {
+  fill: var(--shoes);
 }
 .table-nickname-modal-helper {
   margin: 10px 0 0;
