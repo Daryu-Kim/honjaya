@@ -352,7 +352,8 @@ const bossParts = computed(() => buildBossParts());
 // 실시간 시세: 관리자가 켜면 캐릭터 자리를 주식창으로 대체합니다.
 const market = useMarketFeed({ configPollMs: 5000, dataPollMs: 30000 });
 const marketEnabled = computed(() => market.enabled.value);
-const marketRows = computed(() => (marketEnabled.value ? market.rows(12) : []));
+// TV 보드는 상승장 8 + 하락장 8로 나눠 보여주므로 전체 종목을 넘깁니다.
+const marketRows = computed(() => (marketEnabled.value ? market.rows() : []));
 const marketIndex = computed(() => market.index());
 const marketIndexSparkline = computed(() =>
   marketEnabled.value ? market.indexSparkline(16) : []

@@ -30,44 +30,72 @@
       </div>
     </header>
 
-    <div class="board-grid">
-      <article
-        v-for="(row, position) in rows"
-        :key="row.productId"
-        class="board-card"
-        :class="row.changePct >= 0 ? 'is-up' : 'is-down'"
-      >
-        <span class="card-rank">{{ position + 1 }}</span>
+    <div class="board-body">
+      <template v-if="rows.length > 0">
+        <section
+          v-for="group in groups"
+          :key="group.key"
+          class="board-group"
+          :class="`is-${group.tone}`"
+        >
+          <header class="group-head">
+            <span class="group-tag">{{ group.tag }}</span>
+            <span class="group-name">{{ group.name }}</span>
+            <span class="group-count">{{ group.rows.length }}종</span>
+          </header>
 
-        <div class="card-main">
-          <span class="card-name">{{ row.productName }}</span>
-          <span class="card-price">
-            {{ formatNumber(row.price) }}<span class="price-unit">원</span>
-          </span>
-        </div>
+          <div class="group-grid">
+            <template
+              v-for="(slot, index) in group.slots"
+              :key="slotKey(group.key, slot, index)"
+            >
+              <article
+                v-if="slot"
+                class="board-card"
+                :class="`is-${toneOf(slot.row.changePct)}`"
+              >
+                <div class="card-top">
+                  <span class="card-rank">{{ slot.rank }}</span>
+                  <span class="card-name">{{ slot.row.productName }}</span>
+                </div>
 
-        <div class="card-side">
-          <span class="card-change">
-            {{ arrowOf(row.changePct) }} {{ formatPct(row.changePct) }}
-          </span>
-          <span class="card-diff">{{ formatDiff(row.changeAmount) }}</span>
-          <svg
-            class="card-spark"
-            viewBox="0 0 100 30"
-            preserveAspectRatio="none"
-            aria-hidden="true"
-          >
-            <polyline
-              :points="sparkPointsOf(row.productId)"
-              :class="row.changePct >= 0 ? 'spark-up' : 'spark-down'"
-            />
-          </svg>
-        </div>
-      </article>
+                <span class="card-price">
+                  {{ formatNumber(slot.row.price)
+                  }}<span class="price-unit">원</span>
+                </span>
 
-      <p v-if="rows.length === 0" class="board-empty">
-        아직 시세가 열리지 않았어요.
-      </p>
+                <div class="card-side">
+                  <span class="card-change">
+                    {{ arrowOf(slot.row.changePct) }}
+                    {{ formatPct(slot.row.changePct) }}
+                  </span>
+                  <span class="card-diff">
+                    {{ formatDiff(slot.row.changeAmount) }}
+                  </span>
+                </div>
+
+                <svg
+                  class="card-spark"
+                  viewBox="0 0 100 30"
+                  preserveAspectRatio="none"
+                  aria-hidden="true"
+                >
+                  <polyline
+                    :points="sparkPointsOf(slot.row.productId)"
+                    :class="`spark-${toneOf(slot.row.changePct)}`"
+                  />
+                </svg>
+              </article>
+
+              <div v-else class="board-card is-empty">
+                <span class="card-empty-text">—</span>
+              </div>
+            </template>
+          </div>
+        </section>
+      </template>
+
+      <p v-else class="board-empty">아직 시세가 열리지 않았어요.</p>
     </div>
 
     <footer class="board-foot">
@@ -77,7 +105,7 @@
           v-for="ingredient in ingredients"
           :key="ingredient.name"
           class="ing-chip"
-          :class="ingredient.changePct >= 0 ? 'is-up' : 'is-down'"
+          :class="`is-${toneOf(ingredient.changePct)}`"
         >
           {{ ingredient.name }}
           <b>{{ arrowOf(ingredient.changePct) }}</b>
@@ -151,11 +179,67 @@ const props = defineProps({
 
 const numberFormatter = new Intl.NumberFormat("ko-KR");
 
+// TV 보드는 4열 × 4행(16칸)입니다. 위 2행 = 상승장, 아래 2행 = 하락장.
+const GROUP_SIZE = 8;
+
 const indexTone = computed(() => (props.index.changePct >= 0 ? "up" : "down"));
 const indexToneClass = computed(() =>
   indexTone.value === "up" ? "is-up" : "is-down"
 );
 const indexPoints = computed(() => sparkPoints(props.indexSparkline));
+
+function buildSlots(rows) {
+  return Array.from({ length: GROUP_SIZE }, (unused, position) => {
+    const row = rows[position];
+
+    return row ? { row, rank: position + 1 } : null;
+  });
+}
+
+const groups = computed(() => {
+  const rising = props.rows
+    .filter((row) => (Number(row.changePct) || 0) >= 0)
+    .sort((first, second) => second.changePct - first.changePct)
+    .slice(0, GROUP_SIZE);
+  const falling = props.rows
+    .filter((row) => (Number(row.changePct) || 0) < 0)
+    .sort((first, second) => first.changePct - second.changePct)
+    .slice(0, GROUP_SIZE);
+
+  return [
+    {
+      key: "rise",
+      tone: "up",
+      tag: "▲",
+      name: "상승장",
+      rows: rising,
+      slots: buildSlots(rising),
+    },
+    {
+      key: "fall",
+      tone: "down",
+      tag: "▼",
+      name: "하락장",
+      rows: falling,
+      slots: buildSlots(falling),
+    },
+  ];
+});
+
+function slotKey(groupKey, slot, index) {
+  return slot ? slot.row.productId : `${groupKey}-empty-${index}`;
+}
+
+// 상승=빨강, 하락=파랑, 보합=중립 (국내 증시 표기와 동일)
+function toneOf(changePct) {
+  const safe = Number(changePct) || 0;
+
+  if (safe > 0) {
+    return "up";
+  }
+
+  return safe < 0 ? "down" : "flat";
+}
 
 const tickerTrades = computed(() =>
   props.trades.map((trade) => ({
@@ -198,7 +282,11 @@ function formatNumber(value) {
 function formatPct(value) {
   const safe = Number(value) || 0;
 
-  return `${safe >= 0 ? "+" : ""}${safe.toFixed(1)}%`;
+  if (safe === 0) {
+    return "0.0%";
+  }
+
+  return `${safe > 0 ? "+" : ""}${safe.toFixed(1)}%`;
 }
 
 function formatDiff(value) {
@@ -212,7 +300,13 @@ function formatDiff(value) {
 }
 
 function arrowOf(value) {
-  return (Number(value) || 0) >= 0 ? "▲" : "▼";
+  const safe = Number(value) || 0;
+
+  if (safe > 0) {
+    return "▲";
+  }
+
+  return safe < 0 ? "▼" : "–";
 }
 </script>
 
@@ -222,13 +316,22 @@ function arrowOf(value) {
   inset: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 20px;
+  gap: 10px;
+  padding: 18px;
   box-sizing: border-box;
   background: #100b08;
   box-shadow: inset 0 0 0 6px #120b10;
   font-family: inherit;
   color: #f6ecd8;
+  /* 국내 증시 표기: 상승 = 빨강, 하락 = 파랑 */
+  --up: #ff5555;
+  --up-soft: #ff9a9a;
+  --up-frame: #7a2222;
+  --down: #4d94ff;
+  --down-soft: #9cc4ff;
+  --down-frame: #1f4a8a;
+  --flat: #b9a78c;
+  --flat-frame: #4a3a26;
 }
 
 .board-head {
@@ -277,12 +380,12 @@ function arrowOf(value) {
 
 .head-index.is-up .index-value,
 .head-index.is-up .index-change {
-  color: #7cf29c;
+  color: var(--up);
 }
 
 .head-index.is-down .index-value,
 .head-index.is-down .index-change {
-  color: #ff8a8a;
+  color: var(--down);
 }
 
 .index-change {
@@ -298,7 +401,7 @@ function arrowOf(value) {
 
 .spark-up {
   fill: none;
-  stroke: #7cf29c;
+  stroke: var(--up);
   stroke-width: 2.5;
   stroke-linejoin: miter;
   vector-effect: non-scaling-stroke;
@@ -306,7 +409,15 @@ function arrowOf(value) {
 
 .spark-down {
   fill: none;
-  stroke: #ff8a8a;
+  stroke: var(--down);
+  stroke-width: 2.5;
+  stroke-linejoin: miter;
+  vector-effect: non-scaling-stroke;
+}
+
+.spark-flat {
+  fill: none;
+  stroke: var(--flat);
   stroke-width: 2.5;
   stroke-linejoin: miter;
   vector-effect: non-scaling-stroke;
@@ -328,9 +439,9 @@ function arrowOf(value) {
 }
 
 .meta-pill.is-frozen {
-  color: #2b0c0c;
-  background: #ff8a8a;
-  box-shadow: 3px 3px 0 #7a2020;
+  color: #2b1c05;
+  background: #ffd166;
+  box-shadow: 3px 3px 0 #7a5714;
 }
 
 .meta-text {
@@ -338,20 +449,82 @@ function arrowOf(value) {
   color: #c9a26a;
 }
 
-.board-grid {
+.board-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+/* 위 2행 = 상승장, 아래 2행 = 하락장 (4열 × 4행) */
+.board-group {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.group-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 12px;
+  background: #16100a;
+  box-shadow: inset 0 0 0 3px #3a2818;
+}
+
+.group-tag {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.group-name {
+  font-size: 19px;
+  letter-spacing: 0.08em;
+}
+
+.group-count {
+  margin-left: auto;
+  font-size: 14px;
+  color: #a98b64;
+}
+
+.board-group.is-up .group-head {
+  box-shadow: inset 0 0 0 3px var(--up-frame);
+}
+
+.board-group.is-up .group-tag,
+.board-group.is-up .group-name {
+  color: var(--up);
+}
+
+.board-group.is-down .group-head {
+  box-shadow: inset 0 0 0 3px var(--down-frame);
+}
+
+.board-group.is-down .group-tag,
+.board-group.is-down .group-name {
+  color: var(--down);
+}
+
+.group-grid {
   flex: 1 1 auto;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  grid-template-rows: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 8px;
   min-height: 0;
 }
 
 .board-card {
+  position: relative;
   display: flex;
-  align-items: stretch;
-  gap: 12px;
-  padding: 12px 16px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px 0;
   box-sizing: border-box;
   background: #17100a;
   box-shadow: inset 0 0 0 3px #3a2818;
@@ -359,32 +532,45 @@ function arrowOf(value) {
 }
 
 .board-card.is-up {
-  box-shadow: inset 0 0 0 3px #2f5b3c;
+  background: #1b0e0e;
+  box-shadow: inset 0 0 0 3px var(--up-frame);
 }
 
 .board-card.is-down {
-  box-shadow: inset 0 0 0 3px #6a2c2c;
+  background: #0c1220;
+  box-shadow: inset 0 0 0 3px var(--down-frame);
 }
 
-.card-rank {
-  flex: 0 0 auto;
-  display: flex;
+.board-card.is-empty {
   align-items: center;
-  font-size: 22px;
-  color: #8a6a44;
+  justify-content: center;
+  padding: 0;
+  box-shadow: inset 0 0 0 3px var(--flat-frame);
 }
 
-.card-main {
-  flex: 1 1 auto;
+.card-empty-text {
+  font-size: 22px;
+  color: #55452f;
+}
+
+.card-top {
   display: flex;
-  flex-direction: column;
-  justify-content: center;
+  align-items: baseline;
   gap: 6px;
   min-width: 0;
 }
 
+.card-rank {
+  flex: 0 0 auto;
+  font-size: 14px;
+  color: #8a6a44;
+  font-variant-numeric: tabular-nums;
+}
+
 .card-name {
-  font-size: 26px;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 19px;
   color: #ffe9c2;
   white-space: nowrap;
   overflow: hidden;
@@ -392,56 +578,54 @@ function arrowOf(value) {
 }
 
 .card-price {
-  font-size: 34px;
-  line-height: 1;
+  font-size: 27px;
+  line-height: 1.15;
   font-variant-numeric: tabular-nums;
   color: #f6ecd8;
 }
 
 .price-unit {
   margin-left: 2px;
-  font-size: 20px;
+  font-size: 16px;
   color: #c9a26a;
 }
 
 .card-side {
-  flex: 0 0 auto;
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  justify-content: center;
-  gap: 2px;
+  align-items: baseline;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
 }
 
 .card-change {
-  font-size: 24px;
-  font-variant-numeric: tabular-nums;
+  font-size: 18px;
 }
 
 .board-card.is-up .card-change {
-  color: #7cf29c;
+  color: var(--up-soft);
 }
 
 .board-card.is-down .card-change {
-  color: #ff8a8a;
+  color: var(--down-soft);
+}
+
+.board-card.is-flat .card-change {
+  color: var(--flat);
 }
 
 .card-diff {
-  font-size: 15px;
+  font-size: 13px;
   color: #a98b64;
-  font-variant-numeric: tabular-nums;
 }
 
 .card-spark {
-  width: 124px;
-  height: 40px;
-  margin-top: 4px;
+  width: calc(100% + 20px);
+  height: 32px;
+  margin: auto -10px 0;
   overflow: visible;
 }
 
 .board-empty {
-  grid-column: 1 / -1;
-  align-self: center;
   margin: 0;
   text-align: center;
   font-size: 28px;
@@ -480,11 +664,15 @@ function arrowOf(value) {
 }
 
 .ing-chip.is-up {
-  color: #7cf29c;
+  color: var(--up-soft);
 }
 
 .ing-chip.is-down {
-  color: #ff8a8a;
+  color: var(--down-soft);
+}
+
+.ing-chip.is-flat {
+  color: var(--flat);
 }
 
 .ing-chip b {
@@ -538,7 +726,7 @@ function arrowOf(value) {
 
 .ticker-item em {
   font-style: normal;
-  color: #7cf29c;
+  color: #ffd166;
 }
 
 @keyframes ticker-scroll {
