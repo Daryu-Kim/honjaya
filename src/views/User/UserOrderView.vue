@@ -43,7 +43,8 @@
         </div>
 
         <p v-if="isMarketOn" class="market-notice">
-          📈 실시간 시세 적용 중 · 칵테일·시그니처·위스키만 가격이 변동돼요
+          📈 실시간 시세 적용 중 · 칵테일·시그니처·샷·논알콜·위스키 메뉴만
+          가격이 변동돼요
         </p>
       </header>
 
@@ -467,7 +468,7 @@ const selectedOptionsFlat = computed(() => {
 // 옵션 시트의 기준 가격. 시세가 켜져 있으면 실시간 가격을 씁니다.
 const sheetBasePrice = computed(() => market.priceFor(selectedProduct.value));
 
-// 칵테일·시그니처·위스키만 시세가 붙으므로, 옵션 시트의 라벨도 메뉴별로 구분합니다.
+// 칵테일·시그니처·샷·논알콜·위스키만 시세가 붙으므로, 옵션 시트의 라벨도 메뉴별로 구분합니다.
 const isSheetMarket = computed(
   () => isMarketOn.value && market.participates(selectedProduct.value)
 );
