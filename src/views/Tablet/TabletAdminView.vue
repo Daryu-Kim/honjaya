@@ -584,7 +584,10 @@
 
         <div class="market-category-block">
           <h3>참여 메뉴 카테고리</h3>
-          <p>아무것도 고르지 않으면 모든 메뉴가 참여합니다.</p>
+          <p>
+            아무것도 고르지 않으면 칵테일·위스키 카테고리만 참여합니다. 나머지
+            메뉴는 기본가로 판매돼요.
+          </p>
 
           <div class="market-category-row">
             <label
@@ -1719,7 +1722,9 @@
 
           <div class="modal-section">
             <div class="modal-info-row">
-              <span>{{ marketEnabled ? "실시간 시세" : "기본 가격" }}</span>
+              <span>{{
+                manualSheetIsMarket ? "실시간 시세" : "기본 가격"
+              }}</span>
               <strong> {{ formatPrice(manualSheetBasePrice) }}원 </strong>
             </div>
           </div>
@@ -2232,7 +2237,7 @@ async function toggleMarket() {
 
   if (nextEnabled) {
     const confirmed = window.confirm(
-      `실시간 시세를 켤까요?\n\n참여 메뉴 ${market.productCount.value}종의 가격이 실시간으로 움직이고,\n손님 주문 금액에도 그 가격이 그대로 적용됩니다.\n\n켜면 모든 메뉴가 기본가에서 출발해 약 10분에 걸쳐 시세가 붙습니다.`
+      `실시간 시세를 켤까요?\n\n참여 메뉴 ${market.productCount.value}종의 가격이 실시간으로 움직이고,\n손님 주문 금액에도 그 가격이 그대로 적용됩니다.\n\n켜면 모든 메뉴가 기본가에서 출발해 약 10분에 걸쳐 시세가 붙습니다.\n칵테일·위스키에만 적용되고 나머지 메뉴는 기본가로 판매됩니다.`
     );
 
     if (!confirmed) return;
@@ -2731,6 +2736,13 @@ const manualSelectedOptionsFlat = computed(() => {
 // 수동 주문도 손님 주문과 같은 시세를 씁니다.
 const manualSheetBasePrice = computed(() =>
   market.priceFor(manualOptionModalState.value.product)
+);
+
+// 칵테일·위스키만 시세가 붙으므로, 옵션 시트 라벨도 메뉴별로 구분합니다.
+const manualSheetIsMarket = computed(
+  () =>
+    marketEnabled.value &&
+    market.participates(manualOptionModalState.value.product)
 );
 
 const manualOptionUnitPrice = computed(() => {

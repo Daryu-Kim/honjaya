@@ -85,6 +85,14 @@ function fetchMarketProducts() {
   });
 }
 
+// 시세 참여 카테고리 판별용. 칵테일·위스키만 시세에 참여합니다.
+function fetchMarketCategories() {
+  return fetchList("categories", {
+    columns: ["id", "name", "code", "sortOrder"],
+    order: ["sortOrder", "asc"],
+  });
+}
+
 // TV / 손님 / 태블릿이 함께 쓰는 시세 피드.
 // 모든 화면이 같은 초에 같은 가격을 계산하므로 별도 동기화가 필요 없습니다.
 export function useMarketFeed(options = {}) {
@@ -98,6 +106,7 @@ export function useMarketFeed(options = {}) {
   const config = ref(normalizeMarketConfig(null));
   const products = ref([]);
   const orders = ref([]);
+  const categories = ref([]);
   const nowTick = ref(Date.now());
   const loading = ref(true);
   const error = ref("");
@@ -109,6 +118,7 @@ export function useMarketFeed(options = {}) {
       config: config.value,
       products: products.value,
       orders: orders.value,
+      categories: categories.value,
     })
   );
 
@@ -142,13 +152,34 @@ export function useMarketFeed(options = {}) {
     }
   }
 
+  async function loadCategories() {
+    try {
+      categories.value = await fetchMarketCategories();
+    } catch (loadError) {
+      error.value = loadError?.message || "카테고리를 불러오지 못했어요.";
+    }
+  }
+
   async function refresh() {
-    await Promise.all([loadConfig(), loadProducts(), loadOrders()]);
+    await Promise.all([
+      loadConfig(),
+      loadProducts(),
+      loadOrders(),
+      loadCategories(),
+    ]);
     loading.value = false;
   }
 
   function priceOf(productId, basePrice) {
     return engine.value.priceOf(productId, basePrice, nowTick.value);
+  }
+
+  // 이 메뉴가 실제로 시세에 참여하는지(칵테일·위스키인지) 확인합니다.
+  function participates(productOrId) {
+    const productId =
+      typeof productOrId === "string" ? productOrId : productOrId?.id;
+
+    return Boolean(productId) && engine.value.isEligible(productId);
   }
 
   // 손님 화면/수동 주문에서 쓰는 최종 단가.
@@ -242,7 +273,8 @@ export function useMarketFeed(options = {}) {
             pollMs: configPollMs,
           }),
           subscribeTable("products", loadProducts, { pollMs: dataPollMs }),
-          subscribeTable("orders", loadOrders, { pollMs: dataPollMs })
+          subscribeTable("orders", loadOrders, { pollMs: dataPollMs }),
+          subscribeTable("categories", loadCategories, { pollMs: dataPollMs })
         );
         loading.value = false;
       } else {
@@ -264,6 +296,7 @@ export function useMarketFeed(options = {}) {
     config,
     products,
     orders,
+    categories,
     nowTick,
     loading,
     error,
@@ -274,6 +307,7 @@ export function useMarketFeed(options = {}) {
     productCount,
     refresh,
     priceOf,
+    participates,
     priceFor,
     livePriceFor,
     priceForCartItem,

@@ -94,7 +94,7 @@ export function getProductCategoryIds(product) {
   return [...ids];
 }
 
-export function isMarketProduct(product, config = DEFAULT_MARKET_CONFIG) {
+export function isMarketEligible(product) {
   if (!product) {
     return false;
   }
@@ -103,7 +103,11 @@ export function isMarketProduct(product, config = DEFAULT_MARKET_CONFIG) {
     return false;
   }
 
-  if (Number(product.basePrice || 0) <= 0) {
+  return Number(product.basePrice || 0) > 0;
+}
+
+export function isMarketProduct(product, config = DEFAULT_MARKET_CONFIG) {
+  if (!isMarketEligible(product)) {
     return false;
   }
 
@@ -114,6 +118,28 @@ export function isMarketProduct(product, config = DEFAULT_MARKET_CONFIG) {
   }
 
   return getProductCategoryIds(product).some((id) => categoryIds.includes(id));
+}
+
+// 시세는 칵테일·위스키만 대상으로 합니다. (이벤트/맥주/음료/음식은 제외)
+export const MARKET_CATEGORY_KEYWORDS = ["칵테일", "위스키"];
+export const MARKET_CATEGORY_CODES = ["cocktail", "whisky", "whiskey"];
+
+export function resolveMarketCategoryIds(categories = []) {
+  return (Array.isArray(categories) ? categories : [])
+    .filter((category) => {
+      if (!category) {
+        return false;
+      }
+
+      const name = String(category.name || "");
+      const code = String(category.code || "").toLowerCase();
+
+      return (
+        MARKET_CATEGORY_KEYWORDS.some((word) => name.includes(word)) ||
+        MARKET_CATEGORY_CODES.some((word) => code.includes(word))
+      );
+    })
+    .map((category) => String(category.id));
 }
 
 /* ------------------------------------------------------------------ */
@@ -172,10 +198,18 @@ export function createMarketEngine({
   config,
   products = [],
   orders = [],
+  categories = [],
 } = {}) {
   const settings = normalizeMarketConfig(config);
-  const tradableProducts = (products || []).filter((product) =>
-    isMarketProduct(product, settings)
+  // 관리자가 참여 카테고리를 직접 고르지 않으면 칵테일·위스키만 시세에 참여합니다.
+  const categoryIds =
+    settings.categoryIds.length > 0
+      ? settings.categoryIds
+      : resolveMarketCategoryIds(categories);
+  const tradableProducts = (products || []).filter(
+    (product) =>
+      isMarketEligible(product) &&
+      getProductCategoryIds(product).some((id) => categoryIds.includes(id))
   );
   const productMap = new Map(
     tradableProducts.map((product) => [product.id, product])
