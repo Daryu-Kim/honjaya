@@ -172,6 +172,8 @@ npx supabase functions deploy send-chat-push --project-ref <PROJECT_REF>
 5. `patch-007` 실행 (새 메시지 → Edge Function 트리거)
 
 > 서비스 워커는 프로덕션 빌드에서만 등록되므로, 알림 수신 테스트는 `pnpm build` 후 배포본(HTTPS)에서 진행하세요.
+>
+> 배포 후에는 새 서비스 워커가 즉시 활성화(`skipWaiting` + `clientsClaim`)되고, 10분마다 업데이트를 확인합니다. 새 빌드가 잡히면 화면이 자동으로 한 번 새로고침되므로 TV·태블릿처럼 오래 켜두는 화면도 옛 번들이 남지 않습니다.
 
 #### 브라우저 지원
 

@@ -580,10 +580,16 @@ function truncate(value, limit) {
   return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
 
-function seatStyle(seat) {
-  const palette = getCharacterPalette(seat.characterStyle, seat.tableNumber);
-  const layer = bubbleLayerOf(seat.tableNumber);
-  const delaySeed = Math.abs(Number(seat.tableNumber) || 0) % 7;
+function seatStyle(slot) {
+  // buildTableSlots() passes a slot; the guest's own styling lives on slot.seat.
+  const seat = slot.seat;
+  const tableNumber = String(slot.tableNumber || "");
+  const palette = getCharacterPalette(
+    seat ? seat.characterStyle : null,
+    tableNumber
+  );
+  const layer = bubbleLayerOf(tableNumber);
+  const delaySeed = Math.abs(Number(tableNumber) || 0) % 7;
 
   return {
     "--hair": palette.hair,
@@ -1263,6 +1269,7 @@ onUnmounted(() => {
   animation: guest-breathe 4.2s ease-in-out infinite;
   animation-delay: var(--breath-delay, 0s);
   transform-origin: 50% 100%;
+  will-change: transform;
 }
 
 @keyframes guest-breathe {
@@ -1272,7 +1279,7 @@ onUnmounted(() => {
   }
 
   50% {
-    transform: translateY(-3px) scaleY(1.012);
+    transform: translateY(-6px) scaleY(1.03);
   }
 }
 
@@ -1562,6 +1569,7 @@ onUnmounted(() => {
   filter: drop-shadow(0 6px 0 rgba(0, 0, 0, 0.3));
   animation: staff-breathe 5.2s ease-in-out infinite;
   transform-origin: 50% 100%;
+  will-change: transform;
 }
 
 @keyframes staff-breathe {
@@ -1571,7 +1579,7 @@ onUnmounted(() => {
   }
 
   50% {
-    transform: translateY(-2px) scaleY(1.01);
+    transform: translateY(-4px) scaleY(1.022);
   }
 }
 
