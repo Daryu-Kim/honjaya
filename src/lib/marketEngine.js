@@ -12,6 +12,10 @@ const DEMAND_LOOKBACK_MS = 30 * 60 * 1000;
 const DEMAND_DECAY_MS = 12 * 60 * 1000;
 const DEMAND_BUCKET_MS = 60 * 1000;
 
+// 시세를 켠 직후에는 기본가에서 출발해 이 시간 동안 서서히 시세가 붙습니다.
+// (이벤트성 기능이라 "켜자마자 훅 튄 가격"이 보이지 않게 하기 위함)
+export const MARKET_STARTUP_MS = 10 * 60 * 1000;
+
 export const DEFAULT_MARKET_CONFIG = {
   enabled: false,
   applyToOrders: true,
@@ -195,6 +199,17 @@ export function createMarketEngine({
     return settings.enabled && !isFrozen(ts);
   }
 
+  // 시세를 켠 직후에는 기본가에서 출발해 이 시간 동안 서서히 변동이 붙습니다.
+  function startupRamp(ts) {
+    const startedAt = toMillis(settings.startedAt);
+
+    if (!startedAt) {
+      return 1;
+    }
+
+    return clamp((ts - startedAt) / MARKET_STARTUP_MS, 0, 1);
+  }
+
   function demandSnapshot(ts) {
     const bucket = Math.floor(ts / DEMAND_BUCKET_MS) * DEMAND_BUCKET_MS;
     const cached = demandCache.get(bucket);
@@ -314,6 +329,8 @@ export function createMarketEngine({
       return basePrice;
     }
 
+    // startedAt 이 없으면(구버전 설정) 예전처럼 바로 시세가 적용됩니다.
+    const ramp = startupRamp(ts);
     const seed = `${settings.seed}:${product.id}`;
     const seconds = ts / 1000;
     const wave =
@@ -324,10 +341,16 @@ export function createMarketEngine({
       (random01(`${seed}:jitter:${Math.floor(seconds)}`) - 0.5) * 2;
     const demand = demandSnapshot(ts);
     const pressure = pressureOf(product, demand);
-    const factor =
-      1 + (0.26 * wave + 0.008 * jitter) * settings.volatility + pressure;
+    const drift = (0.26 * wave + 0.008 * jitter) * settings.volatility;
+    const factor = 1 + (drift + pressure) * ramp;
     const limit = settings.maxChangePct / 100;
     const bounded = clamp(factor, 1 - limit, 1 + limit);
+
+    // 출발 시점(ramp=0)에는 반올림 없이 기본가 그대로 보여줍니다.
+    if (bounded === 1) {
+      return basePrice;
+    }
+
     const price = Math.round((basePrice * bounded) / 100) * 100;
 
     return Math.max(100, price);
@@ -431,6 +454,7 @@ export function createMarketEngine({
     }
 
     const demand = demandSnapshot(ts);
+    const ramp = startupRamp(ts);
 
     return [...graph.byIngredient.keys()]
       .map((name) => {
@@ -440,13 +464,9 @@ export function createMarketEngine({
         const wave =
           0.7 * octave(`${seed}:slow`, seconds / 150) +
           0.3 * octave(`${seed}:mid`, seconds / 23);
-        const factor = clamp(
-          1 +
-            0.18 * wave * settings.volatility +
-            0.16 * settings.chainWeight * heatZ,
-          0.55,
-          1.8
-        );
+        const swing = 0.18 * wave * settings.volatility;
+        const heat = 0.16 * settings.chainWeight * heatZ;
+        const factor = clamp(1 + (swing + heat) * ramp, 0.55, 1.8);
 
         return {
           name,

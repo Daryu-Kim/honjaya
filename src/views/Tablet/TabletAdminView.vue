@@ -2232,7 +2232,7 @@ async function toggleMarket() {
 
   if (nextEnabled) {
     const confirmed = window.confirm(
-      `실시간 시세를 켤까요?\n\n참여 메뉴 ${market.productCount.value}종의 가격이 실시간으로 움직이고,\n손님 주문 금액에도 그 가격이 그대로 적용됩니다.`
+      `실시간 시세를 켤까요?\n\n참여 메뉴 ${market.productCount.value}종의 가격이 실시간으로 움직이고,\n손님 주문 금액에도 그 가격이 그대로 적용됩니다.\n\n켜면 모든 메뉴가 기본가에서 출발해 약 10분에 걸쳐 시세가 붙습니다.`
     );
 
     if (!confirmed) return;
