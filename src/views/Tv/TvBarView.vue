@@ -103,7 +103,7 @@
                 <svg
                   v-if="slot.seat"
                   class="seat-guest"
-                  viewBox="0 0 24 24"
+                  :viewBox="GUEST_SPRITE_VIEW_BOX"
                   aria-hidden="true"
                   focusable="false"
                 >
@@ -150,7 +150,7 @@
               <div class="counter-staff">
                 <svg
                   class="staff-figure"
-                  viewBox="0 0 24 24"
+                  :viewBox="GUEST_SPRITE_VIEW_BOX"
                   aria-hidden="true"
                   focusable="false"
                 >
@@ -239,6 +239,7 @@ import {
   normalizeCharacterStyle,
 } from "@/lib/characterStyle";
 import {
+  GUEST_SPRITE_VIEW_BOX,
   STAFF_PARTS,
   buildGuestParts,
   buildSpritePaths,
@@ -579,6 +580,7 @@ function seatStyle(seat) {
     "--hair-light": palette.hairLight,
     "--skin": palette.skin,
     "--skin-shadow": palette.skinShadow,
+    "--skin-light": palette.skinLight,
     "--shirt": palette.shirt,
     "--shirt-dark": palette.shirtDark,
     ...(layer > 0 ? { zIndex: String(6 + layer) } : {}),
@@ -1223,7 +1225,9 @@ onUnmounted(() => {
   align-items: center;
   --skin: #f7d5b5;
   --skin-shadow: #e3b391;
+  --skin-light: #ffe6cd;
   --eye: #241b33;
+  --eye-light: #fff6fa;
   --mouth: #c8627a;
   --blush: #f6a2ae;
 }
@@ -1301,6 +1305,10 @@ onUnmounted(() => {
   fill: var(--skin-shadow);
 }
 
+.guest-skin-light {
+  fill: var(--skin-light);
+}
+
 .guest-shirt {
   fill: var(--shirt);
 }
@@ -1311,6 +1319,10 @@ onUnmounted(() => {
 
 .guest-eye {
   fill: var(--eye);
+}
+
+.guest-eye-light {
+  fill: var(--eye-light);
 }
 
 .guest-blush {
@@ -1503,7 +1515,9 @@ onUnmounted(() => {
   --hair-light: #4b445e;
   --skin: #f7d5b5;
   --skin-shadow: #e3b391;
+  --skin-light: #ffe6cd;
   --eye: #241b33;
+  --eye-light: #fff6fa;
   --mouth: #c8627a;
   --blush: #f6a2ae;
   --shirt: #f4f1ea;

@@ -92,7 +92,7 @@
           <div class="menu-icon">
             <svg
               class="character-mini"
-              viewBox="0 0 24 24"
+              :viewBox="GUEST_SPRITE_VIEW_BOX"
               :style="characterPaletteStyle(characterStyle)"
               aria-hidden="true"
               focusable="false"
@@ -291,7 +291,7 @@
           <div class="character-preview">
             <svg
               class="character-preview-figure"
-              viewBox="0 0 24 24"
+              :viewBox="GUEST_SPRITE_VIEW_BOX"
               :style="characterPaletteStyle(characterDraft)"
               aria-hidden="true"
               focusable="false"
@@ -392,7 +392,7 @@ import {
   getCharacterPalette,
   resolveCharacterStyle,
 } from "@/lib/characterStyle";
-import { buildGuestParts } from "@/lib/pixelGuest";
+import { buildGuestParts, GUEST_SPRITE_VIEW_BOX } from "@/lib/pixelGuest";
 import { fetchHeartTargets, sendAnonymousHeart } from "@/lib/hearts";
 
 const router = useRouter();
@@ -522,6 +522,7 @@ function characterPaletteStyle(value) {
   return {
     "--skin": palette.skin,
     "--skin-shadow": palette.skinShadow,
+    "--skin-light": palette.skinLight,
     "--hair": palette.hair,
     "--hair-light": palette.hairLight,
     "--shirt": palette.shirt,
@@ -894,6 +895,7 @@ onMounted(() => {
   height: 44px;
   image-rendering: pixelated;
   --eye: #241b33;
+  --eye-light: #fff6fa;
   --mouth: #c8627a;
   --blush: #f6a2ae;
 }
@@ -914,6 +916,10 @@ onMounted(() => {
   fill: var(--skin-shadow);
 }
 
+.guest-skin-light {
+  fill: var(--skin-light);
+}
+
 .guest-shirt {
   fill: var(--shirt);
 }
@@ -924,6 +930,10 @@ onMounted(() => {
 
 .guest-eye {
   fill: var(--eye);
+}
+
+.guest-eye-light {
+  fill: var(--eye-light);
 }
 
 .guest-blush {
@@ -955,6 +965,7 @@ onMounted(() => {
   height: 104px;
   image-rendering: pixelated;
   --eye: #241b33;
+  --eye-light: #fff6fa;
   --mouth: #c8627a;
   --blush: #f6a2ae;
 }

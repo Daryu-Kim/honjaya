@@ -36,12 +36,48 @@ export const CHARACTER_BODY_TYPES = {
 };
 
 export const CHARACTER_SKIN_TONES = [
-  { id: "warm", label: "웜톤", skin: "#f7d5b5", skinShadow: "#e3b391" },
-  { id: "ivory", label: "아이보리", skin: "#ffe6d1", skinShadow: "#eec3a6" },
-  { id: "honey", label: "허니", skin: "#e6b185", skinShadow: "#c68a62" },
-  { id: "cocoa", label: "코코아", skin: "#b57b52", skinShadow: "#8f5c3b" },
-  { id: "olive", label: "올리브", skin: "#cf9c69", skinShadow: "#a97445" },
-  { id: "rosy", label: "로지", skin: "#fbd9c6", skinShadow: "#e7b3a0" },
+  {
+    id: "warm",
+    label: "웜톤",
+    skin: "#f7d5b5",
+    skinLight: "#ffe3cb",
+    skinShadow: "#e3b391",
+  },
+  {
+    id: "ivory",
+    label: "아이보리",
+    skin: "#ffe6d1",
+    skinLight: "#fff2e6",
+    skinShadow: "#eec3a6",
+  },
+  {
+    id: "honey",
+    label: "허니",
+    skin: "#e6b185",
+    skinLight: "#f3c9a4",
+    skinShadow: "#c68a62",
+  },
+  {
+    id: "cocoa",
+    label: "코코아",
+    skin: "#b57b52",
+    skinLight: "#cd9270",
+    skinShadow: "#8f5c3b",
+  },
+  {
+    id: "olive",
+    label: "올리브",
+    skin: "#cf9c69",
+    skinLight: "#e0b489",
+    skinShadow: "#a97445",
+  },
+  {
+    id: "rosy",
+    label: "로지",
+    skin: "#fbd9c6",
+    skinLight: "#ffe8db",
+    skinShadow: "#e7b3a0",
+  },
 ];
 
 export const CHARACTER_HAIR_TONES = [
@@ -72,6 +108,9 @@ export const CHARACTER_HAIRSTYLES = [
   { id: "bob", label: "단발" },
   { id: "ponytail", label: "포니테일" },
   { id: "bun", label: "묶음머리" },
+  { id: "buzz", label: "삭발" },
+  { id: "twoblock", label: "투블럭" },
+  { id: "landing", label: "상륙돌격" },
 ];
 
 export const CHARACTER_EYE_STYLES = [
@@ -223,6 +262,7 @@ export function getCharacterPalette(value, tableNumber) {
 
   return {
     skin: skin.skin,
+    skinLight: skin.skinLight,
     skinShadow: skin.skinShadow,
     hair: hair.hair,
     hairLight: hair.hairLight,
