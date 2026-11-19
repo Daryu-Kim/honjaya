@@ -33,8 +33,7 @@ server/
 │  ├─ import-supabase-export.mjs  Supabase CSV 백업 가져오기(멱등)
 │  └─ smoke-test.mjs      임베디드 Postgres로 36개 자동 검증
 ├─ deploy/
-│  ├─ README.md           노트북 배포 전체 절차
-│  ├─ nginx/honjaya.conf  프런트엔드 정적 서빙 + API 프록시
+│  ├─ README.md           노트북 배포 전체 절차 (프런트엔드=Vercel)
 │  └─ backup-db.sh        pg_dump 백업 + 보관 기간 정리
 ├─ Dockerfile
 └─ docker-compose.yml
@@ -88,7 +87,7 @@ VUE_APP_SUPABASE_PUBLISHABLE_KEY=<server/.env 의 ANON_KEY 값>
 
 ## 4. 노트북을 서버로 쓰기 (권장 구성)
 
-**전체 절차는 [deploy/README.md](deploy/README.md) 에 순서대로 정리되어 있습니다.** 요약하면 아래 4줄입니다.
+**전체 절차는 [deploy/README.md](deploy/README.md) 에 순서대로 정리되어 있습니다.** 서버 쪽 요약은 아래와 같습니다.
 
 ```bash
 cd server
@@ -101,13 +100,13 @@ docker compose run --rm import      # 최초 1회 데이터 이관 (csv/ 폴더)
 | 컨테이너 | 역할 | 포트 |
 | --- | --- | --- |
 | `db` | PostgreSQL 16 (데이터는 `server/pgdata`) | 내부 전용 |
-| `api` | PostgREST 호환 API | `3000` |
-| `web` | nginx — `../dist` 정적 서빙 + `/rest/v1`·`/api` 프록시 | `80` |
+| `api` | PostgREST 호환 API | `127.0.0.1:3000` (호스트 로컬 전용) |
 
 - `restart: unless-stopped` 이므로 노트북을 재부팅해도 자동으로 올라옵니다.
-- 외부 접속은 **Cloudflare Tunnel** 을 권장합니다(공유기 포트 개방 불필요, HTTPS 자동).
-- 프런트엔드는 `VUE_APP_SUPABASE_URL=/` 로 빌드하면 nginx 와 같은 오리진을 쓰므로,
-  도메인이 바뀌어도 재빌드가 필요 없습니다.
+- 프런트엔드는 **Vercel** 이 서빙하고, 노트북 API 를 HTTPS 로 직접 호출합니다.
+  외부 노출은 **Cloudflare Tunnel** 을 권장합니다(공유기 포트 개방 불필요, HTTPS 자동).
+- Vercel 환경변수: `VUE_APP_SUPABASE_URL=https://api.<도메인>`, `VUE_APP_SUPABASE_PUBLISHABLE_KEY=<ANON_KEY>`.
+  서버 `.env` 의 `CORS_ORIGINS` 에 Vercel 도메인을 넣어야 호출이 허용됩니다.
 
 > 정전/절전 대비: BIOS에서 "AC 전원 연결 시 자동 켜짐"을 켜고, OS에서 절전을 끄세요(`systemctl mask sleep.target suspend.target`).
 

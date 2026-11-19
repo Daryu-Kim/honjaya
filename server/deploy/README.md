@@ -1,27 +1,31 @@
-# 혼자야 노트북 서버 배포 가이드
+# 혼자야 서버 배포 가이드 (프런트엔드 = Vercel)
 
-집에 남는 노트북(i5-5300U / 16GB) 한 대에 **DB + API + 프런트엔드**를 모두 올리는 절차입니다.
-Docker Compose 하나로 3개 컨테이너(`db`, `api`, `web`)가 뜨고, `web`(nginx)이 정적 파일과 API를 같은 오리진에서 함께 서빙합니다.
+집에 남는 노트북(i5-5300U / 16GB) 한 대에 **DB + API** 를 올리는 절차입니다.
+프런트엔드(Vue)는 지금처럼 **Vercel** 이 서빙하고, 노트북의 API 를 HTTPS 로 호출합니다.
+노트북에서는 `db`(Postgres) · `api`(Node) **2개 컨테이너만** 뜹니다.
 
 ```
-                        ┌──────────────── 노트북 (Ubuntu 24.04) ────────────────┐
-   손님 폰 / 태블릿      │                                                      │
-        │               │   ┌─────────────┐        ┌──────────────┐            │
-        └── HTTPS ──────┼──▶│ web (nginx) │───────▶│  api (Node)  │            │
-            (Cloudflare │   │  :80        │  /rest/v1  :3000     │            │
-             Tunnel)    │   │  dist 정적   │  /api      │        │            │
-                        │   └─────────────┘        └──────┬───────┘            │
-                        │                                 │                    │
-                        │                          ┌──────▼───────┐            │
-                        │                          │ db (postgres)│            │
-                        │                          │ ./pgdata     │            │
-                        │                          └──────────────┘            │
-                        └──────────────────────────────────────────────────────┘
+   손님 폰 / 태블릿
+        │
+        │ HTTPS
+        ├──────────────────▶ Vercel (프런트엔드 정적 파일)
+        │                          │
+        │                          │  HTTPS + apikey 헤더
+        │                          ▼
+        │                 ┌────────────────────────┐
+        └────────────────▶│ Cloudflare Tunnel      │
+                          │ api.bar.example.com    │
+                          └───────────┬────────────┘
+                                      │ http://localhost:3000
+                          ┌───────────▼────────────┐
+                          │ 노트북 (Ubuntu 24.04)   │
+                          │   api  (Node)  :3000   │
+                          │   db   (Postgres 16)   │
+                          └────────────────────────┘
 ```
 
-`web` 이 `/rest/v1` 과 `/api` 를 프록시하므로 **프런트엔드는 API 주소를 몰라도 됩니다**(`VUE_APP_SUPABASE_URL=/`).
-그래서 같은 `dist` 로 `http://localhost`, `http://192.168.x.x`, `https://bar.example.com` 어디서든 동작하고,
-도메인이 바뀌어도 다시 빌드할 필요가 없습니다.
+- 프런트엔드는 `VUE_APP_SUPABASE_URL=https://api.bar.example.com` 으로 빌드되어 API 를 직접 호출합니다. 그래서 **CORS 허용**이 필요합니다(5단계).
+- 노트북의 3000 포트는 `127.0.0.1` 에만 열립니다. 인터넷에는 **Cloudflare Tunnel 로만** 노출되므로 공유기 포트 개방이 필요 없습니다.
 
 ---
 
@@ -31,8 +35,8 @@ Docker Compose 하나로 3개 컨테이너(`db`, `api`, `web`)가 뜨고, `web`(
 | --- | --- |
 | 노트북 | i5-5300U / 16GB (SSD 교체 권장) |
 | OS | Ubuntu Server 24.04 LTS (설치 USB 필요) |
-| 네트워크 | 공유기 LAN 케이블 연결 권장(Wi-Fi보다 안정적) |
-| 도메인 | 외부 접속 시 필요 (Cloudflare 무료 계정) |
+| 네트워크 | 공유기 LAN 케이블 연결 권장(Wi-Fi 보다 안정적) |
+| 도메인 | Cloudflare 에 등록된 도메인 (무료 플랜 가능) |
 | 백업 | Supabase CSV 백업 폴더 |
 
 ---
@@ -97,6 +101,8 @@ sudo chmod 600 /etc/netplan/50-cloud-init.yaml
 sudo netplan apply
 ```
 
+> Cloudflare Tunnel 을 쓰면 IP 가 바뀌어도 외부 접속은 계속 됩니다. 다만 SSH 관리 편의를 위해 고정을 권장합니다.
+
 ### 2-3. 자동 시간 동기화
 
 ```bash
@@ -142,7 +148,7 @@ cp .env.example .env
 nano .env
 ```
 
-최소한 아래 2개는 **반드시** 바꿉니다.
+최소한 아래 3개는 **반드시** 바꿉니다.
 
 ```dotenv
 # DB 비밀번호 (영문+숫자만 사용 — URL 에 들어가므로 특수문자는 피하세요)
@@ -151,68 +157,18 @@ POSTGRES_PASSWORD=바꿔주세요1234
 # 프런트엔드가 보낼 API 키 (아무 긴 문자열. 비우면 인증이 꺼집니다)
 ANON_KEY=바꿔주세요-임의의긴문자열
 
-# 배포 도메인만 허용 (터널 도메인이 없으면 * 로 두고 나중에 바꾸세요)
-CORS_ORIGINS=https://bar.example.com
+# 프런트엔드가 떠 있는 오리진만 허용 (Vercel 도메인)
+#   여러 개는 쉼표로 구분: https://honjaya.vercel.app,https://bar.example.com
+#   프리뷰 배포까지 다 허용하려면 * (권장하지 않음)
+CORS_ORIGINS=https://honjaya.vercel.app
 ```
 
 > `docker compose` 가 같은 폴더의 `.env` 를 자동으로 읽어 `${POSTGRES_PASSWORD}` 등을 채웁니다.
-> `ANON_KEY` 값은 6단계 프런트엔드 빌드에 그대로 다시 씁니다.
+> `ANON_KEY` 값은 6단계 Vercel 환경변수에 **똑같이** 넣어야 합니다.
 
 ---
 
-## 6. 프런트엔드 빌드 (`dist`)
-
-`VUE_APP_*` 값은 **빌드 시점에 박히므로** 반드시 빌드를 거쳐야 합니다.
-
-### 방법 A — 이 Windows PC에서 빌드해서 복사 (권장)
-
-빌드 도구를 노트북에 설치할 필요가 없어 가장 빠릅니다.
-
-```powershell
-# 1) API 주소를 "/" (같은 오리진) 로 두고 빌드
-cd C:\dev\honjaya
-$env:VUE_APP_SUPABASE_URL = "/"
-$env:VUE_APP_SUPABASE_PUBLISHABLE_KEY = "<server/.env 의 ANON_KEY 값>"
-
-pnpm run build
-```
-
-```powershell
-# 2) dist 를 노트북으로 복사 (dist 폴더가 새로 생깁니다)
-scp -r dist bar@<노트북 IP>:/opt/honjaya/
-```
-
-> 환경변수는 셸에 직접 넣어도 빌드에 그대로 반영됩니다(`VUE_APP_` 접두사만 맞추면 됨).
-> `.env.production.local` 파일로 만들고 싶다면 VS Code/메모장에서 **UTF-8(BOM 없이)** 로 저장하세요.
-> Windows PowerShell 5.1 의 `Set-Content -Encoding utf8` 은 BOM 을 붙여서 첫 키를 망칩니다.
-
-### 방법 B — 노트북에서 직접 빌드
-
-```bash
-# Node 20 LTS
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt install -y nodejs
-sudo npm i -g pnpm@10          # 저장소가 pnpm-lock.yaml 을 사용합니다
-
-cd /opt/honjaya
-pnpm install --frozen-lockfile
-
-cat > .env.production.local <<'EOF'
-VUE_APP_SUPABASE_URL=/
-VUE_APP_SUPABASE_PUBLISHABLE_KEY=<5단계의 ANON_KEY>
-EOF
-
-pnpm run build
-```
-
-> `VUE_APP_SUPABASE_URL=/` 로 두면 접속한 오리진을 그대로 씁니다.
-> nginx 를 거치지 않고 API 를 직접 호출하려면 `http://<노트북 IP>:3000` 처럼 절대 주소를 넣습니다.
-
-빌드 결과는 `/opt/honjaya/dist` 에 생깁니다. `server/docker-compose.yml` 의 `web` 서비스가 이 폴더를 그대로 물려서 서빙합니다.
-
----
-
-## 7. 컨테이너 기동
+## 6. 컨테이너 기동
 
 ```bash
 cd /opt/honjaya/server
@@ -220,15 +176,16 @@ docker compose up -d --build
 docker compose ps
 ```
 
-정상이면 `db`(healthy), `api`, `web` 3개가 `running` 으로 보입니다.
+정상이면 `db`(healthy) · `api`(running) 2개가 보입니다.
 
 ```bash
 docker compose logs -f api        # 로그 확인 (Ctrl+C 로 빠져나옴)
+curl http://localhost:3000/health # {"ok":true,"db":"up",...}
 ```
 
 ---
 
-## 8. 스키마 적용 + 데이터 이관 (최초 1회)
+## 7. 스키마 적용 + 데이터 이관 (최초 1회)
 
 ```bash
 cd /opt/honjaya/server
@@ -262,45 +219,37 @@ docker compose run --rm import node scripts/import-supabase-export.mjs --dir /cs
 ```
 
 > `pgdata/` 폴더가 이미 있는 상태에서 `POSTGRES_PASSWORD` 를 바꾸면 DB 에 접속할 수 없습니다.
-> 비밀번호를 바꾸려면 백업 후 `pgdata/` 를 지우고 8단계를 다시 실행하세요.
+> 비밀번호를 바꾸려면 백업 후 `pgdata/` 를 지우고 7단계를 다시 실행하세요.
 
 ---
 
-## 9. 동작 확인
+## 8. 로컬 동작 확인
 
 ```bash
-# nginx → api 프록시까지 한 번에 확인
-curl http://localhost/health
-# {"ok":true,"db":"up",...}
-
-# 실제 데이터
 ANON=$(grep '^ANON_KEY=' /opt/honjaya/server/.env | cut -d= -f2-)
-curl -s -H "apikey: $ANON" "http://localhost/rest/v1/categories?select=id,name&limit=3"
 
-# 프런트엔드
-curl -s -o /dev/null -w "%{http_code}\n" http://localhost/     # 200
-
-# 다른 PC/폰에서 (같은 Wi-Fi)
-#   http://<노트북 IP>/
+curl http://localhost:3000/health
+curl -s -H "apikey: $ANON" "http://localhost:3000/rest/v1/categories?select=id,name&limit=3"
 ```
 
-같은 네트워크의 폰에서 열었을 때 화면이 나오면 1차 성공입니다.
+데이터가 JSON 으로 나오면 서버는 준비 완료입니다.
+(포트가 `127.0.0.1` 에만 열려 있으므로 다른 PC/폰에서는 이 주소로 접속할 수 없습니다. 정상입니다.)
 
 ---
 
-## 10. 외부 접속 (Cloudflare Tunnel)
+## 9. 외부 공개 (Cloudflare Tunnel)
 
-공유기 포트를 열지 않고 HTTPS 를 붙이는 방법입니다.
+공유기 포트를 열지 않고 HTTPS 주소를 붙이는 방법입니다. **프런트엔드가 HTTPS 라서 API 도 HTTPS 여야** 합니다(HTTP 를 부르면 브라우저가 차단).
 
 ```bash
 # 1) 설치
 curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o cloudflared.deb
 sudo dpkg -i cloudflared.deb
 
-# 2) 로그인 + 터널 생성
+# 2) 로그인 + 터널 생성 (도메인은 Cloudflare 에 등록되어 있어야 함)
 cloudflared tunnel login
 cloudflared tunnel create honjaya
-cloudflared tunnel route dns honjaya bar.example.com
+cloudflared tunnel route dns honjaya api.bar.example.com
 ```
 
 `/etc/cloudflared/config.yml`:
@@ -309,20 +258,46 @@ cloudflared tunnel route dns honjaya bar.example.com
 tunnel: <위에서 출력된 TUNNEL_ID>
 credentials-file: /root/.cloudflared/<TUNNEL_ID>.json
 ingress:
-  - hostname: bar.example.com
-    service: http://localhost:80
+  - hostname: api.bar.example.com
+    service: http://localhost:3000
   - service: http_status:404
 ```
 
 ```bash
 sudo cloudflared service install
 sudo systemctl enable --now cloudflared
+sudo systemctl status cloudflared --no-pager
 ```
 
-이제 `https://bar.example.com` 으로 접속됩니다.
-프런트엔드가 `/` 기준으로 API를 호출하므로 **도메인이 바뀌어도 재빌드가 필요 없습니다**(`CORS_ORIGINS` 만 갱신).
+확인:
 
-> Cloudflare Tunnel 은 SSE(`/api/events`)를 그대로 통과시킵니다.
+```bash
+curl https://api.bar.example.com/health
+# {"ok":true,"db":"up",...}
+```
+
+> `cloudflared` 는 서버가 보내는 `: ping` 하트비트(25초) 덕분에 SSE(`/api/events`)도 그대로 통과합니다.
+
+---
+
+## 10. Vercel 설정 (프런트엔드)
+
+프런트엔드는 이미 Vercel 에 배포되어 있으므로 **환경변수만 추가하고 재배포**하면 됩니다.
+`VUE_APP_*` 값은 빌드 시점에 JS 번들에 박히기 때문에 재배포가 필수입니다.
+
+Vercel 대시보드 → 프로젝트 → **Settings → Environment Variables**:
+
+| Key | Value | 환경 |
+| --- | --- | --- |
+| `VUE_APP_SUPABASE_URL` | `https://api.bar.example.com` (9단계 터널 주소, 끝에 `/` 없이) | Production (필요 시 Preview 포함) |
+| `VUE_APP_SUPABASE_PUBLISHABLE_KEY` | `server/.env` 의 `ANON_KEY` 와 **똑같은 값** | Production (필요 시 Preview 포함) |
+
+저장 후 **Deployments → 최신 배포 → Redeploy** (환경변수는 재빌드해야 반영됩니다).
+
+> 커스텀 도메인(`https://bar.example.com`)으로 Vercel 을 쓰고 있다면 5단계 `CORS_ORIGINS` 에 그 도메인을 넣으세요.
+> Vercel 프리뷰 배포(`xxx-git-branch-....vercel.app`)에서도 테스트하려면 해당 오리진을 추가하거나, 임시로 `CORS_ORIGINS=*` 로 두고 `docker compose up -d` 로 재생성합니다.
+
+> 참고: `VUE_APP_SUPABASE_URL=/` 처럼 상대 경로를 넣으면 "접속한 오리진"을 쓰게 되는데, Vercel 에서는 그 오리진이 Vercel 자신이라 API 를 찾지 못합니다. Vercel 배포에서는 **반드시 절대 주소**를 넣으세요.
 
 ---
 
@@ -359,17 +334,20 @@ docker compose exec -T db pg_restore -U postgres -d honjaya --clean --if-exists 
 
 ## 12. 업데이트(재배포)
 
+### 프런트엔드만 수정한 경우
+
+Vercel 이 git push 를 감지해 자동으로 다시 빌드합니다. **노트북에서는 할 일이 없습니다.**
+
+### 서버(API/DB)를 수정한 경우
+
 ```bash
 cd /opt/honjaya
 git pull
-
-# 프런트엔드를 수정했다면 6단계대로 다시 빌드 (dist 갱신)
 cd server
 docker compose up -d --build
 ```
 
-`dist` 는 볼륨으로 물려 있으므로 **재빌드만 하면 nginx 재시작 없이** 반영됩니다.
-(단, 브라우저는 `index.html` 을 no-cache 로 받고 서비스 워커가 새 번들을 받아옵니다.)
+`.env` 를 바꿨다면 `docker compose up -d` 로 컨테이너를 **재생성**해야 반영됩니다(`restart` 로는 환경변수가 갱신되지 않습니다).
 
 ---
 
@@ -377,16 +355,16 @@ docker compose up -d --build
 
 | 증상 | 원인 / 해결 |
 | --- | --- |
-| `web` 접속 시 403 / 404 | `../dist` 가 비어 있음 → 6단계 빌드 확인 |
-| 502 Bad Gateway | `api` 컨테이너 비정상 → `docker compose logs api` |
-| `/health` 는 되는데 데이터가 안 나옴 | `ANON_KEY` 불일치 → `server/.env` 와 프런트 빌드 값 확인 |
-| 브라우저 콘솔에 CORS 에러 | `CORS_ORIGINS` 에 접속 도메인 추가 후 `docker compose up -d` |
-| DB 접속 실패(`password authentication failed`) | `pgdata/` 가 다른 비밀번호로 만들어짐 → 8단계 주의사항 참고 |
-| 폰에서 `localhost` 로 접속 안 됨 | 폰에서는 `localhost` 가 폰 자신입니다. 노트북 IP 또는 터널 도메인을 쓰세요 |
-| 같은 Wi-Fi 인데 폰에서 접속 안 됨 | `sudo ufw status` 로 방화벽 확인 → `sudo ufw allow 80/tcp` |
-| 화면이 예전 버전 | 강력 새로고침(Ctrl+Shift+R) 또는 서비스 워커 초기화 |
-| `docker compose run --rm import --dry-run` 이 "executable file not found" | 인자가 서비스 `command` 를 대체함 → 8단계의 전체 명령 사용 |
-| `pnpm run build` 가 `packages field missing or empty` 로 실패 | pnpm 9 이하 → `npm i -g pnpm@10` |
+| 브라우저 콘솔에 `blocked by CORS policy` | `CORS_ORIGINS` 에 Vercel 도메인 누락 → 5단계 수정 후 `docker compose up -d` |
+| 콘솔에 `Mixed Content` / `ERR_SSL_PROTOCOL_ERROR` | `VUE_APP_SUPABASE_URL` 이 `http://` → `https://` 터널 주소로 바꾸고 Vercel 재배포 |
+| API 가 `401` / `Invalid API key` | Vercel 의 `VUE_APP_SUPABASE_PUBLISHABLE_KEY` 와 `server/.env` 의 `ANON_KEY` 불일치 |
+| `502` / 응답 없음 | `docker compose ps` 로 `api` 상태 확인, `docker compose logs api` |
+| `https://api.../health` 접속 불가 | `sudo systemctl status cloudflared`, `/etc/cloudflared/config.yml` 의 `service` 값 확인 |
+| 폰에서 `http://<노트북 IP>:3000` 접속 안 됨 | 포트가 `127.0.0.1` 에만 열려 있음(의도된 동작). 필요하면 compose 의 `ports` 를 `"3000:3000"` 으로 임시 변경 |
+| DB 접속 실패(`password authentication failed`) | `pgdata/` 가 다른 비밀번호로 만들어짐 → 7단계 주의사항 참고 |
+| 화면이 예전 버전 | Vercel Redeploy 후 강력 새로고침(Ctrl+Shift+R) 또는 서비스 워커 초기화 |
+| `import` 실행 시 `executable file not found` | `docker compose run` 뒤 인자가 서비스 `command` 를 대체함 → 7단계의 전체 명령 사용 |
+| `pnpm` 관련 빌드 오류 (Vercel) | 로컬과 동일하게 pnpm 10 필요 → Vercel 프로젝트의 `Install Command`/`PNPM_VERSION` 확인 |
 
 자주 쓰는 명령:
 

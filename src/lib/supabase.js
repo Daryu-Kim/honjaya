@@ -9,8 +9,7 @@
 import { createClient } from "@supabase/supabase-js";
 
 // "/" 처럼 상대 경로로 지정하면 지금 접속한 오리진을 그대로 씁니다.
-// nginx 가 같은 오리진에서 /rest/v1 을 프록시하는 배포에서는
-// 도메인이 바뀌어도(로컬 IP → 터널 도메인) 프런트엔드를 다시 빌드할 필요가 없습니다.
+// (Vercel 처럼 프런트와 API 오리진이 다르면 절대 주소를 넣어야 합니다.)
 function resolveSupabaseUrl() {
   const raw = String(process.env.VUE_APP_SUPABASE_URL || "").trim();
 
