@@ -27,6 +27,9 @@
 - 프런트엔드는 `VUE_APP_SUPABASE_URL=https://api.bar.example.com` 으로 빌드되어 API 를 직접 호출합니다. 그래서 **CORS 허용**이 필요합니다(5단계).
 - 노트북의 3000 포트는 `127.0.0.1` 에만 열립니다. 인터넷에는 **Cloudflare Tunnel 로만** 노출되므로 공유기 포트 개방이 필요 없습니다.
 
+> 아래 문서에서 `api.bar.example.com` 은 **예시 도메인**입니다. 실제로는 Cloudflare Tunnel 에 연결할 본인 도메인으로 바꿔 읽으세요.
+> Vercel 프런트엔드 주소는 확정입니다 → **`https://honjaya.vercel.app`** (5단계 `CORS_ORIGINS` 에 이 값을 넣습니다).
+
 ---
 
 ## 0. 준비물
@@ -159,6 +162,7 @@ ANON_KEY=바꿔주세요-임의의긴문자열
 
 # 프런트엔드가 떠 있는 오리진만 허용 (Vercel 도메인)
 #   여러 개는 쉼표로 구분: https://honjaya.vercel.app,https://bar.example.com
+#   로컬에서 `pnpm run serve` 로 개발할 때도 쓰려면 http://localhost:8080 을 추가
 #   프리뷰 배포까지 다 허용하려면 * (권장하지 않음)
 CORS_ORIGINS=https://honjaya.vercel.app
 ```
@@ -294,7 +298,8 @@ Vercel 대시보드 → 프로젝트 → **Settings → Environment Variables**:
 
 저장 후 **Deployments → 최신 배포 → Redeploy** (환경변수는 재빌드해야 반영됩니다).
 
-> 커스텀 도메인(`https://bar.example.com`)으로 Vercel 을 쓰고 있다면 5단계 `CORS_ORIGINS` 에 그 도메인을 넣으세요.
+> 현재 운영 프런트엔드 오리진은 `https://honjaya.vercel.app` 이므로 5단계 `CORS_ORIGINS` 도 이 값으로 두면 됩니다.
+> 커스텀 도메인을 추가로 붙였다면 그 오리진을 쉼표로 이어서 넣으세요.
 > Vercel 프리뷰 배포(`xxx-git-branch-....vercel.app`)에서도 테스트하려면 해당 오리진을 추가하거나, 임시로 `CORS_ORIGINS=*` 로 두고 `docker compose up -d` 로 재생성합니다.
 
 > 참고: `VUE_APP_SUPABASE_URL=/` 처럼 상대 경로를 넣으면 "접속한 오리진"을 쓰게 되는데, Vercel 에서는 그 오리진이 Vercel 자신이라 API 를 찾지 못합니다. Vercel 배포에서는 **반드시 절대 주소**를 넣으세요.

@@ -80,7 +80,7 @@ VUE_APP_SUPABASE_PUBLISHABLE_KEY=<server/.env 의 ANON_KEY 값>
 | `DB_POOL_MAX` | `10` | 커넥션 풀 크기 |
 | `ANON_KEY` | (빈 값) | 비우면 인증 꺼짐. 값이 있으면 `apikey`/`Authorization: Bearer` 필수 |
 | `SERVICE_KEY` | (빈 값) | 관리자용 키(같이 허용됨) |
-| `CORS_ORIGINS` | `*` | 쉼표 구분. 배포 시 실제 도메인만 넣는 것을 권장 |
+| `CORS_ORIGINS` | `*` | 쉼표 구분. 배포 시 실제 도메인만 넣는 것을 권장 (예: `https://honjaya.vercel.app`) |
 | `LOG_LEVEL` | `info` | Fastify 로그 레벨 |
 
 ---
@@ -106,7 +106,7 @@ docker compose run --rm import      # 최초 1회 데이터 이관 (csv/ 폴더)
 - 프런트엔드는 **Vercel** 이 서빙하고, 노트북 API 를 HTTPS 로 직접 호출합니다.
   외부 노출은 **Cloudflare Tunnel** 을 권장합니다(공유기 포트 개방 불필요, HTTPS 자동).
 - Vercel 환경변수: `VUE_APP_SUPABASE_URL=https://api.<도메인>`, `VUE_APP_SUPABASE_PUBLISHABLE_KEY=<ANON_KEY>`.
-  서버 `.env` 의 `CORS_ORIGINS` 에 Vercel 도메인을 넣어야 호출이 허용됩니다.
+  서버 `.env` 의 `CORS_ORIGINS` 에 Vercel 도메인(`https://honjaya.vercel.app`)을 넣어야 호출이 허용됩니다.
 
 > 정전/절전 대비: BIOS에서 "AC 전원 연결 시 자동 켜짐"을 켜고, OS에서 절전을 끄세요(`systemctl mask sleep.target suspend.target`).
 
