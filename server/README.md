@@ -32,6 +32,10 @@ server/
 │  ├─ apply-schema.mjs    스키마 적용(멱등)
 │  ├─ import-supabase-export.mjs  Supabase CSV 백업 가져오기(멱등)
 │  └─ smoke-test.mjs      임베디드 Postgres로 36개 자동 검증
+├─ deploy/
+│  ├─ README.md           노트북 배포 전체 절차
+│  ├─ nginx/honjaya.conf  프런트엔드 정적 서빙 + API 프록시
+│  └─ backup-db.sh        pg_dump 백업 + 보관 기간 정리
 ├─ Dockerfile
 └─ docker-compose.yml
 ```
@@ -84,32 +88,26 @@ VUE_APP_SUPABASE_PUBLISHABLE_KEY=<server/.env 의 ANON_KEY 값>
 
 ## 4. 노트북을 서버로 쓰기 (권장 구성)
 
-1. **Ubuntu Server 24.04 LTS** 설치 (SSD 교체 권장, 16GB RAM이면 충분)
-2. Docker 설치 후:
+**전체 절차는 [deploy/README.md](deploy/README.md) 에 순서대로 정리되어 있습니다.** 요약하면 아래 4줄입니다.
 
-   ```bash
-   cd server
-   cp .env.example .env    # POSTGRES_PASSWORD, ANON_KEY 를 원하는 값으로 수정
-   docker compose up -d --build
-   docker compose run --rm migrate     # 최초 1회 스키마 적용
-   curl http://localhost:3000/health
-   ```
+```bash
+cd server
+cp .env.example .env    # POSTGRES_PASSWORD, ANON_KEY 를 원하는 값으로 수정
+docker compose up -d --build
+docker compose run --rm migrate     # 최초 1회 스키마 적용
+docker compose run --rm import      # 최초 1회 데이터 이관 (csv/ 폴더)
+```
 
-   - 데이터는 `server/pgdata` 폴더에 남습니다(백업은 이 폴더 또는 `pg_dump`).
-   - `migrate` 서비스는 레포의 `supabase/` 폴더를 읽어서 스키마를 적용합니다(최초 1회만 실행).
-   - `restart: unless-stopped` 이므로 노트북을 재부팅해도 자동으로 올라옵니다.
-3. **외부 접속**은 Cloudflare Tunnel 사용을 권장합니다(공유기 포트 개방 불필요, HTTPS 자동).
+| 컨테이너 | 역할 | 포트 |
+| --- | --- | --- |
+| `db` | PostgreSQL 16 (데이터는 `server/pgdata`) | 내부 전용 |
+| `api` | PostgREST 호환 API | `3000` |
+| `web` | nginx — `../dist` 정적 서빙 + `/rest/v1`·`/api` 프록시 | `80` |
 
-   ```bash
-   cloudflared tunnel login
-   cloudflared tunnel create honjaya
-   cloudflared tunnel route dns honjaya api.example.com
-   cloudflared tunnel run --url http://localhost:3000 honjaya
-   ```
-
-   → 프런트엔드 `.env`의 `VUE_APP_SUPABASE_URL`을 `https://api.example.com`으로 지정.
-   Cloudflare Tunnel은 SSE를 그대로 통과시키므로 실시간 알림도 동작합니다.
-4. **프런트엔드 정적 파일**은 같은 노트북의 nginx(또는 Caddy)로 `dist/`를 서빙하면 Supabase 없이 완전히 독립적으로 운영됩니다.
+- `restart: unless-stopped` 이므로 노트북을 재부팅해도 자동으로 올라옵니다.
+- 외부 접속은 **Cloudflare Tunnel** 을 권장합니다(공유기 포트 개방 불필요, HTTPS 자동).
+- 프런트엔드는 `VUE_APP_SUPABASE_URL=/` 로 빌드하면 nginx 와 같은 오리진을 쓰므로,
+  도메인이 바뀌어도 재빌드가 필요 없습니다.
 
 > 정전/절전 대비: BIOS에서 "AC 전원 연결 시 자동 켜짐"을 켜고, OS에서 절전을 끄세요(`systemctl mask sleep.target suspend.target`).
 
