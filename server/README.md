@@ -30,6 +30,7 @@ server/
 ├─ sql/events.sql         변경 알림 트리거(pg_notify)
 ├─ scripts/
 │  ├─ apply-schema.mjs    스키마 적용(멱등)
+│  ├─ import-supabase-export.mjs  Supabase CSV 백업 가져오기(멱등)
 │  └─ smoke-test.mjs      임베디드 Postgres로 36개 자동 검증
 ├─ Dockerfile
 └─ docker-compose.yml
@@ -116,17 +117,56 @@ VUE_APP_SUPABASE_PUBLISHABLE_KEY=<server/.env 의 ANON_KEY 값>
 
 ## 5. 기존 Supabase → 자체 서버 이전
 
-1. Supabase 대시보드에서 **Database → Backups/`pg_dump`** 로 데이터를 내려받습니다.
-   - 현재 프로젝트가 egress 초과로 정지(HTTP 402) 상태라 `pg_dump`가 막혀 있습니다.
-     한 달 Pro 결제 또는 할당량 리셋 후 한 번만 덤프하면 됩니다.
-2. 새 DB에 스키마 적용 후 덤프 복원:
+### 방법 A — CSV 백업 가져오기 (지금 바로 가능)
 
-   ```bash
-   npm run db:apply
-   psql "$DATABASE_URL" -f supabase_dump.sql   # 또는 docker compose exec -T db psql -U postgres honjaya < dump.sql
-   ```
+Supabase Table Editor → 테이블 선택 → **Export → CSV** 로 받은 `*_rows.csv` 파일을 그대로 넣습니다.
+파일 이름 접두사로 테이블을 알아서 찾으므로 이름을 바꾸지 마세요.
 
-3. 프런트엔드 `.env`의 URL/KEY를 자체 서버 값으로 교체하고 재배포합니다.
+```bash
+npm install
+npm run db:apply                                   # 스키마 + patch 전부 적용
+cp ~/Downloads/*_rows*.csv ~/supabase-export/       # 한 폴더에 모읍니다
+npm run db:import -- --dir ~/supabase-export        # 실제 반영
+npm run db:import -- --dir ~/supabase-export --dry-run   # 미리 확인만
+```
+
+- 여러 파일(`orders_rows.csv`, `orders_rows (1).csv`)이 있으면 자동으로 합쳐서 넣습니다.
+- `id` 기준 upsert 라 **재실행해도 중복이 생기지 않습니다.**
+- 넣는 순서: `categories` → `products` → `app_settings` → `counters` → `order_sheets` → `orders` → `active_order_sheets`.
+- 마지막에 `counters.last_sequence_no` 를 `max(order_sheets.sequence_no)` 이상으로 맞춰 주문서 번호가 이어집니다.
+- `active_order_sheets` 중 **마감됐거나 없는 주문서를 가리키는 행은 자동 제외**합니다. 통째로 건너뛰려면 `--skip-active`.
+
+#### 어떤 테이블을 받아야 하나
+
+| 테이블 | 필수 | 비고 |
+| --- | --- | --- |
+| `categories` | ✅ | 카테고리 13개 |
+| `products` | ✅ | **레시피는 `recipe_info`(JSON) 안에 있습니다.** `recipe_text` 는 대부분 비어 있습니다 |
+| `order_sheets` | ✅ | 주문서 이력 + 매출/정산 |
+| `orders` | ✅ | 주문 상세 이력 |
+| `counters` | ✅ | 주문서 번호 이어가기 |
+| `active_order_sheets` | ⭕ | 지금 열려 있는 테이블 표시용 (검증 후 반영) |
+| `app_settings` | ⭕ | 지금은 쓰는 값이 없어 비어 있어도 됩니다 |
+
+> `chat_messages`, `hearts`, `market_history`, `push_subscriptions` 는 삭제된 기능이라 필요 없습니다.
+
+### 방법 B — `pg_dump` (Supabase가 다시 열리면 이게 가장 깔끔)
+
+```bash
+pg_dump "postgresql://postgres.<ref>:<pw>@aws-0-<region>.pooler.supabase.com:5432/postgres" \
+  --data-only --no-owner --no-privileges \
+  -t public.categories -t public.products -t public.app_settings \
+  -t public.order_sheets -t public.orders -t public.counters \
+  -f supabase_data.sql
+
+npm run db:apply
+psql "$DATABASE_URL" -f supabase_data.sql
+```
+
+### 마지막 단계 (공통)
+
+프런트엔드 `.env`의 `VUE_APP_SUPABASE_URL` / `VUE_APP_SUPABASE_PUBLISHABLE_KEY` 를 자체 서버 값으로 바꾸고 **재빌드**합니다.
+(`VUE_APP_*` 는 빌드 시점에 값이 박히므로 URL만 바꿔서는 반영되지 않습니다.)
 
 ---
 

@@ -53,7 +53,7 @@ export const config = {
   port: Number(process.env.PORT || 3000),
   host: process.env.HOST || "0.0.0.0",
   databaseUrl:
-    process.env.DATABASE_URL || "postgres://honjaya:honjaya@127.0.0.1:5432/honjaya",
+    process.env.DATABASE_URL || "postgres://postgres:postgres@127.0.0.1:5432/honjaya",
   poolMax: Number(process.env.DB_POOL_MAX || 10),
   anonKey: String(process.env.ANON_KEY || "").trim(),
   serviceKey: String(process.env.SERVICE_KEY || "").trim(),
