@@ -104,7 +104,7 @@ docker compose run --rm import      # 최초 1회 데이터 이관 (csv/ 폴더)
 
 - `restart: unless-stopped` 이므로 노트북을 재부팅해도 자동으로 올라옵니다.
 - 프런트엔드는 **Vercel** 이 서빙하고, 노트북 API 를 HTTPS 로 직접 호출합니다.
-  외부 노출은 **Cloudflare Tunnel** 을 권장합니다(공유기 포트 개방 불필요, HTTPS 자동).
+  외부 노출은 **Tailscale Funnel** 을 권장합니다(무료 고정 HTTPS 주소, 공유기 포트 개방 불필요).
 - Vercel 환경변수: `VUE_APP_SUPABASE_URL=https://api.<도메인>`, `VUE_APP_SUPABASE_PUBLISHABLE_KEY=<ANON_KEY>`.
   서버 `.env` 의 `CORS_ORIGINS` 에 Vercel 도메인(`https://honjaya.vercel.app`)을 넣어야 호출이 허용됩니다.
 

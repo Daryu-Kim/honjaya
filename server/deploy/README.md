@@ -13,8 +13,8 @@
         │                          │  HTTPS + apikey 헤더
         │                          ▼
         │                 ┌────────────────────────┐
-        └────────────────▶│ Cloudflare Tunnel      │
-                          │ api.bar.example.com    │
+        └────────────────▶│ Tailscale Funnel       │
+                          │ https://<기기>.<tailnet>.ts.net │
                           └───────────┬────────────┘
                                       │ http://localhost:3000
                           ┌───────────▼────────────┐
@@ -24,10 +24,11 @@
                           └────────────────────────┘
 ```
 
-- 프런트엔드는 `VUE_APP_SUPABASE_URL=https://api.bar.example.com` 으로 빌드되어 API 를 직접 호출합니다. 그래서 **CORS 허용**이 필요합니다(5단계).
-- 노트북의 3000 포트는 `127.0.0.1` 에만 열립니다. 인터넷에는 **Cloudflare Tunnel 로만** 노출되므로 공유기 포트 개방이 필요 없습니다.
+- 프런트엔드는 `VUE_APP_SUPABASE_URL=https://<기기>.<tailnet>.ts.net` 으로 빌드되어 API 를 직접 호출합니다. 그래서 **CORS 허용**이 필요합니다(5단계).
+- 노트북의 3000 포트는 `127.0.0.1` 에만 열립니다. 인터넷에는 **Tailscale Funnel 로만** 노출되므로 공유기 포트 개방이 필요 없습니다.
+- API 응답은 `@fastify/compress` 로 **gzip 압축**되어 나갑니다. 폴링 구조라 같은 JSON 이 반복 전송되는데, 압축만으로 전송량이 6~10배 줄어듭니다(실측: `orders` 791KB → 93KB, `order_sheets` 347KB → 32KB).
 
-> 아래 문서에서 `api.bar.example.com` 은 **예시 도메인**입니다. 실제로는 Cloudflare Tunnel 에 연결할 본인 도메인으로 바꿔 읽으세요.
+> 아래 문서에서 `https://<기기>.<tailnet>.ts.net` 은 **예시 주소**입니다. 실제 값은 9단계에서 `tailscale funnel status` 로 확인한 주소를 쓰세요.
 > Vercel 프런트엔드 주소는 확정입니다 → **`https://honjaya.vercel.app`** (5단계 `CORS_ORIGINS` 에 이 값을 넣습니다).
 
 ---
@@ -39,7 +40,7 @@
 | 노트북 | i5-5300U / 16GB (SSD 교체 권장) |
 | OS | Ubuntu Server 24.04 LTS (설치 USB 필요) |
 | 네트워크 | 공유기 LAN 케이블 연결 권장(Wi-Fi 보다 안정적) |
-| 도메인 | Cloudflare 에 등록된 도메인 (무료 플랜 가능) |
+| 도메인 | **필요 없음** — 9단계의 Tailscale Funnel(`*.ts.net` 무료 주소)을 씁니다 |
 | 백업 | Supabase CSV 백업 폴더 |
 
 ---
@@ -104,7 +105,7 @@ sudo chmod 600 /etc/netplan/50-cloud-init.yaml
 sudo netplan apply
 ```
 
-> Cloudflare Tunnel 을 쓰면 IP 가 바뀌어도 외부 접속은 계속 됩니다. 다만 SSH 관리 편의를 위해 고정을 권장합니다.
+> Tailscale Funnel 을 쓰면 IP 가 바뀌어도 외부 접속은 계속 됩니다. 다만 SSH 관리 편의를 위해 고정을 권장합니다.
 
 ### 2-3. 자동 시간 동기화
 
@@ -161,7 +162,7 @@ POSTGRES_PASSWORD=바꿔주세요1234
 ANON_KEY=바꿔주세요-임의의긴문자열
 
 # 프런트엔드가 떠 있는 오리진만 허용 (Vercel 도메인)
-#   여러 개는 쉼표로 구분: https://honjaya.vercel.app,https://bar.example.com
+#   여러 개는 쉼표로 구분: https://honjaya.vercel.app,http://localhost:8080
 #   로컬에서 `pnpm run serve` 로 개발할 때도 쓰려면 http://localhost:8080 을 추가
 #   프리뷰 배포까지 다 허용하려면 * (권장하지 않음)
 CORS_ORIGINS=https://honjaya.vercel.app
@@ -241,46 +242,54 @@ curl -s -H "apikey: $ANON" "http://localhost:3000/rest/v1/categories?select=id,n
 
 ---
 
-## 9. 외부 공개 (Cloudflare Tunnel)
+## 9. 외부 공개 (Tailscale Funnel)
 
 공유기 포트를 열지 않고 HTTPS 주소를 붙이는 방법입니다. **프런트엔드가 HTTPS 라서 API 도 HTTPS 여야** 합니다(HTTP 를 부르면 브라우저가 차단).
+Tailscale Funnel 은 도메인 구입 없이 `https://<기기이름>.<tailnet이름>.ts.net` 이라는 **고정 주소**를 무료로 줍니다.
+
+### 9-1. 설치
 
 ```bash
-# 1) 설치
-curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o cloudflared.deb
-sudo dpkg -i cloudflared.deb
-
-# 2) 로그인 + 터널 생성 (도메인은 Cloudflare 에 등록되어 있어야 함)
-cloudflared tunnel login
-cloudflared tunnel create honjaya
-cloudflared tunnel route dns honjaya api.bar.example.com
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
 ```
 
-`/etc/cloudflared/config.yml`:
+출력되는 URL 을 브라우저에서 열어 **Tailscale 계정으로 로그인**(무료 플랜 가능)하면 노트북이 tailnet 에 연결됩니다.
 
-```yaml
-tunnel: <위에서 출력된 TUNNEL_ID>
-credentials-file: /root/.cloudflared/<TUNNEL_ID>.json
-ingress:
-  - hostname: api.bar.example.com
-    service: http://localhost:3000
-  - service: http_status:404
-```
+### 9-2. 관리 콘솔에서 2가지만 켜기
+
+<https://login.tailscale.com/admin/dns> 에서:
+
+1. **MagicDNS** 사용
+2. **HTTPS Certificates** 사용 (Enable HTTPS)
+
+> 이 두 개를 켜지 않으면 Funnel 이 인증서를 못 받아 실패합니다.
+> ACL(`nodeAttrs`)로 `funnel` 을 막아둔 tailnet 이 아니라면 별도 설정은 필요 없습니다(기본 허용).
+
+### 9-3. Funnel 켜기
 
 ```bash
-sudo cloudflared service install
-sudo systemctl enable --now cloudflared
-sudo systemctl status cloudflared --no-pager
+# 로컬 3000 포트를 인터넷에 공개 (백그라운드로 유지)
+sudo tailscale funnel --bg 3000
+
+# 상태 + 공개 주소 확인
+sudo tailscale funnel status
 ```
 
-확인:
+마지막 줄에 `https://<기기이름>.<tailnet이름>.ts.net` 이 나옵니다. **이 주소를 10단계에서 씁니다.**
 
 ```bash
-curl https://api.bar.example.com/health
+curl https://<기기이름>.<tailnet이름>.ts.net/health
 # {"ok":true,"db":"up",...}
 ```
 
-> `cloudflared` 는 서버가 보내는 `: ping` 하트비트(25초) 덕분에 SSE(`/api/events`)도 그대로 통과합니다.
+- 첫 요청 때 Let's Encrypt 인증서를 자동 발급합니다. 발급에 실패하면 인증서 요청 제한(수 시간 잠금)에 걸릴 수 있으니, 9-2 를 먼저 확실히 켜 두세요.
+- 재부팅 후에도 유지하려면: `sudo systemctl enable --now tailscaled` (설치 시 기본 enabled). `--bg` 로 켠 Funnel 설정은 tailscaled 가 기억합니다.
+- 끄기: `sudo tailscale funnel reset`
+
+> Funnel 은 현재 **beta** 이고 대역폭은 Tailscale 이 내부적으로 조절합니다(수치 비공개, 조정 불가). 이 앱은 gzip 적용 후 월 1GB 미만이라 문제되지 않지만, 대용량 파일을 이 경로로 서빙하지는 마세요.
+> Funnel 은 `*.ts.net` 이름과 443/8443/10000 포트만 지원합니다. **보유 도메인을 붙일 수는 없습니다** — 필요해지면 그때 Cloudflare Tunnel 로 옮기면 됩니다(코드/환경변수만 주소 교체).
+> Funnel 은 공개 인터넷에 열리므로 `/rest/v1/*` 보호는 전적으로 `ANON_KEY`(`apikey` 헤더) 검사에 의존합니다. 키를 바꾸면 Vercel 환경변수도 같이 바꿔야 합니다.
 
 ---
 
@@ -293,7 +302,7 @@ Vercel 대시보드 → 프로젝트 → **Settings → Environment Variables**:
 
 | Key | Value | 환경 |
 | --- | --- | --- |
-| `VUE_APP_SUPABASE_URL` | `https://api.bar.example.com` (9단계 터널 주소, 끝에 `/` 없이) | Production (필요 시 Preview 포함) |
+| `VUE_APP_SUPABASE_URL` | `https://<기기이름>.<tailnet이름>.ts.net` (9-3 에서 확인한 주소, 끝에 `/` 없이) | Production (필요 시 Preview 포함) |
 | `VUE_APP_SUPABASE_PUBLISHABLE_KEY` | `server/.env` 의 `ANON_KEY` 와 **똑같은 값** | Production (필요 시 Preview 포함) |
 
 저장 후 **Deployments → 최신 배포 → Redeploy** (환경변수는 재빌드해야 반영됩니다).
@@ -364,7 +373,9 @@ docker compose up -d --build
 | 콘솔에 `Mixed Content` / `ERR_SSL_PROTOCOL_ERROR` | `VUE_APP_SUPABASE_URL` 이 `http://` → `https://` 터널 주소로 바꾸고 Vercel 재배포 |
 | API 가 `401` / `Invalid API key` | Vercel 의 `VUE_APP_SUPABASE_PUBLISHABLE_KEY` 와 `server/.env` 의 `ANON_KEY` 불일치 |
 | `502` / 응답 없음 | `docker compose ps` 로 `api` 상태 확인, `docker compose logs api` |
-| `https://api.../health` 접속 불가 | `sudo systemctl status cloudflared`, `/etc/cloudflared/config.yml` 의 `service` 값 확인 |
+| `https://<기기>.ts.net/health` 접속 불가 | `sudo tailscale funnel status` 로 3000 포트 매핑 확인, `sudo tailscale status` 로 연결 상태 확인 → `sudo tailscale funnel --bg 3000` 재실행 |
+| Funnel 켤 때 `HTTPS is not enabled` / 인증서 오류 | 관리 콘솔에서 MagicDNS + HTTPS Certificates 를 켜고 재시도(9-2 단계) |
+| `VUE_APP_SUPABASE_URL` 이 브라우저에서 열리는데 401 | Funnel 은 정상. `apikey` 헤더를 안 붙인 요청이라 그렇습니다(`/health` 는 예외) |
 | 폰에서 `http://<노트북 IP>:3000` 접속 안 됨 | 포트가 `127.0.0.1` 에만 열려 있음(의도된 동작). 필요하면 compose 의 `ports` 를 `"3000:3000"` 으로 임시 변경 |
 | DB 접속 실패(`password authentication failed`) | `pgdata/` 가 다른 비밀번호로 만들어짐 → 7단계 주의사항 참고 |
 | 화면이 예전 버전 | Vercel Redeploy 후 강력 새로고침(Ctrl+Shift+R) 또는 서비스 워커 초기화 |

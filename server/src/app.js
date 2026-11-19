@@ -1,3 +1,4 @@
+import compress from "@fastify/compress";
 import cors from "@fastify/cors";
 import Fastify from "fastify";
 
@@ -46,6 +47,9 @@ export async function buildApp(options = {}) {
     bodyLimit: 8 * 1024 * 1024,
     trustProxy: true,
   });
+
+  // 폴링 구조라 같은 JSON 을 계속 내려줍니다. 압축만 켜도 전송량이 6~10배 줄어듭니다.
+  await app.register(compress, { threshold: 1024 });
 
   await app.register(cors, {
     origin: config.corsOrigins.includes("*") ? true : config.corsOrigins,

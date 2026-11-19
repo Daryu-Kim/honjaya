@@ -35,7 +35,7 @@ services:
       SERVICE_KEY: ${SERVICE_KEY:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
       TZ: Asia/Seoul
-    # 프런트엔드는 Vercel 이 서빙하므로 API 는 호스트 로컬(cloudflared)에서만 보이면 됩니다.
+    # 프런트엔드는 Vercel 이 서빙하므로 API 는 호스트 로컬(Funnel)에서만 보이면 됩니다.
     # 같은 Wi-Fi 의 폰에서 http://<노트북 IP>:3000 으로 직접 확인하려면 "3000:3000" 으로 바꾸세요.
     ports:
       - "127.0.0.1:3000:3000"
