@@ -125,6 +125,11 @@ try {
   stopEventBroadcast = events.stopEventBroadcast;
   closePool = db.closePool;
 
+  // server/.env 에 실제 ANON_KEY 가 들어 있어도 테스트가 영향받지 않도록 인증을 끕니다
+  // (키 검증은 아래 'api key' 구간에서 따로 확인합니다).
+  config.anonKey = "";
+  config.serviceKey = "";
+
   app = await buildApp({ logger: false });
   await app.ready();
 
@@ -384,6 +389,9 @@ try {
 
   const unauthorized = await guardedApp.inject({ method: "GET", url: "/rest/v1/categories?select=id" });
   check("ANON_KEY 설정 시 키 없으면 401", unauthorized.statusCode === 401, String(unauthorized.statusCode));
+
+  const guardedHealth = await guardedApp.inject({ method: "GET", url: "/health" });
+  check("ANON_KEY 설정 시에도 /health 는 키 없이 200", guardedHealth.statusCode === 200, String(guardedHealth.statusCode));
 
   const authorized = await guardedApp.inject({
     method: "GET",

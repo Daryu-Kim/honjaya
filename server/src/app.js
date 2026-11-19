@@ -74,6 +74,11 @@ export async function buildApp(options = {}) {
       return;
     }
 
+    // 배포 확인·모니터링용. 데이터를 노출하지 않으므로 키 없이 열어 둡니다.
+    if (request.url.split("?")[0] === "/health") {
+      return;
+    }
+
     await guard(request);
   });
 

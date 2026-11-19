@@ -79,10 +79,21 @@ sudo systemctl restart systemd-logind
 
 ### 2-2. IP 고정
 
-공유기 관리 화면에서 **DHCP 고정 할당**(MAC 주소 기준)을 걸어두는 방법을 권장합니다.
-우분투에서 직접 고정하려면:
+**가장 쉬운 방법은 공유기 관리 화면에서 DHCP 고정 할당(MAC 주소 기준)을 거는 것입니다.**
+우분투 설정을 건드리지 않으므로 실패해도 네트워크가 끊기지 않습니다.
+
+> **무선이면 라우터 DHCP 고정을 쓰세요.** `ip a` 에서 `wlp2s0` 처럼 `wl` 로 시작하면 무선입니다.
+> 무선은 `ethernets:` 가 아니라 **`wifis:`** 절에 넣어야 하고, `access-points`(SSID/비밀번호)를 함께 적지 않으면
+> `netplan apply` 하는 순간 Wi-Fi 가 내려가서 **SSH 가 끊깁니다.**
+>
+> **주소와 게이트웨이는 같은 대역이어야 합니다.** (예: 게이트웨이가 `192.168.219.55` 이면 주소도 `192.168.219.x`)
+> 대역이 다르면 IP 가 붙어도 인터넷이 안 됩니다.
+> 게이트웨이 확인: `ip route | grep default`
+
+#### 유선(`en...`)인 경우
 
 ```bash
+ls /etc/netplan/                     # 실제 파일 이름 확인
 sudo nano /etc/netplan/50-cloud-init.yaml
 ```
 
@@ -92,20 +103,60 @@ network:
   ethernets:
     enp3s0:                     # ip a 로 실제 인터페이스 이름 확인
       dhcp4: false
-      addresses: [192.168.0.50/24]
+      addresses: [192.168.219.50/24]     # 게이트웨이와 같은 대역
       routes:
         - to: default
-          via: 192.168.0.1      # 공유기 IP
+          via: 192.168.219.55              # ip route | grep default 로 확인한 공유기 IP
+      nameservers:
+        addresses: [1.1.1.1, 8.8.8.8]
+```
+
+#### 무선(`wl...`)인 경우
+
+```yaml
+network:
+  version: 2
+  wifis:                            # ethernets 가 아닙니다
+    wlp2s0:
+      dhcp4: false
+      access-points:                # 이 블록이 없으면 Wi-Fi 가 올라오지 않습니다
+        "우리집공유기SSID":
+          password: "와이파이비밀번호"
+      addresses: [192.168.219.50/24]
+      routes:
+        - to: default
+          via: 192.168.219.55
       nameservers:
         addresses: [1.1.1.1, 8.8.8.8]
 ```
 
 ```bash
 sudo chmod 600 /etc/netplan/50-cloud-init.yaml
-sudo netplan apply
+sudo netplan try      # apply 대신 try — 120초 안에 Enter 를 누르지 않으면 자동으로 되돌아갑니다
 ```
 
-> Tailscale Funnel 을 쓰면 IP 가 바뀌어도 외부 접속은 계속 됩니다. 다만 SSH 관리 편의를 위해 고정을 권장합니다.
+> **설정이 잘못돼서 접속이 끊겼다면** 노트북 앞에서 콘솔로 들어가 아래 중 하나로 복구하세요.
+>
+> ```bash
+> # (a) 원래대로 되돌리기: dhcp4: true 로 바꾸고
+> sudo nano /etc/netplan/50-cloud-init.yaml
+> sudo netplan apply
+>
+> # (b) NetworkManager 를 쓰는 경우 즉시 복구
+> sudo nmcli device wifi connect "SSID" password "비밀번호"
+> ```
+>
+> `nmcli device status` 에서 `wlp2s0` 이 `connected` 로 보이면 **NetworkManager** 가 관리하는 것이므로
+> netplan 이 무시됩니다. 이때는 netplan 대신 아래를 쓰세요.
+>
+> ```bash
+> sudo nmcli connection modify "<연결이름>" ipv4.method manual \
+>   ipv4.addresses 192.168.219.50/24 ipv4.gateway 192.168.219.55 ipv4.dns "1.1.1.1 8.8.8.8"
+> sudo nmcli connection up "<연결이름>"
+> ```
+
+> Tailscale Funnel 을 쓰면 **LAN IP 가 바뀌어도 외부 접속은 계속 됩니다.** 고정 IP 는 SSH 관리 편의용일 뿐이니,
+> 설정이 꼬이면 그냥 DHCP 로 두고 다음 단계로 넘어가도 됩니다.
 
 ### 2-3. 자동 시간 동기화
 
@@ -170,6 +221,11 @@ CORS_ORIGINS=https://honjaya.vercel.app
 
 > `docker compose` 가 같은 폴더의 `.env` 를 자동으로 읽어 `${POSTGRES_PASSWORD}` 등을 채웁니다.
 > `ANON_KEY` 값은 6단계 Vercel 환경변수에 **똑같이** 넣어야 합니다.
+>
+> **가장 간단한 방법**: 지금 쓰던 PC 의 `server/.env` 파일을 노트북의 같은 위치(`/opt/honjaya/server/.env`)로
+> 그대로 복사하세요. `ANON_KEY` / `SERVICE_KEY` 가 자동으로 같아져서 Vercel 환경변수를 다시 맞출 필요가 없습니다.
+> (`.env` 는 git 에 올라가지 않으므로 `git clone` 으로는 안 옮겨집니다 — `scp`/USB 로 직접 복사해야 합니다.)
+> 단, 그 파일에는 `POSTGRES_PASSWORD` 줄이 없으니 **`POSTGRES_PASSWORD=원하는비밀번호` 한 줄을 직접 추가**하세요.
 
 ---
 
@@ -201,7 +257,22 @@ docker compose run --rm migrate
 # 2) Supabase CSV 백업 가져오기
 mkdir -p csv
 cp ~/supabase-export/*_rows*.csv csv/     # 또는 scp 로 PC 에서 복사
+ls csv/                                   # 파일 개수 확인 (아래 설명 참고)
 docker compose run --rm import
+```
+
+**`(1)` 이 붙은 파일도 그대로 가져가야 합니다.** Supabase Table Editor 는 한 번에 **1000행까지만**
+내려주기 때문에, 행이 1000개를 넘는 테이블은 나머지가 `orders_rows (1).csv` 처럼 **이어지는 페이지**로
+저장됩니다. 지우면 그 행들이 통째로 사라집니다.
+
+그래서 실제 파일은 6개가 아니라 **7개**입니다:
+`categories_rows.csv`, `products_rows.csv`, `order_sheets_rows.csv`, `orders_rows.csv`(1000행),
+`orders_rows (1).csv`(나머지 16행), `active_order_sheets_rows.csv`, `counters_rows.csv`.
+
+스크립트는 같은 테이블의 CSV 를 **이어 붙여서** 넣고, 로그에 어느 파일을 합쳤는지 남깁니다.
+
+```
+[import] orders: 1016건 반영 (orders_rows.csv, orders_rows (1).csv)
 ```
 
 `import` 는 마지막에 아래처럼 검증 결과를 출력합니다.
