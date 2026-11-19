@@ -1,0 +1,54 @@
+# 혼자야 자체 서버 (노트북 1대용)
+# 실행: docker compose up -d --build
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: honjaya
+      TZ: Asia/Seoul
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d honjaya"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # 외부에 DB 포트를 열지 않습니다(같은 compose 네트워크의 api만 접근).
+    expose:
+      - "5432"
+
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: 3000
+      HOST: 0.0.0.0
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/honjaya
+      DB_POOL_MAX: ${DB_POOL_MAX:-10}
+      ANON_KEY: ${ANON_KEY:-}
+      SERVICE_KEY: ${SERVICE_KEY:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      TZ: Asia/Seoul
+    ports:
+      - "3000:3000"
+
+  # 최초 1회 스키마 적용: docker compose run --rm migrate
+  migrate:
+    build: .
+    profiles: ["tools"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/honjaya
+      TZ: Asia/Seoul
+    # 스키마/패치 SQL은 레포의 supabase/ 폴더에 있으므로 읽기 전용으로 붙입니다.
+    volumes:
+      - ../supabase:/supabase:ro
+    command: ["node", "scripts/apply-schema.mjs"]

@@ -1,0 +1,24 @@
+{
+  "name": "honjaya-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "혼자야 self-hosted backend (Fastify + Postgres)",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "db:apply": "node scripts/apply-schema.mjs",
+    "smoke": "node scripts/smoke-test.mjs"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.4.3",
+    "fastify": "^5.12.8",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "embedded-postgres": "^18.7.0-beta.19"
+  }
+}
