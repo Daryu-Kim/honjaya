@@ -359,24 +359,6 @@ function transformActiveOrderSheets(docs, orderSheetById) {
   });
 }
 
-function transformChatMessages(docs) {
-  return docs.map((doc) => {
-    statusKey("chatMessages.messageType", str(doc.messageType));
-
-    return {
-      id: str(doc._id),
-      message: str(doc.message),
-      message_type: str(doc.messageType) || "USER",
-      table_number: str(doc.tableNumber),
-      nickname: str(doc.nickname),
-      sender_label: str(doc.senderLabel),
-      is_deleted: doc.isDeleted === true,
-      created_at: ts(doc.createdAt, new Date().toISOString()),
-      updated_at: ts(doc.updatedAt, new Date().toISOString()),
-    };
-  });
-}
-
 function transformCounters(docs) {
   return docs.map((doc) => ({
     id: str(doc._id),
@@ -576,7 +558,6 @@ async function main() {
       arr(collections.activeOrderSheets),
       orderSheetById
     ),
-    chat_messages: transformChatMessages(arr(collections.chatMessages)),
     counters: transformCounters(arr(collections.counters)),
   };
 
@@ -589,7 +570,6 @@ async function main() {
     order_sheets: arr(collections.orderSheets).length,
     orders: arr(collections.orders).length,
     active_order_sheets: arr(collections.activeOrderSheets).length,
-    chat_messages: arr(collections.chatMessages).length,
     counters: arr(collections.counters).length,
   };
 

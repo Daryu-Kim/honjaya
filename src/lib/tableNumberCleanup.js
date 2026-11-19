@@ -24,7 +24,6 @@ const LEADING_ZERO_UPPER = "1";
 const CLEANUP_COLLECTIONS = [
   { key: "orderSheets", label: "주문서" },
   { key: "orders", label: "주문" },
-  { key: "chatMessages", label: "채팅" },
 ];
 
 function getCollectionLabel(key) {

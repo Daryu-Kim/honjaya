@@ -37,16 +37,9 @@ const TABLE_MAPS = {
   orders: "orders",
   activeOrderSheets: "active_order_sheets",
   active_order_sheets: "active_order_sheets",
-  chatMessages: "chat_messages",
-  chat_messages: "chat_messages",
   counters: "counters",
-  pushSubscriptions: "push_subscriptions",
-  push_subscriptions: "push_subscriptions",
   appSettings: "app_settings",
   app_settings: "app_settings",
-  marketHistory: "market_history",
-  market_history: "market_history",
-  hearts: "hearts",
 };
 
 // app field name -> postgres column name (keys that match are omitted)
@@ -79,7 +72,6 @@ const FIELD_MAPS = {
     tableNumber: "table_number",
     displayName: "display_name",
     tableNickname: "table_nickname",
-    characterStyle: "character_style",
     paymentStatus: "payment_status",
     paymentMethod: "payment_method",
     totalAmount: "total_amount",
@@ -102,9 +94,6 @@ const FIELD_MAPS = {
     requestMessage: "request_message",
     totalCount: "total_count",
     totalPrice: "total_price",
-    isGift: "is_gift",
-    giftToTableNumber: "gift_to_table_number",
-    giftToNickname: "gift_to_nickname",
     createdAt: "created_at",
     updatedAt: "updated_at",
   },
@@ -115,41 +104,11 @@ const FIELD_MAPS = {
     businessDate: "business_date",
     updatedAt: "updated_at",
   },
-  chat_messages: {
-    messageType: "message_type",
-    tableNumber: "table_number",
-    senderLabel: "sender_label",
-    isDeleted: "is_deleted",
-    roomType: "room_type",
-    roomKey: "room_key",
-    recipientTableNumber: "recipient_table_number",
-    createdAt: "created_at",
-    updatedAt: "updated_at",
-  },
   counters: {
     lastSequenceNo: "last_sequence_no",
     updatedAt: "updated_at",
   },
-  push_subscriptions: {
-    tableNumber: "table_number",
-    userAgent: "user_agent",
-    createdAt: "created_at",
-    updatedAt: "updated_at",
-  },
   app_settings: {
-    updatedAt: "updated_at",
-  },
-  market_history: {
-    updatedAt: "updated_at",
-  },
-  hearts: {
-    fromTableNumber: "from_table_number",
-    fromNickname: "from_nickname",
-    toTableNumber: "to_table_number",
-    toNickname: "to_nickname",
-    businessDate: "business_date",
-    isRevealed: "is_revealed",
-    createdAt: "created_at",
     updatedAt: "updated_at",
   },
 };
@@ -278,7 +237,21 @@ export function newId() {
 }
 
 function buildError(action, error) {
-  return new Error(`${action}: ${error?.message || "알 수 없는 오류"}`);
+  const message = String(error?.message || "");
+
+  // Supabase 프로젝트가 사용량(egress) 한도 초과로 정지되면 모든 요청이 402로
+  // 떨어집니다. 그대로 노출하면 손님·직원이 원인을 알 수 없어 안내 문구로 바꿉니다.
+  if (
+    error?.code === "402" ||
+    error?.status === 402 ||
+    /exceed_\w+_quota|Service for this project is restricted/i.test(message)
+  ) {
+    return new Error(
+      `${action}: 서버 사용량 한도를 초과해 데이터 서버가 일시 정지됐어요. 사장님께 알려주세요.`
+    );
+  }
+
+  return new Error(`${action}: ${message || "알 수 없는 오류"}`);
 }
 
 function applyFilters(builder, tableName, filters) {
@@ -505,11 +478,16 @@ export async function deleteWhere(table, filters) {
 //   * reloads on every postgres_changes event for the table,
 //   * keeps a slow poll as a safety net (pollMs: 0 disables it).
 // `filter` accepts a single eq condition, e.g. ["tableNumber", "5"].
+// Supabase egress 절감을 위해 화면이 가려진 동안에는 폴링을 쉬고,
+// 다시 보이면 즉시 한 번 새로고침합니다.
 export function subscribeTable(table, reload, options = {}) {
   const tableName = resolveTable(table);
-  const { filter, pollMs = 30000 } = options;
+  const { filter, pollMs = 120000 } = options;
   let stopped = false;
   let pollTimer = null;
+
+  const isHidden = () =>
+    typeof document !== "undefined" && document.visibilityState === "hidden";
 
   const runReload = async () => {
     if (stopped) {
@@ -522,6 +500,14 @@ export function subscribeTable(table, reload, options = {}) {
       // eslint-disable-next-line no-console
       console.error(`[supabase] ${tableName} 실시간 갱신 실패`, error);
     }
+  };
+
+  const pollReload = () => {
+    if (isHidden()) {
+      return;
+    }
+
+    runReload();
   };
 
   runReload();
@@ -545,8 +531,18 @@ export function subscribeTable(table, reload, options = {}) {
     })
     .subscribe();
 
+  const handleVisibility = () => {
+    if (!isHidden()) {
+      runReload();
+    }
+  };
+
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", handleVisibility);
+  }
+
   if (Number.isFinite(pollMs) && pollMs > 0) {
-    pollTimer = setInterval(runReload, pollMs);
+    pollTimer = setInterval(pollReload, pollMs);
   }
 
   return () => {
@@ -555,6 +551,10 @@ export function subscribeTable(table, reload, options = {}) {
     if (pollTimer) {
       clearInterval(pollTimer);
       pollTimer = null;
+    }
+
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", handleVisibility);
     }
 
     supabase.removeChannel(channel);

@@ -7,10 +7,6 @@ import {
   updateRow,
   upsertRow,
 } from "@/lib/supabase";
-import {
-  isCompleteCharacterStyle,
-  normalizeCharacterStyle,
-} from "@/lib/characterStyle";
 
 export async function finalizeOrderSheetCleanup({ orderSheetId }) {
   const safeOrderSheetId = String(orderSheetId || "").trim();
@@ -145,9 +141,6 @@ export async function getOrCreateOpenOrderSheet(tableNumber) {
       orderSheetId: reusableOrderSheet.id,
       displayName,
       tableNickname: String(reusableOrderSheet.tableNickname || ""),
-      characterStyle: normalizeCharacterStyle(
-        reusableOrderSheet.characterStyle
-      ),
       reused: true,
       businessDate,
     };
@@ -188,7 +181,6 @@ export async function getOrCreateOpenOrderSheet(tableNumber) {
     orderSheetId,
     displayName,
     tableNickname: "",
-    characterStyle: {},
     reused: false,
     businessDate,
   };
@@ -223,7 +215,6 @@ export async function getActiveOrderSheetInfo(tableNumber) {
       status,
       isReusable: isReusableOrderSheetStatus(status),
       tableNickname: String(orderSheetData.tableNickname || ""),
-      characterStyle: normalizeCharacterStyle(orderSheetData.characterStyle),
     };
 
     if (info.isReusable) {
@@ -258,30 +249,6 @@ export async function updateOrderSheetNickname({ orderSheetId, nickname }) {
   });
 
   return safeNickname;
-}
-
-// 손님 캐릭터(성별·마인크래프트 닉네임) 설정을 저장합니다. TV 화면이 이 값으로 캐릭터를 그립니다.
-export async function updateOrderSheetCharacterStyle({
-  orderSheetId,
-  characterStyle,
-}) {
-  const safeOrderSheetId = String(orderSheetId || "").trim();
-  const normalized = normalizeCharacterStyle(characterStyle);
-
-  if (!safeOrderSheetId) {
-    throw new Error("주문서 정보가 올바르지 않아요.");
-  }
-
-  if (!isCompleteCharacterStyle(normalized)) {
-    throw new Error("캐릭터 정보가 올바르지 않아요.");
-  }
-
-  await updateRow("orderSheets", safeOrderSheetId, {
-    characterStyle: normalized,
-    updatedAt: nowIso(),
-  });
-
-  return normalized;
 }
 
 export async function completeOrderSheetPayment({

@@ -9,21 +9,11 @@ module.exports = defineConfig({
       launch_handler: { client_mode: "navigate-existing" },
     },
     workboxOptions: {
-      // public/push-handler.js is copied as-is and wired into the generated SW
-      // so Web Push notifications work without switching to InjectManifest.
-      importScripts: ["push-handler.js"],
-      // The bar TV stays open for days, so a waiting worker would keep serving
-      // the old bundle forever. Activate + claim immediately, then let
-      // registerServiceWorker.js reload the page once.
+      // Activate + claim immediately so a long-open kiosk never keeps serving an
+      // old bundle, then let registerServiceWorker.js reload the page once.
       skipWaiting: true,
       clientsClaim: true,
-      exclude: [
-        /push-handler\.js$/,
-        /\.map$/,
-        /img\/icons\//,
-        /favicon\.ico$/,
-        /^manifest.*\.js?$/,
-      ],
+      exclude: [/\.map$/, /img\/icons\//, /favicon\.ico$/, /^manifest.*\.js?$/],
     },
   },
 });

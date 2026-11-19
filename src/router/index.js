@@ -5,15 +5,11 @@ import UserOrderView from "@/views/User/UserOrderView.vue";
 import UserCartView from "@/views/User/UserCartView.vue";
 import UserOrderHistoryView from "@/views/User/UserOrderHistoryView.vue";
 import UserOrderCompleteView from "@/views/User/UserOrderCompleteView.vue";
-import UserChatView from "@/views/User/UserChatView.vue";
-import UserGiftView from "@/views/User/UserGiftView.vue";
-import AdminChatView from "@/views/Admin/AdminChatView.vue";
 import AdminProductView from "@/views/Admin/AdminProductView.vue";
 import AdminProductFormView from "@/views/Admin/AdminProductFormView.vue";
 import AdminCategoryView from "@/views/Admin/AdminCategoryView.vue";
 import AdminRecipeView from "@/views/Admin/AdminRecipeView.vue";
 import TabletAdminView from "@/views/Tablet/TabletAdminView.vue";
-import TvBarView from "@/views/Tv/TvBarView.vue";
 import AdminDashboardView from "@/views/Admin/AdminDashboardView.vue";
 import AdminSalesView from "@/views/Admin/AdminSalesView.vue";
 import AdminPaymentHistoryView from "@/views/Admin/AdminPaymentHistoryView.vue";
@@ -57,25 +53,9 @@ const routes = [
     component: UserOrderHistoryView,
   },
   {
-    path: "/user/chat",
-    name: "user-chat",
-    component: UserChatView,
-  },
-  {
-    path: "/user/gift",
-    name: "user-gift",
-    component: UserGiftView,
-  },
-  {
     path: "/user/order-complete",
     name: "user-order-complete",
     component: UserOrderCompleteView,
-  },
-  {
-    // Read-only screen for the bar TV. It never shows 1:1 or staff rooms.
-    path: "/tv",
-    name: "tv-bar",
-    component: TvBarView,
   },
   {
     path: "/admin",
@@ -99,11 +79,6 @@ const routes = [
         path: "payments",
         name: "admin-payments",
         component: AdminPaymentHistoryView,
-      },
-      {
-        path: "chat",
-        name: "admin-chat",
-        component: AdminChatView,
       },
       {
         path: "products",

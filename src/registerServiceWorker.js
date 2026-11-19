@@ -2,7 +2,7 @@
 
 import { register } from "register-service-worker";
 
-// How often a long-running screen (TV, tablet) asks for a new build.
+// How often a long-running screen (kiosk tablet) asks for a new build.
 const UPDATE_INTERVAL_MS = 10 * 60 * 1000;
 
 if (process.env.NODE_ENV === "production") {

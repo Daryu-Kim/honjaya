@@ -7,27 +7,6 @@
       </div>
 
       <div class="header-right">
-        <button
-          type="button"
-          class="header-chat-button market-toggle"
-          :class="{ live: marketEnabled }"
-          @click="toggleMarket"
-        >
-          <span>{{ marketEnabled ? "📈 시세 ON" : "📉 시세 OFF" }}</span>
-        </button>
-
-        <button
-          type="button"
-          class="header-chat-button"
-          :class="{ alerting: totalChatAlertCount > 0 }"
-          @click="openChatPanel"
-        >
-          <span>💬 테이블 채팅</span>
-          <span v-if="totalChatAlertCount > 0" class="header-chat-badge">
-            {{ totalChatAlertCount }}
-          </span>
-        </button>
-
         <div class="header-summary">
           <span>{{ currentDateText }}</span>
         </div>
@@ -301,10 +280,6 @@
               </div>
             </div>
 
-            <div v-if="order.isGift" class="gift-badge">
-              🎁 {{ resolveGiftTargetLabel(order) }} 선물
-            </div>
-
             <div v-if="order.requestMessage" class="request-message-box">
               <span>요청사항</span>
               <p>{{ order.requestMessage }}</p>
@@ -392,307 +367,6 @@
           </div>
         </div>
       </div>
-
-      <!-- 실시간 시세 탭 -->
-      <div v-else-if="activeTab === 'market'" class="tab-panel">
-        <div class="panel-head">
-          <h2>실시간 시세</h2>
-          <p>
-            메뉴 가격이 주식처럼 실시간으로 움직입니다. 켜 두면 손님 주문
-            금액에도 그 가격이 그대로 적용돼요.
-          </p>
-        </div>
-
-        <div class="market-summary">
-          <div class="market-summary-card">
-            <span class="market-summary-label">혼자야 지수</span>
-            <strong>{{ marketIndexValue.toFixed(1) }}</strong>
-            <span
-              class="market-summary-change"
-              :class="marketIndexChangePct >= 0 ? 'up' : 'down'"
-            >
-              {{ marketIndexText }}
-            </span>
-          </div>
-
-          <div class="market-summary-card">
-            <span class="market-summary-label">거래 상태</span>
-            <strong>{{ marketStatusText }}</strong>
-            <span class="market-summary-change">
-              {{ market.productCount.value }}종 참여
-            </span>
-          </div>
-
-          <div class="market-summary-card">
-            <span class="market-summary-label">주문 금액 반영</span>
-            <strong>
-              {{ market.config.value.applyToOrders ? "ON" : "OFF" }}
-            </strong>
-            <span class="market-summary-change">
-              {{ market.config.value.tickSeconds }}초마다 갱신
-            </span>
-          </div>
-        </div>
-
-        <div class="market-report-block">
-          <h3>오늘의 시세 리포트</h3>
-
-          <div v-if="marketTodayStats" class="market-report-stats">
-            <div class="market-report-stat">
-              <span>시가</span>
-              <strong>{{ marketTodayStats.open }}</strong>
-            </div>
-            <div class="market-report-stat">
-              <span>고가</span>
-              <strong class="up">{{ marketTodayStats.high }}</strong>
-            </div>
-            <div class="market-report-stat">
-              <span>저가</span>
-              <strong class="down">{{ marketTodayStats.low }}</strong>
-            </div>
-            <div class="market-report-stat">
-              <span>현재</span>
-              <strong :class="marketTodayStats.trend">
-                {{ marketTodayStats.close }}
-              </strong>
-              <span class="market-report-delta">
-                {{ marketTodayStats.changeText }}
-              </span>
-            </div>
-          </div>
-
-          <div class="market-report-chart">
-            <MarketSparkline
-              :values="marketIndexSeriesValues"
-              :width="960"
-              :height="180"
-              :stroke-width="2"
-              :baseline="1000"
-            />
-            <p
-              v-if="marketIndexSeriesValues.length < 2"
-              class="market-report-empty"
-            >
-              시세를 켜면 오늘의 지수 곡선이 여기에 쌓여요.
-            </p>
-          </div>
-
-          <p class="market-report-note">
-            5분 단위 기록 · 비어 있는 구간은 시세 엔진으로 복원해서 보여줘요.
-          </p>
-
-          <p v-if="marketHistoryError" class="market-report-error">
-            {{ marketHistoryError }}
-          </p>
-        </div>
-
-        <div class="market-table-block">
-          <h3>최근 영업일</h3>
-
-          <div v-if="marketHistoryList.length === 0" class="empty-box compact">
-            <p>아직 기록된 영업일이 없어요.</p>
-          </div>
-
-          <div v-else class="market-table">
-            <div class="market-table-row head">
-              <span>영업일</span>
-              <span>종가</span>
-              <span>등락</span>
-              <span>고가 / 저가</span>
-            </div>
-
-            <div
-              v-for="entry in marketHistoryList"
-              :key="entry.businessDate"
-              class="market-table-row"
-            >
-              <span class="market-table-name">{{ entry.businessDate }}</span>
-              <strong>{{ entry.closeText }}</strong>
-              <span :class="entry.trend">{{ entry.changeText }}</span>
-              <span>{{ entry.rangeText }}</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="market-controls">
-          <label class="market-field">
-            <span>갱신 주기(초)</span>
-            <input
-              v-model.number="marketDraft.tickSeconds"
-              type="number"
-              min="1"
-              max="10"
-              step="1"
-            />
-          </label>
-
-          <label class="market-field">
-            <span>최대 변동폭(%)</span>
-            <input
-              v-model.number="marketDraft.maxChangePct"
-              type="number"
-              min="5"
-              max="200"
-              step="5"
-            />
-          </label>
-
-          <label class="market-field">
-            <span>변동성</span>
-            <input
-              v-model.number="marketDraft.volatility"
-              type="number"
-              min="0.2"
-              max="3"
-              step="0.1"
-            />
-          </label>
-
-          <label class="market-field">
-            <span>주문 수요 가중치</span>
-            <input
-              v-model.number="marketDraft.demandWeight"
-              type="number"
-              min="0"
-              max="3"
-              step="0.1"
-            />
-          </label>
-
-          <label class="market-field">
-            <span>재료 연쇄 가중치</span>
-            <input
-              v-model.number="marketDraft.chainWeight"
-              type="number"
-              min="0"
-              max="3"
-              step="0.1"
-            />
-          </label>
-
-          <label class="market-field">
-            <span>수요 기준 수량(30분)</span>
-            <input
-              v-model.number="marketDraft.demandTarget"
-              type="number"
-              min="1"
-              max="40"
-              step="1"
-            />
-          </label>
-        </div>
-
-        <div class="market-category-block">
-          <h3>참여 메뉴 카테고리</h3>
-          <p>
-            아무것도 고르지 않으면 칵테일·시그니처·샷·논알콜·위스키 카테고리만
-            참여합니다. 나머지 메뉴는 기본가로 판매돼요.
-          </p>
-
-          <div class="market-category-row">
-            <label
-              v-for="category in categoryFilterList"
-              :key="`market-category-${category.id}`"
-              class="market-category-chip"
-              :class="{
-                active: marketDraft.categoryIds.includes(String(category.id)),
-              }"
-            >
-              <input
-                v-model="marketDraft.categoryIds"
-                type="checkbox"
-                :value="String(category.id)"
-              />
-              <span>{{ category.name }}</span>
-            </label>
-          </div>
-        </div>
-
-        <label class="market-checkbox-row">
-          <input v-model="marketDraft.applyToOrders" type="checkbox" />
-          <span>손님 주문 금액에도 시세를 적용합니다.</span>
-        </label>
-
-        <div class="market-action-row">
-          <button
-            type="button"
-            class="market-action-button primary"
-            :disabled="isSavingMarket"
-            @click="saveMarketDraft"
-          >
-            {{ isSavingMarket ? "저장 중..." : "설정 저장" }}
-          </button>
-
-          <button
-            type="button"
-            class="market-action-button"
-            :disabled="isSavingMarket"
-            @click="syncMarketDraft(market.config.value)"
-          >
-            되돌리기
-          </button>
-
-          <button
-            type="button"
-            class="market-action-button warn"
-            :disabled="isSavingMarket"
-            @click="toggleMarketFreeze"
-          >
-            {{ market.isFrozen.value ? "거래 재개" : "5분 거래 정지" }}
-          </button>
-        </div>
-
-        <div class="market-table-block">
-          <h3>메뉴별 시세</h3>
-
-          <div v-if="marketRows.length === 0" class="empty-box compact">
-            <p>시세에 참여하는 메뉴가 없어요.</p>
-          </div>
-
-          <div v-else class="market-table">
-            <div class="market-table-row head">
-              <span>메뉴</span>
-              <span>기본가</span>
-              <span>현재가</span>
-              <span>변동</span>
-            </div>
-
-            <div
-              v-for="row in marketRows"
-              :key="`market-row-${row.productId}`"
-              class="market-table-row"
-            >
-              <span class="market-table-name">{{ row.productName }}</span>
-              <span>{{ formatPrice(row.basePrice) }}원</span>
-              <strong>{{ formatPrice(row.price) }}원</strong>
-              <span :class="row.changePct >= 0 ? 'up' : 'down'">
-                {{ marketChangeText(row.changePct) }}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div class="market-table-block">
-          <h3>재료 시세</h3>
-
-          <div
-            v-if="marketIngredientRows.length === 0"
-            class="empty-box compact"
-          >
-            <p>지금은 재료 수요가 없어요.</p>
-          </div>
-
-          <div v-else class="market-category-row">
-            <span
-              v-for="ingredient in marketIngredientRows"
-              :key="`market-ingredient-${ingredient.name}`"
-              class="market-ingredient-chip"
-            >
-              {{ ingredient.name }} {{ marketSignedText(ingredient.changePct) }}
-            </span>
-          </div>
-        </div>
-      </div>
     </section>
 
     <!-- 테이블 상세 모달 -->
@@ -739,32 +413,6 @@
                 </button>
               </div>
             </div>
-            <div class="modal-info-row">
-              <span>캐릭터</span>
-              <div class="modal-character-row">
-                <svg
-                  class="table-character-mini"
-                  :viewBox="GUEST_SPRITE_VIEW_BOX"
-                  aria-hidden="true"
-                  focusable="false"
-                >
-                  <path
-                    v-for="part in selectedTableCharacter || []"
-                    :key="`table-character-${part.fill}`"
-                    :d="part.d"
-                    :fill="part.fill"
-                  />
-                </svg>
-                <button
-                  type="button"
-                  class="nickname-change-button"
-                  :disabled="!selectedTable.orderSheetId"
-                  @click="openTableCharacterModal(selectedTable)"
-                >
-                  변경
-                </button>
-              </div>
-            </div>
           </div>
 
           <div
@@ -798,9 +446,6 @@
                 <div class="table-order-head">
                   <div>
                     <strong>{{ formatDateTime(order.createdAt) }}</strong>
-                    <p v-if="order.isGift" class="gift-order-tag">
-                      🎁 {{ resolveGiftTargetLabel(order) }} 선물 주문
-                    </p>
                     <p v-if="order.requestMessage">
                       {{ order.requestMessage }}
                     </p>
@@ -1063,52 +708,6 @@
             @click="saveTableNickname"
           >
             {{ tableNicknameModalState.isSaving ? "저장 중..." : "저장" }}
-          </button>
-        </div>
-      </div>
-    </transition>
-
-    <!-- 캐릭터 변경 모달 -->
-    <transition name="fade">
-      <div
-        v-if="tableCharacterModalState.isOpen"
-        class="modal-overlay"
-        @click.self="closeTableCharacterModal"
-      >
-        <div class="modal-card table-character-modal">
-          <div class="modal-head">
-            <div>
-              <h3>캐릭터 변경</h3>
-              <p>{{ tableCharacterModalState.displayName }}</p>
-            </div>
-            <button
-              type="button"
-              class="close-button"
-              @click="closeTableCharacterModal"
-            >
-              ✕
-            </button>
-          </div>
-
-          <CharacterStudio
-            v-model="tableCharacterModalState.draft"
-            :table-number="tableCharacterModalState.tableNumber"
-            :nickname="tableCharacterModalState.nickname"
-            sticky
-          />
-
-          <p class="table-nickname-modal-helper">
-            손님 대신 성별과 마인크래프트 닉네임을 바꿔줄 수 있어요. 저장하면
-            손님 화면과 TV에 바로 반영돼요.
-          </p>
-
-          <button
-            type="button"
-            class="confirm-button"
-            :disabled="tableCharacterModalState.isSaving"
-            @click="saveTableCharacter"
-          >
-            {{ tableCharacterModalState.isSaving ? "저장 중..." : "저장" }}
           </button>
         </div>
       </div>
@@ -1585,7 +1184,7 @@
                 >
                   <div>
                     <strong>{{ product.productName }}</strong>
-                    <p>{{ formatPrice(marketPriceOf(product)) }}원</p>
+                    <p>{{ formatPrice(Number(product.basePrice || 0)) }}원</p>
                   </div>
                   <span v-if="product.optionGroups?.length > 0">옵션</span>
                 </button>
@@ -1722,9 +1321,7 @@
 
           <div class="modal-section">
             <div class="modal-info-row">
-              <span>{{
-                manualSheetIsMarket ? "실시간 시세" : "기본 가격"
-              }}</span>
+              <span>기본 가격</span>
               <strong> {{ formatPrice(manualSheetBasePrice) }}원 </strong>
             </div>
           </div>
@@ -1814,118 +1411,12 @@
         </div>
       </div>
     </transition>
-
-    <!-- 테이블 채팅 · 호출 모달 -->
-    <transition name="fade">
-      <div
-        v-if="chatPanelState.isOpen"
-        class="modal-overlay"
-        @click.self="closeChatPanel"
-      >
-        <div class="modal-card chat-modal">
-          <div class="modal-head">
-            <div>
-              <h3>테이블 채팅 · 호출</h3>
-              <p>손님이 보낸 호출과 메시지에 바로 답장할 수 있어요.</p>
-            </div>
-            <button type="button" class="close-button" @click="closeChatPanel">
-              ✕
-            </button>
-          </div>
-
-          <div class="chat-room-row">
-            <button
-              v-for="room in chatRoomList"
-              :key="room.roomKey"
-              type="button"
-              class="chat-room-chip"
-              :class="{
-                active: chatPanelState.roomKey === room.roomKey,
-                alerting: room.alertCount > 0,
-              }"
-              @click="selectChatRoom(room.roomKey)"
-            >
-              <span>{{ room.label }}</span>
-              <span v-if="room.alertCount > 0" class="chat-room-count">
-                {{ room.alertCount }}
-              </span>
-            </button>
-          </div>
-
-          <div class="chat-thread">
-            <p v-if="filteredChatMessages.length === 0" class="chat-empty">
-              아직 주고받은 메시지가 없어요.
-            </p>
-
-            <div
-              v-for="message in filteredChatMessages"
-              :key="message.id"
-              class="chat-row"
-              :class="{
-                mine: message.messageType === 'ADMIN',
-                alarm: isAlertMessage(message),
-              }"
-            >
-              <div class="chat-row-head">
-                <strong>{{ buildChatSenderLabel(message) }}</strong>
-                <span>{{ formatChatTime(message.createdAt) }}</span>
-              </div>
-              <p class="chat-row-text">{{ message.message }}</p>
-            </div>
-          </div>
-
-          <div class="chat-compose">
-            <div
-              v-if="activeChatRoom && activeChatRoom.tableNumber"
-              class="chat-quick-row"
-            >
-              <button
-                v-for="phrase in QUICK_PHRASES"
-                :key="phrase"
-                type="button"
-                class="chat-quick-button"
-                :disabled="chatPanelState.isSending"
-                @click="sendQuickReply(phrase)"
-              >
-                {{ phrase }}
-              </button>
-            </div>
-
-            <div class="chat-input-row">
-              <input
-                v-model="chatPanelState.draft"
-                type="text"
-                :placeholder="chatComposerPlaceholder"
-                :disabled="chatPanelState.isSending"
-                @keyup.enter="sendChatReply"
-              />
-              <button
-                type="button"
-                class="confirm-button"
-                :disabled="
-                  chatPanelState.isSending || !chatPanelState.draft.trim()
-                "
-                @click="sendChatReply"
-              >
-                보내기
-              </button>
-            </div>
-
-            <p v-if="chatFeedback" class="chat-feedback">{{ chatFeedback }}</p>
-          </div>
-        </div>
-      </div>
-    </transition>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import CharacterStudio from "@/components/CharacterStudio.vue";
-import MarketSparkline from "@/components/MarketSparkline.vue";
 import { getBusinessDayStart } from "@/lib/businessDay";
-import { resolveCharacterStyle } from "@/lib/characterStyle";
-import { buildGuestParts, GUEST_SPRITE_VIEW_BOX } from "@/lib/pixelGuest";
 import {
   fetchList,
   insertRow,
@@ -1942,7 +1433,6 @@ import {
   getOrCreateOpenOrderSheet,
   getTableNicknameErrorMessage,
   normalizeTableNumber,
-  updateOrderSheetCharacterStyle,
   updateOrderSheetNickname,
 } from "@/lib/orderSheet";
 import { recalculateOrderSheetTotals } from "@/lib/orderSheetTotals";
@@ -1954,371 +1444,8 @@ import {
   runLegacyTableNumberCleanup,
   scanLegacyTableNumbers,
 } from "@/lib/tableNumberCleanup";
-import {
-  buildStaffRoomKey,
-  CHAT_MESSAGE_TYPE,
-  CHAT_ROOM_TYPE,
-  clearDirectChatMessagesForTable,
-  formatTableLabel,
-  getChatDayStartIso,
-  getRoomLastReadAt,
-  GLOBAL_ROOM_KEY,
-  isAlertMessage,
-  markRoomRead,
-  QUICK_PHRASES,
-  sendChatMessage,
-  STAFF_LABEL,
-} from "@/lib/chat";
-import { saveMarketConfig, useMarketFeed } from "@/lib/market";
-import {
-  buildIndexSeries,
-  createIndexSample,
-  currentMarketBusinessDate,
-  fetchMarketHistory,
-  MARKET_HISTORY_SAMPLE_MS,
-  mergeIndexSample,
-  mergeIndexSeries,
-  saveMarketHistoryEntry,
-  summarizeIndexSamples,
-} from "@/lib/marketHistory";
 
 const activeTab = ref("tables");
-
-// 태블릿은 직원용이라 시세를 조금 더 자주 갱신합니다.
-const market = useMarketFeed({ dataPollMs: 10000 });
-const marketDraft = ref(null);
-const isSavingMarket = ref(false);
-
-const marketEnabled = computed(
-  () => market.enabled.value && market.isActive.value
-);
-const marketRows = computed(() => market.rows(40));
-const marketIndexValue = computed(() => market.index().value);
-const marketIndexChangePct = computed(() => market.index().changePct);
-const marketIndexText = computed(() => {
-  const changePct = marketIndexChangePct.value;
-  const arrow = changePct >= 0 ? "▲" : "▼";
-
-  return `${arrow} ${Math.abs(changePct).toFixed(2)}%`;
-});
-const marketIngredientRows = computed(() => market.ingredients(8));
-
-const marketStatusText = computed(() => {
-  if (!market.config.value.enabled) {
-    return "시세 OFF";
-  }
-
-  return market.isFrozen.value ? "거래 정지" : "실시간 거래";
-});
-
-function marketChangeText(changePct) {
-  const arrow = changePct >= 0 ? "▲" : "▼";
-  return `${arrow} ${Math.abs(changePct).toFixed(1)}%`;
-}
-
-function marketSignedText(changePct) {
-  const sign = changePct >= 0 ? "+" : "-";
-  return `${sign}${Math.abs(changePct).toFixed(1)}%`;
-}
-
-function marketPercentText(changePct, digits = 2) {
-  const arrow = changePct >= 0 ? "▲" : "▼";
-  return `${arrow} ${Math.abs(changePct).toFixed(digits)}%`;
-}
-
-function marketRangeText(summary) {
-  if (!summary) {
-    return "-";
-  }
-
-  return `${summary.high.toFixed(1)} / ${summary.low.toFixed(1)}`;
-}
-
-// ---- 영업일 시세 리포트 ----
-const MARKET_HISTORY_ERROR_HINT =
-  "시세 기록을 읽지 못했어요. patch-012를 실행해주세요.";
-
-const marketHistoryRows = ref([]);
-const marketHistoryError = ref("");
-const marketDerivedSeries = ref([]);
-let marketHistoryTimer = null;
-
-const marketBusinessDate = computed(() =>
-  currentMarketBusinessDate(new Date(market.nowTick.value))
-);
-
-function findMarketHistoryRow(businessDate) {
-  const found = marketHistoryRows.value.find(
-    (row) => row.businessDate === businessDate
-  );
-
-  return found || null;
-}
-
-const marketTodayHistory = computed(() =>
-  findMarketHistoryRow(marketBusinessDate.value)
-);
-
-const marketIndexSeries = computed(() =>
-  mergeIndexSeries(
-    marketDerivedSeries.value,
-    marketTodayHistory.value?.samples || []
-  )
-);
-
-// 곡선 끝이 5분 전에 멈추지 않도록 지금 지수를 한 점 덧붙입니다.
-const marketLiveSeries = computed(() => {
-  const list = marketIndexSeries.value;
-
-  if (!market.config.value.enabled || !market.isActive.value) {
-    return list;
-  }
-
-  const nowTs = market.nowTick.value;
-  const last = list[list.length - 1];
-
-  if (last && nowTs - Number(last.t) < 60000) {
-    return list;
-  }
-
-  const index = market.index();
-
-  return [...list, { t: nowTs, i: index.value, c: index.changePct }];
-});
-
-const marketIndexSeriesValues = computed(() =>
-  marketLiveSeries.value.map((point) => Number(point.i))
-);
-
-const marketTodaySummary = computed(() =>
-  summarizeIndexSamples(marketLiveSeries.value)
-);
-
-const marketTodayStats = computed(() => {
-  const summary = marketTodaySummary.value;
-
-  if (!summary) {
-    return null;
-  }
-
-  return {
-    open: summary.open.toFixed(1),
-    high: summary.high.toFixed(1),
-    low: summary.low.toFixed(1),
-    close: summary.close.toFixed(1),
-    changeText: marketPercentText(summary.changePct),
-    trend: summary.changePct >= 0 ? "up" : "down",
-  };
-});
-
-function compareMarketHistory(first, second) {
-  return second.businessDate.localeCompare(first.businessDate);
-}
-
-function toMarketHistoryRow(row) {
-  const summary = row.summary || summarizeIndexSamples(row.samples);
-
-  if (!summary) {
-    return null;
-  }
-
-  return {
-    businessDate: row.businessDate,
-    closeText: summary.close.toFixed(1),
-    changeText: marketPercentText(summary.changePct),
-    rangeText: marketRangeText(summary),
-    trend: summary.changePct >= 0 ? "up" : "down",
-  };
-}
-
-const marketHistoryList = computed(() => {
-  const rows = marketHistoryRows.value.filter(
-    (row) => row.businessDate !== marketBusinessDate.value
-  );
-
-  return rows
-    .map(toMarketHistoryRow)
-    .filter((row) => row !== null)
-    .sort(compareMarketHistory)
-    .slice(0, 7);
-});
-
-// 기록이 비어 있는 구간은 엔진으로 되짚어 곡선을 복원합니다.
-function rebuildMarketDerivedSeries() {
-  if (!market.config.value.enabled) {
-    marketDerivedSeries.value = [];
-    return;
-  }
-
-  const dayStart = getBusinessDayStart().getTime();
-  const startedAt = toTime(market.config.value.startedAt);
-  const from = Math.max(dayStart, startedAt || dayStart);
-
-  marketDerivedSeries.value = buildIndexSeries(market.engine.value, { from });
-}
-
-async function loadMarketHistory() {
-  try {
-    marketHistoryRows.value = await fetchMarketHistory();
-    marketHistoryError.value = "";
-  } catch (error) {
-    marketHistoryError.value = error?.message || MARKET_HISTORY_ERROR_HINT;
-  } finally {
-    rebuildMarketDerivedSeries();
-  }
-}
-
-async function recordMarketHistorySample() {
-  rebuildMarketDerivedSeries();
-
-  if (!market.config.value.enabled || !market.isActive.value) {
-    return;
-  }
-
-  const businessDate = marketBusinessDate.value;
-  const current = marketHistoryRows.value.find(
-    (row) => row.businessDate === businessDate
-  );
-  const samples = mergeIndexSample(
-    current?.samples || [],
-    createIndexSample(market.engine.value)
-  );
-  const entry = {
-    businessDate,
-    samples,
-    summary: summarizeIndexSamples(samples),
-    updatedAt: nowIso(),
-  };
-
-  marketHistoryRows.value = [
-    entry,
-    ...marketHistoryRows.value.filter(
-      (row) => row.businessDate !== businessDate
-    ),
-  ];
-
-  try {
-    await saveMarketHistoryEntry(entry);
-    marketHistoryError.value = "";
-  } catch (error) {
-    marketHistoryError.value = error?.message || MARKET_HISTORY_ERROR_HINT;
-  }
-}
-
-function syncMarketDraft(config) {
-  marketDraft.value = {
-    tickSeconds: config.tickSeconds,
-    maxChangePct: config.maxChangePct,
-    volatility: config.volatility,
-    demandWeight: config.demandWeight,
-    chainWeight: config.chainWeight,
-    demandTarget: config.demandTarget,
-    applyToOrders: config.applyToOrders,
-    categoryIds: [...config.categoryIds],
-  };
-}
-
-// 실제로 저장된 시점(updatedAt)이 바뀔 때만 편집 중인 값을 덮어씁니다.
-watch(
-  () => market.config.value.updatedAt,
-  () => syncMarketDraft(market.config.value),
-  { immediate: true }
-);
-
-// 시세 탭을 열 때마다 오늘 곡선을 새로 복원합니다.
-watch(activeTab, (tab) => {
-  if (tab === "market") {
-    loadMarketHistory();
-  }
-});
-
-async function toggleMarket() {
-  const nextEnabled = !market.config.value.enabled;
-
-  if (nextEnabled) {
-    const confirmed = window.confirm(
-      `실시간 시세를 켤까요?\n\n참여 메뉴 ${market.productCount.value}종의 가격이 실시간으로 움직이고,\n손님 주문 금액에도 그 가격이 그대로 적용됩니다.\n\n켜면 모든 메뉴가 기본가에서 출발해 약 10분에 걸쳐 시세가 붙습니다.\n칵테일·시그니처·샷·논알콜·위스키에만 적용되고 나머지 메뉴는 기본가로 판매됩니다.`
-    );
-
-    if (!confirmed) return;
-  }
-
-  await runGlobalBusy(
-    async () => {
-      try {
-        if (!nextEnabled) {
-          // 마지막 시점의 지수를 남겨 두고 닫습니다.
-          await recordMarketHistorySample();
-        }
-
-        const saved = await saveMarketConfig(
-          {
-            enabled: nextEnabled,
-            startedAt: nextEnabled
-              ? new Date().toISOString()
-              : market.config.value.startedAt,
-          },
-          { baseConfig: market.config.value }
-        );
-
-        syncMarketDraft(saved);
-        await market.refresh();
-
-        if (nextEnabled) {
-          await recordMarketHistorySample();
-        }
-      } catch (error) {
-        alert(error?.message || "시세 설정을 바꾸지 못했어요.");
-      }
-    },
-    nextEnabled ? "시세를 여는 중이에요." : "시세를 멈추는 중이에요."
-  );
-}
-
-async function saveMarketDraft() {
-  if (!marketDraft.value || isSavingMarket.value) return;
-
-  isSavingMarket.value = true;
-
-  try {
-    const saved = await saveMarketConfig(
-      { ...marketDraft.value },
-      { baseConfig: market.config.value }
-    );
-
-    syncMarketDraft(saved);
-    await market.refresh();
-    alert("시세 설정을 저장했어요.");
-  } catch (error) {
-    alert(error?.message || "시세 설정을 저장하지 못했어요.");
-  } finally {
-    isSavingMarket.value = false;
-  }
-}
-
-async function toggleMarketFreeze() {
-  if (isSavingMarket.value) return;
-
-  const nextFrozenUntil = market.isFrozen.value
-    ? ""
-    : new Date(Date.now() + 5 * 60 * 1000).toISOString();
-
-  isSavingMarket.value = true;
-
-  try {
-    const saved = await saveMarketConfig(
-      { frozenUntil: nextFrozenUntil },
-      { baseConfig: market.config.value }
-    );
-
-    syncMarketDraft(saved);
-    await market.refresh();
-  } catch (error) {
-    alert(error?.message || "거래 상태를 바꾸지 못했어요.");
-  } finally {
-    isSavingMarket.value = false;
-  }
-}
 
 const selectedTable = ref(null);
 const recipeModalProduct = ref(null);
@@ -2378,27 +1505,6 @@ const tableNicknameModalError = computed(() => {
   return getTableNicknameErrorMessage(tableNicknameModalState.value.nickname);
 });
 
-const tableCharacterModalState = ref({
-  isOpen: false,
-  orderSheetId: "",
-  tableNumber: "",
-  displayName: "",
-  nickname: "",
-  draft: resolveCharacterStyle({}),
-  isSaving: false,
-});
-
-// 테이블 상세 모달에 보여줄 미니 캐릭터입니다.
-const selectedTableCharacter = computed(() => {
-  const table = selectedTable.value;
-
-  if (!table) return null;
-
-  const tableNumber = String(table.tableNumber ?? "");
-
-  return buildGuestParts(table.characterStyle, tableNumber);
-});
-
 const manualAddModalState = ref({
   isOpen: false,
   orderSheetId: "",
@@ -2425,7 +1531,6 @@ const tabList = [
   { key: "tables", label: "테이블" },
   { key: "orders", label: "주문" },
   { key: "recipes", label: "레시피" },
-  { key: "market", label: "시세" },
 ];
 
 const isTableNumberCleanupScanning = ref(false);
@@ -2702,7 +1807,7 @@ const manualCartTotalAmount = computed(() => {
 });
 
 function manualUnitPriceOf(item) {
-  return market.priceForCartItem(item);
+  return Number(item?.unitPrice || 0);
 }
 
 const manualSortedOptionGroups = computed(() => {
@@ -2733,16 +1838,8 @@ const manualSelectedOptionsFlat = computed(() => {
   return result;
 });
 
-// 수동 주문도 손님 주문과 같은 시세를 씁니다.
 const manualSheetBasePrice = computed(() =>
-  market.priceFor(manualOptionModalState.value.product)
-);
-
-// 칵테일·시그니처·샷·논알콜·위스키만 시세가 붙으므로, 옵션 시트 라벨도 메뉴별로 구분합니다.
-const manualSheetIsMarket = computed(
-  () =>
-    marketEnabled.value &&
-    market.participates(manualOptionModalState.value.product)
+  Number(manualOptionModalState.value.product?.basePrice || 0)
 );
 
 const manualOptionUnitPrice = computed(() => {
@@ -2755,10 +1852,6 @@ const manualOptionUnitPrice = computed(() => {
 
   return manualSheetBasePrice.value + additional;
 });
-
-function marketPriceOf(product) {
-  return market.priceFor(product);
-}
 
 const manualOptionTotalPrice = computed(() => {
   return (
@@ -2837,21 +1930,6 @@ function convertOrderStatusText(status) {
   if (status === "SERVED") return "제공완료";
   if (status === "CANCELLED") return "취소";
   return "알 수 없음";
-}
-
-function resolveGiftTargetLabel(order) {
-  const targetTable = String(order?.giftToTableNumber || "").trim();
-  const targetNickname = String(order?.giftToNickname || "").trim();
-
-  if (targetTable && targetNickname) {
-    return `${targetNickname}(${targetTable}번)`;
-  }
-
-  if (targetTable) {
-    return `${targetTable}번 테이블`;
-  }
-
-  return "다른 테이블";
 }
 
 function convertPaymentStatusText(status) {
@@ -2998,8 +2076,11 @@ function buildCartItemKey(productId, selectedOptions) {
 function subscribeOrderSheets() {
   const loadOrderSheets = async () => {
     try {
+      // Egress 절감: 전체 이력을 매번 받지 않고 최근 갱신된 주문서만 받습니다.
+      // (테이블 카드는 "테이블별 최신 주문서"만 쓰므로 최근 400건이면 충분합니다.)
       orderSheetList.value = await fetchList("orderSheets", {
         order: ["updatedAt", "desc"],
+        limit: 400,
       });
     } catch (error) {
       console.error("주문서 구독 실패:", error);
@@ -3031,8 +2112,11 @@ function playNotificationSound(type, options = {}) {
 function subscribeOrders() {
   const loadOrders = async () => {
     try {
+      // Egress 절감: 전체 주문 이력을 매번 받지 않고 이번 영업일 주문만 받습니다.
       const currentOrders = await fetchList("orders", {
+        filters: [["createdAt", "gte", getBusinessDayStart().toISOString()]],
         order: ["createdAt", "desc"],
+        limit: 1000,
       });
       const currentOrderIds = new Set(currentOrders.map((item) => item.id));
 
@@ -3280,63 +2364,6 @@ async function saveTableNickname() {
   }, "닉네임을 변경하는 중이에요.");
 }
 
-function openTableCharacterModal(table) {
-  if (!table?.orderSheetId) return;
-
-  const tableNumber = String(table.tableNumber ?? "");
-
-  tableCharacterModalState.value = {
-    isOpen: true,
-    orderSheetId: table.orderSheetId,
-    tableNumber,
-    displayName: table.displayName || table.tableLabel || "",
-    nickname: table.tableNickname || "",
-    draft: resolveCharacterStyle(table.characterStyle, tableNumber),
-    isSaving: false,
-  };
-}
-
-function closeTableCharacterModal() {
-  tableCharacterModalState.value = {
-    isOpen: false,
-    orderSheetId: "",
-    tableNumber: "",
-    displayName: "",
-    nickname: "",
-    draft: resolveCharacterStyle({}),
-    isSaving: false,
-  };
-}
-
-async function saveTableCharacter() {
-  const state = tableCharacterModalState.value;
-  if (!state.isOpen || !state.orderSheetId || state.isSaving) return;
-
-  await runGlobalBusy(async () => {
-    state.isSaving = true;
-
-    try {
-      const savedStyle = await updateOrderSheetCharacterStyle({
-        orderSheetId: state.orderSheetId,
-        characterStyle: state.draft,
-      });
-
-      if (selectedTable.value?.orderSheetId === state.orderSheetId) {
-        selectedTable.value = {
-          ...selectedTable.value,
-          characterStyle: savedStyle,
-        };
-      }
-
-      closeTableCharacterModal();
-    } catch (error) {
-      console.error("캐릭터 변경 실패:", error);
-      alert("캐릭터 변경 중 문제가 발생했어요.");
-      state.isSaving = false;
-    }
-  }, "캐릭터를 저장하는 중이에요.");
-}
-
 function openManualAddModal(table) {
   manualAddModalState.value = {
     isOpen: true,
@@ -3510,7 +2537,7 @@ function decreaseManualOptionQuantity() {
 }
 
 function addManualSimpleProduct(product) {
-  const unitPrice = market.livePriceFor(product);
+  const unitPrice = Number(product.basePrice || 0);
 
   const cartItem = {
     cartItemId: `manual_${Date.now()}_${Math.random()
@@ -3671,11 +2698,10 @@ async function submitManualAddOrder() {
 
   await runGlobalBusy(async () => {
     try {
-      // 수동 추가도 주문 확정 시점의 시세로 금액을 고정합니다.
       const pricedItems = state.cartItems.map((item) => ({
         item,
         quantity: Number(item.quantity || 0),
-        unitPrice: market.livePriceForCartItem(item),
+        unitPrice: Number(item.unitPrice || 0),
       }));
 
       const orderItems = pricedItems.map(({ item, quantity, unitPrice }) => ({
@@ -3834,13 +2860,6 @@ async function completePayment() {
         paymentSplits,
       });
 
-      // 손님이 결제하고 나가면 이 테이블의 1:1 채팅을 모두 정리합니다.
-      try {
-        await clearDirectChatMessagesForTable(state.tableNumber);
-      } catch (chatError) {
-        console.error("1:1 채팅 정리 실패:", chatError);
-      }
-
       paymentCompleteModalState.value = {
         isOpen: true,
         displayName: state.displayName,
@@ -3899,13 +2918,6 @@ async function finalizeTableCleanup(table) {
       await finalizeOrderSheetCleanup({
         orderSheetId: table.orderSheetId,
       });
-
-      // 손님이 떠난 테이블의 1:1 채팅도 함께 정리합니다.
-      try {
-        await clearDirectChatMessagesForTable(table.tableNumber);
-      } catch (chatError) {
-        console.error("1:1 채팅 정리 실패:", chatError);
-      }
 
       closeTableModal();
       alert("테이블 정리가 완료되었어요.");
@@ -4035,336 +3047,11 @@ watch(paymentPayableAmount, (amount) => {
   paymentModalState.value.paymentSplits[0].amount = amount;
 });
 
-// ── 테이블 채팅 · 호출 ─────────────────────────────────────────────
-const chatPanelState = ref({
-  isOpen: false,
-  roomKey: GLOBAL_ROOM_KEY,
-  draft: "",
-  isSending: false,
-});
-const chatMessageList = ref([]);
-const chatActiveTableList = ref([]);
-const chatFeedback = ref("");
-let unsubscribeChatMessages = null;
-let unsubscribeChatTables = null;
-let chatFeedbackTimer = null;
-// Tracks alert ids so a new call rings even while the panel is closed.
-let knownChatAlertIds = new Set();
-let isChatAlertSoundReady = false;
-
-const chatRoomStats = computed(() => {
-  const stats = {};
-
-  chatMessageList.value.forEach((message) => {
-    if (message.isDeleted) return;
-
-    const roomKey = message.roomKey || GLOBAL_ROOM_KEY;
-    if (!stats[roomKey]) {
-      stats[roomKey] = { lastAt: "" };
-    }
-
-    stats[roomKey].lastAt = message.createdAt || stats[roomKey].lastAt;
-  });
-
-  return stats;
-});
-
-// 호출 건수는 마지막으로 확인한 시각 이후의 알림만 센다 (배지가 계속 남지 않게).
-const chatReadMap = ref({});
-
-function syncChatReadMap(roomKeys) {
-  const next = { ...chatReadMap.value };
-  let hasNewRoom = false;
-
-  roomKeys.forEach((roomKey) => {
-    if (roomKey in next) return;
-
-    next[roomKey] = getRoomLastReadAt(roomKey);
-    hasNewRoom = true;
-  });
-
-  if (hasNewRoom) {
-    chatReadMap.value = next;
-  }
-}
-
-function markChatRoomRead(roomKey) {
-  if (!roomKey) return;
-
-  markRoomRead(roomKey);
-  chatReadMap.value = {
-    ...chatReadMap.value,
-    [roomKey]: getRoomLastReadAt(roomKey),
-  };
-}
-
-function countUnreadAlerts(roomKey) {
-  const readAt = toTime(chatReadMap.value[roomKey]);
-
-  return chatMessageList.value.filter((message) => {
-    return (
-      !message.isDeleted &&
-      (message.roomKey || GLOBAL_ROOM_KEY) === roomKey &&
-      isAlertMessage(message) &&
-      toTime(message.createdAt) > readAt
-    );
-  }).length;
-}
-
-const chatRoomList = computed(() => {
-  const stats = chatRoomStats.value;
-  const tableRooms = chatActiveTableList.value.map((table) => {
-    const roomKey = buildStaffRoomKey(table.tableNumber);
-    const stat = stats[roomKey] || { lastAt: "" };
-
-    return {
-      roomKey,
-      label: formatTableLabel(table.tableNumber, table.nickname),
-      tableNumber: table.tableNumber,
-      alertCount: countUnreadAlerts(roomKey),
-      lastAt: stat.lastAt,
-    };
-  });
-
-  tableRooms.sort((a, b) => {
-    if (b.alertCount !== a.alertCount) return b.alertCount - a.alertCount;
-    return toTime(b.lastAt) - toTime(a.lastAt);
-  });
-
-  return [
-    {
-      roomKey: GLOBAL_ROOM_KEY,
-      label: "전체 채팅",
-      tableNumber: "",
-      alertCount: countUnreadAlerts(GLOBAL_ROOM_KEY),
-      lastAt: (stats[GLOBAL_ROOM_KEY] || {}).lastAt || "",
-    },
-    ...tableRooms,
-  ];
-});
-
-const totalChatAlertCount = computed(() =>
-  chatRoomList.value.reduce((acc, room) => acc + room.alertCount, 0)
-);
-
-const activeChatRoom = computed(
-  () =>
-    chatRoomList.value.find(
-      (room) => room.roomKey === chatPanelState.value.roomKey
-    ) || null
-);
-
-const filteredChatMessages = computed(() =>
-  chatMessageList.value.filter(
-    (message) =>
-      !message.isDeleted &&
-      (message.roomKey || GLOBAL_ROOM_KEY) === chatPanelState.value.roomKey
-  )
-);
-
-const chatComposerPlaceholder = computed(() =>
-  activeChatRoom.value && activeChatRoom.value.tableNumber
-    ? `${activeChatRoom.value.label} 테이블에 답장하기`
-    : "전체 채팅에 보낼 메시지"
-);
-
-async function loadChatMessages() {
-  try {
-    // 최신 500건을 받아 화면 표시용으로 오래된 순으로 뒤집는다.
-    const recentMessages = await fetchList("chatMessages", {
-      filters: [["createdAt", "gte", getChatDayStartIso()]],
-      order: ["createdAt", "desc"],
-      limit: 500,
-    });
-    const messages = [...recentMessages].reverse();
-
-    const alertIds = new Set(
-      messages.filter((item) => isAlertMessage(item)).map((item) => item.id)
-    );
-
-    if (isChatAlertSoundReady) {
-      for (const id of alertIds) {
-        if (!knownChatAlertIds.has(id)) {
-          playNotificationSound("payment");
-          break;
-        }
-      }
-    }
-
-    knownChatAlertIds = alertIds;
-    isChatAlertSoundReady = true;
-    chatMessageList.value = messages;
-    syncChatReadMap(
-      new Set(messages.map((item) => item.roomKey || GLOBAL_ROOM_KEY))
-    );
-
-    if (chatPanelState.value.isOpen) {
-      markChatRoomRead(chatPanelState.value.roomKey);
-    }
-  } catch (error) {
-    console.error("채팅 구독 실패:", error);
-  }
-}
-
-async function loadChatTables() {
-  try {
-    const activeSheets = await fetchList("activeOrderSheets", {});
-    const seatedSheets = activeSheets.filter((sheet) => sheet.orderSheetId);
-    const nicknameMap = {};
-
-    if (seatedSheets.length > 0) {
-      const sheetRows = await fetchList("orderSheets", {
-        filters: [
-          ["id", "in", seatedSheets.map((sheet) => sheet.orderSheetId)],
-        ],
-      });
-
-      sheetRows.forEach((row) => {
-        nicknameMap[row.orderSheetId] = row.tableNickname || "";
-      });
-    }
-
-    chatActiveTableList.value = seatedSheets
-      .map((sheet) => ({
-        tableNumber: normalizeTableNumber(sheet.tableNumber),
-        nickname: nicknameMap[sheet.orderSheetId] || "",
-      }))
-      .filter((table) => table.tableNumber);
-  } catch (error) {
-    console.error("채팅 테이블 조회 실패:", error);
-  }
-}
-
-function subscribeChat() {
-  unsubscribeChatMessages = subscribeTable("chatMessages", loadChatMessages);
-  unsubscribeChatTables = subscribeTable("activeOrderSheets", loadChatTables, {
-    pollMs: 60000,
-  });
-  loadChatMessages();
-  loadChatTables();
-}
-
-function openChatPanel() {
-  // 호출이 들어온 테이블이 있으면 그 방을 먼저 보여준다.
-  const alertRoom = chatRoomList.value.find((room) => room.alertCount > 0);
-  const roomKey = alertRoom ? alertRoom.roomKey : chatPanelState.value.roomKey;
-
-  chatPanelState.value = {
-    ...chatPanelState.value,
-    isOpen: true,
-    roomKey,
-  };
-
-  markChatRoomRead(roomKey);
-  loadChatMessages();
-  loadChatTables();
-}
-
-function closeChatPanel() {
-  chatPanelState.value = { ...chatPanelState.value, isOpen: false };
-}
-
-function selectChatRoom(roomKey) {
-  chatPanelState.value = { ...chatPanelState.value, roomKey };
-  markChatRoomRead(roomKey);
-}
-
-function buildChatSenderLabel(message) {
-  if (message.messageType === CHAT_MESSAGE_TYPE.ADMIN) {
-    return STAFF_LABEL;
-  }
-
-  if (message.messageType === CHAT_MESSAGE_TYPE.SYSTEM) {
-    return message.senderLabel || "시스템";
-  }
-
-  const nickname = String(message.nickname || "").trim();
-  const tableLabel = nickname
-    ? formatTableLabel(message.tableNumber, nickname)
-    : `${message.tableNumber || "-"}번`;
-  const tag = String(message.senderLabel || "").trim();
-
-  // 호출/이벤트 요청은 senderLabel에 요청 종류가 담겨 있어요.
-  return tag ? `${tableLabel} · ${tag}` : tableLabel;
-}
-
-function formatChatTime(value) {
-  const time = toTime(value);
-
-  if (!time) return "";
-
-  return new Date(time).toLocaleTimeString("ko-KR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function showChatFeedback(text) {
-  chatFeedback.value = text;
-
-  if (chatFeedbackTimer) {
-    clearTimeout(chatFeedbackTimer);
-  }
-
-  chatFeedbackTimer = setTimeout(() => {
-    chatFeedback.value = "";
-  }, 3000);
-}
-
-async function sendChatMessageToRoom(text) {
-  const room = activeChatRoom.value;
-
-  if (!room || !text) return;
-
-  chatPanelState.value = { ...chatPanelState.value, isSending: true };
-
-  try {
-    await sendChatMessage({
-      roomType: room.tableNumber ? CHAT_ROOM_TYPE.STAFF : CHAT_ROOM_TYPE.GLOBAL,
-      roomKey: room.roomKey,
-      message: text,
-      sender: { tableNumber: "", nickname: "" },
-      messageType: CHAT_MESSAGE_TYPE.ADMIN,
-      senderLabel: STAFF_LABEL,
-    });
-
-    await loadChatMessages();
-
-    if (room.tableNumber) {
-      showChatFeedback(`${room.label} 테이블에 답장을 보냈어요.`);
-    }
-  } catch (error) {
-    console.error("채팅 전송 실패:", error);
-    alert(error.message || "메시지를 보내지 못했어요.");
-  } finally {
-    chatPanelState.value = { ...chatPanelState.value, isSending: false };
-  }
-}
-
-async function sendChatReply() {
-  const text = chatPanelState.value.draft.trim();
-
-  if (!text) return;
-
-  await sendChatMessageToRoom(text);
-  chatPanelState.value = { ...chatPanelState.value, draft: "" };
-}
-
-async function sendQuickReply(phrase) {
-  await sendChatMessageToRoom(phrase);
-}
-
 onMounted(() => {
   subscribeOrderSheets();
   subscribeOrders();
   subscribeCategories();
   subscribeProducts();
-  subscribeChat();
-  loadMarketHistory();
-  marketHistoryTimer = setInterval(
-    recordMarketHistorySample,
-    MARKET_HISTORY_SAMPLE_MS
-  );
 });
 
 onUnmounted(() => {
@@ -4372,13 +3059,6 @@ onUnmounted(() => {
   if (unsubscribeOrders) unsubscribeOrders();
   if (unsubscribeCategories) unsubscribeCategories();
   if (unsubscribeProducts) unsubscribeProducts();
-  if (unsubscribeChatMessages) unsubscribeChatMessages();
-  if (unsubscribeChatTables) unsubscribeChatTables();
-  if (chatFeedbackTimer) clearTimeout(chatFeedbackTimer);
-  if (marketHistoryTimer) {
-    clearInterval(marketHistoryTimer);
-    marketHistoryTimer = null;
-  }
 });
 </script>
 
@@ -4479,263 +3159,6 @@ onUnmounted(() => {
   margin: 0;
   font-size: 14px;
   color: rgba(255, 255, 255, 0.68);
-}
-.market-summary {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-.market-summary-card {
-  display: grid;
-  gap: 4px;
-  padding: 16px 18px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.08);
-}
-.market-summary-label {
-  font-size: 12px;
-  letter-spacing: 0.04em;
-  color: rgba(255, 255, 255, 0.6);
-}
-.market-summary-card strong {
-  font-size: 22px;
-  font-weight: 800;
-}
-.market-summary-change {
-  font-size: 12px;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.62);
-}
-.market-summary-change.up,
-.market-table-row .up {
-  color: #4ade80;
-}
-.market-summary-change.down,
-.market-table-row .down {
-  color: #f87171;
-}
-.market-controls {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-.market-field {
-  display: grid;
-  gap: 6px;
-  padding: 12px 14px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.06);
-
-  span {
-    font-size: 12px;
-    font-weight: 700;
-    color: rgba(255, 255, 255, 0.66);
-  }
-
-  input {
-    height: 40px;
-    padding: 0 12px;
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    border-radius: 12px;
-    background: rgba(9, 12, 22, 0.55);
-    color: #fff;
-    font-size: 14px;
-    font-weight: 700;
-  }
-}
-.market-report-block {
-  display: grid;
-  gap: 10px;
-
-  h3 {
-    margin: 0;
-    font-size: 16px;
-    font-weight: 800;
-  }
-}
-.market-report-stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-}
-.market-report-stat {
-  display: grid;
-  gap: 4px;
-  padding: 12px 14px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.06);
-
-  span {
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.6);
-  }
-
-  strong {
-    font-size: 18px;
-    font-weight: 800;
-  }
-
-  .up {
-    color: #4ade80;
-  }
-
-  .down {
-    color: #f87171;
-  }
-
-  .market-report-delta {
-    font-weight: 800;
-    color: rgba(255, 255, 255, 0.78);
-  }
-}
-.market-report-chart {
-  position: relative;
-  display: grid;
-  gap: 6px;
-  padding: 14px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.06);
-
-  svg {
-    width: 100%;
-    height: auto;
-  }
-}
-.market-report-note,
-.market-report-empty {
-  margin: 0;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.62);
-}
-.market-report-error {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 700;
-  color: #fecaca;
-}
-.market-category-block,
-.market-table-block {
-  display: grid;
-  gap: 8px;
-
-  h3 {
-    margin: 0;
-    font-size: 16px;
-    font-weight: 800;
-  }
-
-  p {
-    margin: 0;
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.62);
-  }
-}
-.market-category-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.market-category-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.76);
-  cursor: pointer;
-
-  input {
-    display: none;
-  }
-
-  &.active {
-    border-color: rgba(74, 222, 128, 0.6);
-    background: rgba(74, 222, 128, 0.18);
-    color: #dcfce7;
-  }
-}
-.market-ingredient-chip {
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  font-size: 12px;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.78);
-}
-.market-checkbox-row {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.78);
-}
-.market-action-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-.market-action-button {
-  min-width: 120px;
-  height: 44px;
-  padding: 0 18px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
-  font-size: 14px;
-  font-weight: 800;
-  cursor: pointer;
-
-  &.primary {
-    border-color: transparent;
-    background: #22c55e;
-    color: #052e16;
-  }
-
-  &.warn {
-    border-color: rgba(248, 113, 113, 0.5);
-    color: #fecaca;
-  }
-
-  &:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
-}
-.market-table {
-  display: grid;
-  gap: 4px;
-  padding: 8px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.06);
-}
-.market-table-row {
-  display: grid;
-  grid-template-columns: 1.6fr 1fr 1fr 0.9fr;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  font-size: 13px;
-
-  &.head {
-    font-size: 12px;
-    font-weight: 800;
-    color: rgba(255, 255, 255, 0.58);
-    background: rgba(255, 255, 255, 0.06);
-  }
-}
-.market-table-name {
-  font-weight: 700;
-}
-.market-toggle.live {
-  border-color: rgba(74, 222, 128, 0.6);
-  background: rgba(74, 222, 128, 0.18);
-  color: #dcfce7;
 }
 .empty-box,
 .list-card,
@@ -5097,20 +3520,6 @@ onUnmounted(() => {
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
-}
-.gift-badge {
-  display: inline-block;
-  margin-top: 12px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: rgba(250, 204, 21, 0.18);
-  color: #fde68a;
-  font-size: 12px;
-  font-weight: 700;
-}
-.gift-order-tag {
-  color: #fde68a !important;
-  font-weight: 700;
 }
 .request-message-box {
   margin-top: 12px;
@@ -5563,28 +3972,6 @@ onUnmounted(() => {
 }
 .table-nickname-modal {
   max-width: 480px;
-}
-.table-character-modal {
-  --studio-pad-top: 20px;
-  --studio-bleed: 20px;
-  --studio-sticky-bg: #0f172a;
-  max-width: 560px;
-}
-.table-character-modal .confirm-button {
-  width: 100%;
-  margin-top: 14px;
-}
-.modal-character-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-.table-character-mini {
-  width: 48px;
-  height: 48px;
-  flex-shrink: 0;
-  image-rendering: pixelated;
 }
 .table-nickname-modal-helper {
   margin: 10px 0 0;
@@ -6079,192 +4466,5 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-.header-chat-button {
-  height: 48px;
-  padding: 0 18px;
-  border: none;
-  border-radius: 14px;
-  background: rgba(96, 165, 250, 0.2);
-  color: #dbeafe;
-  font-size: 14px;
-  font-weight: 800;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-}
-.header-chat-button.alerting {
-  background: rgba(251, 191, 36, 0.24);
-  color: #fde68a;
-}
-.header-chat-badge {
-  min-width: 22px;
-  height: 22px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: #f97316;
-  color: #1f2937;
-  font-size: 12px;
-  font-weight: 800;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.chat-modal {
-  max-width: 900px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  overflow: hidden;
-}
-.chat-room-row {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 4px;
-}
-.chat-room-chip {
-  flex: 0 0 auto;
-  height: 40px;
-  padding: 0 14px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.82);
-  font-size: 13px;
-  font-weight: 700;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-}
-.chat-room-chip.active {
-  border-color: rgba(96, 165, 250, 0.6);
-  background: rgba(96, 165, 250, 0.22);
-  color: #fff;
-}
-.chat-room-chip.alerting {
-  border-color: rgba(251, 191, 36, 0.65);
-  color: #fde68a;
-}
-.chat-room-count {
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: #f97316;
-  color: #1f2937;
-  font-size: 11px;
-  font-weight: 800;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.chat-thread {
-  flex: 1 1 auto;
-  min-height: 280px;
-  max-height: 46vh;
-  padding: 14px;
-  border-radius: 16px;
-  background: rgba(15, 23, 42, 0.6);
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.chat-empty {
-  margin: auto;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.6);
-}
-.chat-row {
-  max-width: 78%;
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.08);
-}
-.chat-row.mine {
-  margin-left: auto;
-  background: rgba(96, 165, 250, 0.18);
-}
-.chat-row.alarm {
-  background: rgba(251, 191, 36, 0.22);
-  box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.5);
-}
-.chat-row-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 4px;
-}
-.chat-row-head strong {
-  font-size: 12px;
-  font-weight: 800;
-  color: rgba(255, 255, 255, 0.85);
-}
-.chat-row-head span {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.5);
-}
-.chat-row-text {
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-.chat-compose {
-  display: grid;
-  gap: 10px;
-}
-.chat-quick-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.chat-quick-button {
-  height: 34px;
-  padding: 0 12px;
-  border: none;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-}
-.chat-quick-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.chat-input-row {
-  display: flex;
-  gap: 10px;
-}
-.chat-input-row input {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 44px;
-  padding: 0 14px;
-  border: none;
-  outline: none;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
-  font-size: 14px;
-}
-.chat-input-row input::placeholder {
-  color: rgba(255, 255, 255, 0.45);
-}
-.chat-input-row .confirm-button {
-  width: auto;
-  min-width: 96px;
-  padding: 0 18px;
-}
-.chat-feedback {
-  margin: 0;
-  font-size: 12px;
-  color: #86efac;
 }
 </style>

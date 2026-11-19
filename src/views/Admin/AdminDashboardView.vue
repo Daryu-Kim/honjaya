@@ -504,8 +504,7 @@ onUnmounted(() => {
 .summary-card,
 .panel-card,
 .mini-card,
-.empty-box,
-.chat-row {
+.empty-box {
   border-radius: 22px;
   background: rgba(255, 255, 255, 0.08);
 }

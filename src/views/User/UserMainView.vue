@@ -58,60 +58,6 @@
             <p>지금까지 주문한 모든 내역을 확인할 수 있어요.</p>
           </div>
         </button>
-
-        <button type="button" class="menu-card" @click="goChat">
-          <div class="menu-icon">💬</div>
-          <div class="menu-text">
-            <strong>
-              채팅
-              <span v-if="unreadChatCount > 0" class="menu-badge">
-                {{ unreadChatCount > 99 ? "99+" : unreadChatCount }}
-              </span>
-            </strong>
-            <p>전체 채팅과 1:1 채팅으로 다른 테이블과 대화할 수 있어요.</p>
-          </div>
-        </button>
-
-        <button type="button" class="menu-card" @click="goGift">
-          <div class="menu-icon">🎁</div>
-          <div class="menu-text">
-            <strong>선물 보내기</strong>
-            <p>다른 테이블에 메뉴를 선물할 수 있어요.</p>
-          </div>
-        </button>
-
-        <button type="button" class="menu-card" @click="openHeartSheet">
-          <div class="menu-icon">💗</div>
-          <div class="menu-text">
-            <strong>익명 하트</strong>
-            <p>다른 테이블에 누가 보냈는지 모르게 하트를 보낼 수 있어요.</p>
-          </div>
-        </button>
-
-        <button type="button" class="menu-card" @click="openCharacterSheet">
-          <div class="menu-icon">
-            <svg
-              class="character-mini"
-              :viewBox="GUEST_SPRITE_VIEW_BOX"
-              aria-hidden="true"
-              focusable="false"
-            >
-              <path
-                v-for="part in characterParts"
-                :key="`mini-${part.fill}`"
-                :d="part.d"
-                :fill="part.fill"
-              />
-            </svg>
-          </div>
-          <div class="menu-text">
-            <strong>내 캐릭터</strong>
-            <p>
-              성별을 고르고 마인크래프트 닉네임을 넣으면 TV 속 캐릭터가
-              바뀌어요.
-            </p>
-          </div>
-        </button>
       </section>
 
       <section class="external-links-section">
@@ -148,8 +94,6 @@
           </span>
         </a>
       </section>
-
-      <PushNotificationToggle />
 
       <div class="session-card" style="margin-top: 20px">
         <div class="session-row">
@@ -213,133 +157,18 @@
         </div>
       </div>
     </transition>
-
-    <transition name="fade">
-      <div
-        v-if="isHeartSheetOpen"
-        class="sheet-overlay"
-        @click.self="closeHeartSheet"
-      >
-        <div class="sheet-card">
-          <h3>익명 하트 보내기</h3>
-          <p class="sheet-description">
-            누가 보냈는지는 상대 테이블에도 TV 화면에도 알려지지 않아요. 서로
-            하트를 보내면 두 테이블에만 알림이 가고 1:1 채팅이 열려요.
-          </p>
-
-          <p v-if="isLoadingHeartTargets" class="heart-target-empty">
-            테이블 목록을 불러오는 중이에요...
-          </p>
-
-          <div v-else-if="heartTargets.length > 0" class="heart-chip-row">
-            <button
-              v-for="target in heartTargets"
-              :key="target.tableNumber"
-              type="button"
-              class="heart-chip"
-              :class="{ active: target.tableNumber === heartTargetTable }"
-              @click="heartTargetTable = target.tableNumber"
-            >
-              {{ target.label }}
-            </button>
-          </div>
-
-          <p v-else class="heart-target-empty">
-            지금은 하트를 보낼 수 있는 다른 테이블이 없어요.
-          </p>
-
-          <p class="sheet-helper">
-            한 테이블에 30초에 한 번, 하루 20개까지 보낼 수 있어요.
-          </p>
-          <p v-if="heartError" class="sheet-error">{{ heartError }}</p>
-          <p v-if="heartFeedback" class="sheet-success">
-            {{ heartFeedback }}
-          </p>
-
-          <div class="sheet-actions">
-            <button
-              type="button"
-              class="sheet-button is-ghost"
-              :disabled="isSendingHeart"
-              @click="closeHeartSheet"
-            >
-              닫기
-            </button>
-            <button
-              type="button"
-              class="sheet-button is-primary"
-              :disabled="isSendingHeart || !heartTargetTable"
-              @click="sendHeart"
-            >
-              {{ isSendingHeart ? "보내는 중..." : "하트 보내기" }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </transition>
-
-    <transition name="fade">
-      <div
-        v-if="isCharacterSheetOpen"
-        class="sheet-overlay"
-        @click.self="closeCharacterSheet"
-      >
-        <div class="sheet-card character-sheet">
-          <h3>내 캐릭터</h3>
-          <p class="sheet-description">
-            성별을 고르면 그에 맞는 기본 캐릭터가 나와요. 마인크래프트 닉네임을
-            넣으면 그 플레이어의 스킨으로 바뀌고, 저장하면 TV에 바로 보여요.
-          </p>
-
-          <CharacterStudio
-            v-model="characterDraft"
-            :table-number="tableNumber"
-            :nickname="tableNicknameText"
-            sticky
-          />
-
-          <p v-if="characterError" class="sheet-error">{{ characterError }}</p>
-
-          <div class="sheet-actions">
-            <button
-              type="button"
-              class="sheet-button is-ghost"
-              :disabled="isSavingCharacter"
-              @click="closeCharacterSheet"
-            >
-              취소
-            </button>
-            <button
-              type="button"
-              class="sheet-button is-primary"
-              :disabled="isSavingCharacter"
-              @click="saveCharacterStyle"
-            >
-              {{ isSavingCharacter ? "저장 중..." : "저장" }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </transition>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import CharacterStudio from "@/components/CharacterStudio.vue";
-import PushNotificationToggle from "@/components/PushNotificationToggle.vue";
-import { totalUnread } from "@/lib/chatAlerts";
 import { runGlobalBusy } from "@/lib/globalBusy";
 import {
   getActiveOrderSheetInfo,
   getTableNicknameErrorMessage,
-  updateOrderSheetCharacterStyle,
   updateOrderSheetNickname,
 } from "@/lib/orderSheet";
-import { resolveCharacterStyle } from "@/lib/characterStyle";
-import { buildGuestParts, GUEST_SPRITE_VIEW_BOX } from "@/lib/pixelGuest";
-import { fetchHeartTargets, sendAnonymousHeart } from "@/lib/hearts";
 
 const router = useRouter();
 
@@ -351,30 +180,12 @@ const tableNickname = ref("");
 const isNicknameEditorOpen = ref(false);
 const nicknameDraft = ref("");
 const isSavingNickname = ref(false);
-const characterStyle = ref({});
-const isCharacterSheetOpen = ref(false);
-const isSavingCharacter = ref(false);
-const characterError = ref("");
-const characterDraft = ref(resolveCharacterStyle({}));
-
-const characterParts = computed(() => {
-  return buildGuestParts(characterStyle.value, tableNumber.value);
-});
-const isHeartSheetOpen = ref(false);
-const isLoadingHeartTargets = ref(false);
-const isSendingHeart = ref(false);
-const heartTargets = ref([]);
-const heartTargetTable = ref("");
-const heartError = ref("");
-const heartFeedback = ref("");
 
 const tableText = computed(() => {
   return tableNumber.value
     ? `${tableNumber.value}번 테이블`
     : "테이블 정보 없음";
 });
-
-const unreadChatCount = computed(() => totalUnread.value);
 
 const displayNameText = computed(() => {
   return displayName.value || "표시명 없음";
@@ -441,54 +252,10 @@ async function refreshTableNickname() {
     if (!activeInfo || activeInfo.orderSheetId !== orderSheetId.value) return;
 
     tableNickname.value = activeInfo.tableNickname || "";
-    characterStyle.value = activeInfo.characterStyle || {};
     persistTableNickname(tableNickname.value);
   } catch (error) {
     console.error("닉네임 정보 조회 실패:", error);
   }
-}
-
-function openCharacterSheet() {
-  const current = resolveCharacterStyle(
-    characterStyle.value,
-    tableNumber.value
-  );
-
-  characterDraft.value = current;
-  characterError.value = "";
-  isCharacterSheetOpen.value = true;
-}
-
-function closeCharacterSheet() {
-  if (isSavingCharacter.value) return;
-
-  isCharacterSheetOpen.value = false;
-}
-
-async function saveCharacterStyle() {
-  if (isSavingCharacter.value || !orderSheetId.value) return;
-
-  characterError.value = "";
-
-  await runGlobalBusy(async () => {
-    isSavingCharacter.value = true;
-
-    try {
-      const savedStyle = await updateOrderSheetCharacterStyle({
-        orderSheetId: orderSheetId.value,
-        characterStyle: characterDraft.value,
-      });
-
-      characterStyle.value = savedStyle;
-      isCharacterSheetOpen.value = false;
-    } catch (error) {
-      console.error("캐릭터 저장 실패:", error);
-      characterError.value =
-        error?.message || "캐릭터를 저장하는 중 문제가 발생했어요.";
-    } finally {
-      isSavingCharacter.value = false;
-    }
-  }, "캐릭터를 저장하는 중이에요.");
 }
 
 function openNicknameEditor() {
@@ -527,92 +294,12 @@ async function saveNickname() {
   }, "닉네임을 저장하는 중이에요.");
 }
 
-async function loadHeartTargets() {
-  isLoadingHeartTargets.value = true;
-
-  try {
-    heartTargets.value = await fetchHeartTargets(tableNumber.value);
-
-    const stillExists = heartTargets.value.some((target) => {
-      return target.tableNumber === heartTargetTable.value;
-    });
-
-    if (!stillExists) {
-      heartTargetTable.value = "";
-    }
-  } catch (error) {
-    console.error("하트 대상 테이블 조회 실패:", error);
-    heartError.value = "테이블 목록을 불러오지 못했어요.";
-    heartTargets.value = [];
-  } finally {
-    isLoadingHeartTargets.value = false;
-  }
-}
-
-function openHeartSheet() {
-  heartError.value = "";
-  heartFeedback.value = "";
-  isHeartSheetOpen.value = true;
-  loadHeartTargets();
-}
-
-function closeHeartSheet() {
-  if (isSendingHeart.value) {
-    return;
-  }
-
-  isHeartSheetOpen.value = false;
-}
-
-async function sendHeart() {
-  if (isSendingHeart.value || !heartTargetTable.value) {
-    return;
-  }
-
-  const target = heartTargets.value.find((item) => {
-    return item.tableNumber === heartTargetTable.value;
-  });
-
-  if (!target) {
-    return;
-  }
-
-  heartError.value = "";
-  heartFeedback.value = "";
-  isSendingHeart.value = true;
-
-  try {
-    const result = await sendAnonymousHeart({
-      fromTableNumber: tableNumber.value,
-      fromNickname: tableNickname.value,
-      toTableNumber: target.tableNumber,
-      toNickname: target.nickname,
-    });
-
-    heartFeedback.value = result.mutual
-      ? `서로 하트예요! ${target.label}님과 1:1 채팅이 열렸어요. 알림을 확인해보세요.`
-      : `${target.label}님에게 익명 하트를 보냈어요. 서로 하트가 되면 1:1 채팅이 열려요.`;
-  } catch (error) {
-    heartError.value = error?.message || "하트를 보내지 못했어요.";
-  } finally {
-    isSendingHeart.value = false;
-  }
-}
-
 function goOrder() {
   router.push("/user/order");
 }
 
 function goOrderHistory() {
   router.push("/user/order-history");
-}
-
-function goChat() {
-  router.push("/user/chat");
-}
-
-function goGift() {
-  router.push("/user/gift");
 }
 
 onMounted(() => {
@@ -789,33 +476,6 @@ onMounted(() => {
   flex-shrink: 0;
 }
 
-.character-mini {
-  width: 40px;
-  height: 40px;
-  image-rendering: pixelated;
-}
-
-.character-sheet {
-  max-height: calc(100dvh - 40px);
-  overflow-y: auto;
-}
-
-.menu-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 22px;
-  height: 22px;
-  margin-left: 6px;
-  padding: 0 7px;
-  border-radius: 11px;
-  background: #ff4d6d;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 800;
-  vertical-align: middle;
-}
-
 .menu-text {
   min-width: 0;
 
@@ -924,8 +584,7 @@ onMounted(() => {
   }
 }
 
-.nickname-editor-description,
-.sheet-description {
+.nickname-editor-description {
   margin: 0 0 16px;
   font-size: 13px;
   line-height: 1.6;
@@ -1010,39 +669,6 @@ onMounted(() => {
 .sheet-button.is-primary {
   background: #ffffff;
   color: #111827;
-}
-
-.heart-chip-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.heart-chip {
-  padding: 9px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #ffffff;
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-
-  &.active {
-    border-color: #ff7a9c;
-    background: rgba(255, 77, 109, 0.35);
-  }
-}
-
-.heart-target-empty {
-  margin: 0;
-  padding: 14px 0;
-  font-size: 13px;
-  line-height: 1.6;
-  color: rgba(255, 255, 255, 0.6);
-  text-align: center;
 }
 
 .sheet-button.is-danger {

@@ -99,12 +99,6 @@
                 <div class="price-row">
                   <span class="price-row-unit">
                     개당 {{ formatPrice(unitPriceOf(item)) }}원
-                    <MarketSparkline
-                      v-if="cartSparklines[item.productId]"
-                      :values="cartSparklines[item.productId]"
-                      :width="48"
-                      :height="16"
-                    />
                   </span>
                   <strong>{{ formatPrice(linePriceOf(item)) }}원</strong>
                 </div>
@@ -133,11 +127,6 @@
       </section>
 
       <section v-if="cartList.length > 0" class="request-section">
-        <p v-if="isMarketOn" class="market-notice">
-          📈 실시간 시세가 적용 중이에요 · 칵테일·시그니처·샷·논알콜·위스키
-          메뉴만 가격이 변동돼요
-        </p>
-
         <div class="request-card">
           <label for="requestMessage">요청사항</label>
           <textarea
@@ -182,16 +171,7 @@ import {
   getOrderSheetStatus,
   isBlockedOrderSheetStatus,
 } from "@/lib/userOrderSheetGuard";
-import { useMarketFeed } from "@/lib/market";
-import MarketSparkline from "@/components/MarketSparkline.vue";
-
 const router = useRouter();
-
-// 장바구니 가격도 시세를 따라갑니다. 결제는 주문 요청 시점 가격으로 확정됩니다.
-const market = useMarketFeed({ minTickMs: 5000, dataPollMs: 45000 });
-const isMarketOn = computed(
-  () => market.enabled.value && market.isActive.value
-);
 
 const isMobile = ref(false);
 const tableNumber = ref("");
@@ -227,30 +207,12 @@ const totalCartPrice = computed(() => {
 });
 
 function unitPriceOf(item) {
-  return market.priceForCartItem(item);
+  return Number(item?.unitPrice || 0);
 }
 
 function linePriceOf(item) {
   return unitPriceOf(item) * Number(item.quantity || 0);
 }
-
-const cartSparklines = computed(() => {
-  if (!isMarketOn.value) {
-    return {};
-  }
-
-  const map = {};
-
-  for (const item of cartList.value) {
-    const values = market.sparkline(item?.productId, 16, 60000);
-
-    if (values.length > 1) {
-      map[item.productId] = values;
-    }
-  }
-
-  return map;
-});
 
 function detectMobile() {
   const ua = navigator.userAgent || navigator.vendor || window.opera;
@@ -362,10 +324,10 @@ async function submitOrder() {
     saveRequestMessage();
 
     try {
-      // 주문 요청 시점의 시세로 단가를 확정합니다.
+      // 주문 요청 시점의 단가로 확정합니다.
       const pricedItems = cartList.value.map((item) => {
         const quantity = Number(item.quantity || 0);
-        const unitPrice = market.livePriceForCartItem(item);
+        const unitPrice = unitPriceOf(item);
 
         return { quantity, unitPrice, item };
       });
@@ -803,19 +765,6 @@ onMounted(async () => {
 
 .request-section {
   margin-bottom: 16px;
-}
-
-.market-notice {
-  margin: 0 0 12px;
-  padding: 10px 14px;
-  border-radius: 14px;
-  background: rgba(74, 222, 128, 0.14);
-  border: 1px solid rgba(74, 222, 128, 0.35);
-  color: #bbf7d0;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.4;
-  word-break: keep-all;
 }
 
 .request-card {
