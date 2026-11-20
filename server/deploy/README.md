@@ -82,6 +82,19 @@ sudo systemctl restart systemd-logind
 **가장 쉬운 방법은 공유기 관리 화면에서 DHCP 고정 할당(MAC 주소 기준)을 거는 것입니다.**
 우분투 설정을 건드리지 않으므로 실패해도 네트워크가 끊기지 않습니다.
 
+> **랜선을 꽂을 수 있으면 유선을 쓰세요.** 서버는 유선이 훨씬 안정적이고, 무선 설정 문제를 통째로 건너뛸 수 있습니다
+> (유선은 대부분 꽂으면 DHCP 로 바로 붙습니다).
+>
+> 무선 상태 확인은 `iw` 같은 추가 패키지 없이 아래로 가능합니다.
+>
+> ```bash
+> networkctl status wlp2s0                                     # 주소/게이트웨이/DHCP 상태
+> ip -4 a show wlp2s0 ; ip -4 route                            # IPv4 주소와 기본 경로
+> cat /proc/net/wireless                                       # 링크 품질(연결 여부)
+> sudo journalctl -u systemd-networkd -b --no-pager | tail -30  # DHCP 실패 원인
+> sudo journalctl -u wpa_supplicant -b --no-pager | tail -30    # Wi-Fi 접속(SSID) 실패 원인
+> ```
+
 > **무선이면 라우터 DHCP 고정을 쓰세요.** `ip a` 에서 `wlp2s0` 처럼 `wl` 로 시작하면 무선입니다.
 > 무선은 `ethernets:` 가 아니라 **`wifis:`** 절에 넣어야 하고, `access-points`(SSID/비밀번호)를 함께 적지 않으면
 > `netplan apply` 하는 순간 Wi-Fi 가 내려가서 **SSH 가 끊깁니다.**
@@ -181,6 +194,33 @@ newgrp docker                 # 또는 재로그인
 docker --version
 docker compose version
 ```
+
+> **`curl: (6) Could not resolve host: get.docker.com` 이 뜨면 Docker 문제가 아니라 이 PC 가 인터넷을 못 쓰는 상태입니다.**
+> 아래 순서로 원인을 좁히세요.
+>
+> ```bash
+> ip route | grep default          # default via 가 있는지
+> ping -c 3 <게이트웨이IP>          # 공유기까지 통하는지 (예: 192.168.219.55)
+> ping -c 3 8.8.8.8               # DNS 없이 외부까지 통하는지
+> resolvectl status | head -30     # 현재 DNS 서버
+> ```
+>
+> | 결과 | 원인 / 해결 |
+> | --- | --- |
+> | 게이트웨이 ping 실패 | IP/대역 설정 오류 → 2-2 의 "같은 대역" 확인. 확실치 않으면 `dhcp4: true` 로 되돌리고 `sudo netplan apply` |
+> | 게이트웨이는 되는데 `8.8.8.8` 실패 | 라우팅 문제 → `ip route` 에 `default via ...` 가 있는지 확인 |
+> | `apt update` 가 IPv6 주소로만 접속 시도하며 `101: Network is unreachable` | 이 PC 에 **IPv4 주소 또는 기본 경로가 없음** → `ip -4 a show <인터페이스>`, `ip -4 route` 확인 후 DHCP 로 복구. `... no longer has a Release file` 는 연결 실패의 부산물이므로 `sources.list` 는 건드리지 마세요 |
+> | `8.8.8.8` 은 되는데 `curl` 만 실패 | **DNS 문제** → `sudo resolvectl dns <인터페이스> 8.8.8.8 168.126.63.1` 후 `sudo resolvectl flush-caches` |
+>
+> DNS 를 영구 반영하려면 netplan 에 `nameservers:` 를 넣고 `sudo netplan apply`.
+> 가장 안전한 방법은 DHCP 로 두는 것입니다(공유기가 DNS 를 알려줍니다).
+
+> 설치 스크립트 대신 우분투 저장소 패키지를 써도 됩니다(기능 동일, 버전만 조금 낮음).
+>
+> ```bash
+> sudo apt update
+> sudo apt install -y docker.io docker-compose-v2
+> ```
 
 ---
 
@@ -348,6 +388,7 @@ sudo tailscale funnel status
 ```
 
 마지막 줄에 `https://<기기이름>.<tailnet이름>.ts.net` 이 나옵니다. **이 주소를 10단계에서 씁니다.**
+# https://bar.taild838e4.ts.net (Funnel on)
 
 ```bash
 curl https://<기기이름>.<tailnet이름>.ts.net/health
@@ -434,6 +475,44 @@ docker compose up -d --build
 
 `.env` 를 바꿨다면 `docker compose up -d` 로 컨테이너를 **재생성**해야 반영됩니다(`restart` 로는 환경변수가 갱신되지 않습니다).
 
+### 자동 배포 (선택)
+
+위 세 줄을 손으로 치지 않아도 되게 만들 수 있습니다. `origin/master` 를 **2분마다** 확인해서
+새 커밋이 있으면 `git pull` → `docker compose up -d --build` → 헬스체크까지 자동으로 수행합니다.
+
+```bash
+# 최초 1회만 (root)
+sudo bash /opt/honjaya/server/deploy/install-auto-deploy.sh
+```
+
+끝입니다. 이후로는 PC 에서 `git push` 만 하면 노트북이 알아서 갱신합니다.
+
+```bash
+# 타이머 상태
+systemctl list-timers honjaya-deploy.timer --no-pager
+
+# 로그 (최근 50줄)
+journalctl -u honjaya-deploy.service -n 50 --no-pager
+
+# 기다리지 않고 즉시 한 번 실행
+sudo systemctl start honjaya-deploy.service
+
+# 끄기 / 다시 켜기
+sudo systemctl disable --now honjaya-deploy.timer
+sudo systemctl enable --now honjaya-deploy.timer
+```
+
+동작 규칙:
+
+- 원격과 커밋이 같으면 **아무 일도 하지 않고 종료**합니다.
+- `git pull` 은 **fast-forward 전용**입니다. 노트북에서 파일을 직접 고쳐 커밋했다면 실패하고 로그만 남깁니다(자동 병합하지 않음).
+- 추적 중인 파일이 수정된 상태(`git status` 에 `M`)면 안전하게 **건너뜁니다**. 정리 후 다음 주기에 다시 시도합니다.
+- 빌드에 실패하면 새 버전으로 교체되지 않으므로 **기존 컨테이너가 계속 서비스**합니다. `journalctl` 로 원인 확인 후 고치면 다음 주기에 자동 재시도합니다.
+- `.env` 는 git 에 없으므로 자동 배포가 **덮어쓰지 않습니다.** 값을 바꿀 때는 노트북에서 직접 수정하세요.
+
+> 주기(`2min`)를 바꾸려면: `sudo INTERVAL=5min bash /opt/honjaya/server/deploy/install-auto-deploy.sh`
+> 변경이 없어도 강제로 한 번 더 빌드하려면: `sudo -u bar env FORCE=1 bash /opt/honjaya/server/deploy/auto-deploy.sh`
+
 ---
 
 ## 트러블슈팅
@@ -450,6 +529,8 @@ docker compose up -d --build
 | 폰에서 `http://<노트북 IP>:3000` 접속 안 됨 | 포트가 `127.0.0.1` 에만 열려 있음(의도된 동작). 필요하면 compose 의 `ports` 를 `"3000:3000"` 으로 임시 변경 |
 | DB 접속 실패(`password authentication failed`) | `pgdata/` 가 다른 비밀번호로 만들어짐 → 7단계 주의사항 참고 |
 | 화면이 예전 버전 | Vercel Redeploy 후 강력 새로고침(Ctrl+Shift+R) 또는 서비스 워커 초기화 |
+| `curl: (6) Could not resolve host` (Docker 설치 등) | 이 PC 가 인터넷을 못 쓰는 상태 → 3단계의 네트워크 점검 표 참고(대부분 DNS 또는 default route 문제) |
+| `apt` 가 IPv6 주소만 시도하며 `101: Network is unreachable` | IPv4 주소/기본 경로 없음 → `ip -4 a`, `ip -4 route` 확인 후 DHCP 복구(`sudo dhclient -4 <인터페이스>` 또는 netplan `dhcp4: true`). 함께 나오는 `no longer has a Release file` 는 연결 실패의 부산물입니다 |
 | `import` 실행 시 `executable file not found` | `docker compose run` 뒤 인자가 서비스 `command` 를 대체함 → 7단계의 전체 명령 사용 |
 | `pnpm` 관련 빌드 오류 (Vercel) | 로컬과 동일하게 pnpm 10 필요 → Vercel 프로젝트의 `Install Command`/`PNPM_VERSION` 확인 |
 
