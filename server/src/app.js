@@ -54,15 +54,22 @@ export async function buildApp(options = {}) {
   await app.register(cors, {
     origin: config.corsOrigins.includes("*") ? true : config.corsOrigins,
     methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    // supabase-js 2.116+ 는 db.schema 기본값(public)을 Accept-Profile / Content-Profile
+    // 헤더로 항상 보냅니다. upsert 는 X-Upsert 를 씁니다. 목록에 없으면 브라우저
+    // preflight 가 막혀서 모든 요청이 실패합니다.
     allowedHeaders: [
       "accept",
+      "accept-profile",
       "apikey",
       "authorization",
+      "content-profile",
       "content-type",
       "prefer",
       "range",
       "range-unit",
       "x-client-info",
+      "x-supabase-api-version",
+      "x-upsert",
     ],
     exposedHeaders: ["content-range", "content-location"],
   });

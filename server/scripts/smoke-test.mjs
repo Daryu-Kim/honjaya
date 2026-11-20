@@ -138,6 +138,28 @@ try {
   check("GET /health → 200", health.statusCode === 200, health.body);
   check("GET /health → db up", health.json().db === "up", health.body);
 
+  // ---------------------------------------------------------------- cors preflight
+  // supabase-js 는 db.schema 기본값(public)을 Accept-Profile 로 항상 보냅니다.
+  // 이 헤더가 CORS 목록에 없으면 브라우저가 모든 요청을 막습니다.
+  const preflight = await app.inject({
+    method: "OPTIONS",
+    url: "/rest/v1/categories",
+    headers: {
+      origin: "https://honjaya.vercel.app",
+      "access-control-request-method": "GET",
+      "access-control-request-headers": "accept-profile,apikey,authorization,x-client-info",
+    },
+  });
+  const allowedHeaders = String(preflight.headers["access-control-allow-headers"] || "");
+
+  for (const header of ["accept-profile", "content-profile", "x-client-info"]) {
+    check(
+      `CORS preflight → ${header} 허용`,
+      allowedHeaders.toLowerCase().includes(header),
+      allowedHeaders || "(access-control-allow-headers 없음)"
+    );
+  }
+
   // ---------------------------------------------------------------- insert
   const insert = await app.inject({
     method: "POST",
