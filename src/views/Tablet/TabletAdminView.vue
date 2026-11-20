@@ -417,6 +417,27 @@
                 convertPaymentStatusText(selectedTable.paymentStatus)
               }}</strong>
             </div>
+            <div
+              v-if="Number(selectedTable.paidAmount || 0) > 0"
+              class="modal-info-row"
+            >
+              <span>결제된 금액</span>
+              <strong>{{ formatPrice(selectedTable.paidAmount) }}원</strong>
+            </div>
+            <div
+              v-if="
+                selectedTable.paymentStatus === 'PARTIAL' &&
+                Number(selectedTable.paidAmount || 0) > 0
+              "
+              class="modal-info-row"
+            >
+              <span>남은 금액</span>
+              <strong
+                >{{
+                  formatPrice(tableRemainingAmount(selectedTable))
+                }}원</strong
+              >
+            </div>
             <div class="modal-info-row">
               <span>닉네임</span>
               <div class="modal-nickname-row">
@@ -890,6 +911,14 @@
               <span>최종 결제 금액</span>
               <strong>{{ formatPrice(paymentPayableAmount) }}원</strong>
             </div>
+            <div v-if="paymentModalState.paidAmount > 0" class="modal-info-row">
+              <span>이미 결제된 금액</span>
+              <strong>{{ formatPrice(paymentModalState.paidAmount) }}원</strong>
+            </div>
+            <div class="modal-info-row">
+              <span>이번 결제 필요 금액</span>
+              <strong>{{ formatPrice(paymentDueAmount) }}원</strong>
+            </div>
           </div>
 
           <div class="modal-section">
@@ -988,10 +1017,20 @@
                 class="payment-edit-row split-row"
               >
                 <select v-model="split.method">
-                  <option value="CARD">카드</option>
-                  <option value="CASH">현금</option>
-                  <option value="BANK">계좌이체</option>
+                  <option
+                    v-for="option in paymentMethodOptions"
+                    :key="option.value"
+                    :value="option.value"
+                  >
+                    {{ option.label }}
+                  </option>
                 </select>
+                <input
+                  v-model.trim="split.payerLabel"
+                  type="text"
+                  maxlength="24"
+                  placeholder="결제자 (선택)"
+                />
                 <input
                   v-model.number="split.amount"
                   type="number"
@@ -1026,10 +1065,17 @@
                 <strong>{{ formatPrice(paymentRemainingAmount) }}원</strong>
               </div>
             </div>
+
+            <p v-if="paymentRemainingAmount > 0" class="modal-empty-text">
+              남은 금액을 비워두고 결제하면 일부 결제로 처리되고 주문서는 열린
+              상태로 유지돼요.
+            </p>
           </div>
 
           <button type="button" class="confirm-button" @click="completePayment">
-            결제 완료 처리
+            {{
+              paymentRemainingAmount > 0 ? "일부 결제 처리" : "결제 완료 처리"
+            }}
           </button>
         </div>
       </div>
@@ -1043,11 +1089,19 @@
         @click.self="closePaymentCompleteModal"
       >
         <div class="modal-card payment-complete-modal">
-          <div class="payment-complete-icon">✅</div>
+          <div class="payment-complete-icon">
+            {{ paymentCompleteModalState.isPartial ? "💳" : "✅" }}
+          </div>
 
           <div class="modal-head center">
             <div>
-              <h3>결제가 완료되었어요</h3>
+              <h3>
+                {{
+                  paymentCompleteModalState.isPartial
+                    ? "일부 결제가 접수되었어요"
+                    : "결제가 완료되었어요"
+                }}
+              </h3>
               <p>{{ paymentCompleteModalState.displayName }}</p>
             </div>
           </div>
@@ -1080,9 +1134,20 @@
               >
             </div>
             <div class="modal-info-row">
-              <span>결제 금액</span>
+              <span>이번 결제 금액</span>
               <strong
                 >{{ formatPrice(paymentCompleteModalState.amount) }}원</strong
+              >
+            </div>
+            <div
+              v-if="paymentCompleteModalState.isPartial"
+              class="modal-info-row"
+            >
+              <span>남은 금액</span>
+              <strong
+                >{{
+                  formatPrice(paymentCompleteModalState.remainingAmount)
+                }}원</strong
               >
             </div>
           </div>
@@ -1100,7 +1165,12 @@
                 :key="`complete-split-${index}`"
                 class="modal-info-row"
               >
-                <span>{{ convertPaymentMethodText(split.method) }}</span>
+                <span>
+                  {{ convertPaymentMethodText(split.method) }}
+                  <template v-if="split.payerLabel">
+                    · {{ split.payerLabel }}
+                  </template>
+                </span>
                 <strong>{{ formatPrice(split.amount) }}원</strong>
               </div>
             </div>
@@ -1457,6 +1527,10 @@ import {
 } from "@/lib/orderSheet";
 import { recalculateOrderSheetTotals } from "@/lib/orderSheetTotals";
 import {
+  getPaymentMethodLabel,
+  PAYMENT_METHOD_OPTIONS as paymentMethodOptions,
+} from "@/lib/payments";
+import {
   isDemographicOrderSheetTag,
   normalizeOrderSheetTags,
 } from "@/lib/orderSheetTags";
@@ -1491,6 +1565,7 @@ const paymentModalState = ref({
   displayName: "",
   paymentMethod: "CARD",
   amount: 0,
+  paidAmount: 0,
   discounts: [],
   paymentSplits: [],
 });
@@ -1502,6 +1577,9 @@ const paymentCompleteModalState = ref({
   amount: 0,
   originalAmount: 0,
   discountTotal: 0,
+  alreadyPaidAmount: 0,
+  isPartial: false,
+  remainingAmount: 0,
   paymentSplits: [],
 });
 
@@ -1984,6 +2062,14 @@ const paymentPayableAmount = computed(() => {
   );
 });
 
+// 이미 부분 결제된 금액을 빼고, 이번에 받아야 할 금액입니다.
+const paymentDueAmount = computed(() => {
+  return Math.max(
+    0,
+    paymentPayableAmount.value - Number(paymentModalState.value.paidAmount || 0)
+  );
+});
+
 const paymentSplitTotal = computed(() => {
   return paymentModalState.value.paymentSplits.reduce((acc, split) => {
     return acc + Number(split.amount || 0);
@@ -1991,11 +2077,18 @@ const paymentSplitTotal = computed(() => {
 });
 
 const paymentRemainingAmount = computed(() => {
-  return paymentPayableAmount.value - paymentSplitTotal.value;
+  return paymentDueAmount.value - paymentSplitTotal.value;
 });
 
 function formatPrice(value) {
   return Number(value || 0).toLocaleString("ko-KR");
+}
+
+function tableRemainingAmount(table) {
+  return Math.max(
+    0,
+    Number(table?.totalAmount || 0) - Number(table?.paidAmount || 0)
+  );
 }
 
 function convertToDate(value) {
@@ -2031,17 +2124,14 @@ function convertOrderStatusText(status) {
 
 function convertPaymentStatusText(status) {
   if (status === "UNPAID") return "미결제";
+  if (status === "PARTIAL") return "부분결제";
   if (status === "COMPLETED") return "결제완료";
   return status || "알 수 없음";
 }
 
 function convertPaymentMethodText(method) {
-  if (method === "CARD") return "카드";
-  if (method === "BANK") return "계좌이체";
-  if (method === "CASH") return "현금";
-  if (method === "MIXED") return "부분 결제";
-  if (method === "DISCOUNT") return "할인 처리";
-  return method || "-";
+  if (method === "MIXED") return "여러 수단";
+  return getPaymentMethodLabel(method);
 }
 
 function createPaymentDiscount(type = "AMOUNT") {
@@ -2053,10 +2143,11 @@ function createPaymentDiscount(type = "AMOUNT") {
   };
 }
 
-function createPaymentSplit(method = "CARD", amount = 0) {
+function createPaymentSplit(method = "CARD", amount = 0, payerLabel = "") {
   return {
     id: `split_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     method,
+    payerLabel,
     amount: Number(amount || 0),
   };
 }
@@ -2098,6 +2189,7 @@ function normalizePaymentSplits(paymentSplits) {
   return paymentSplits
     .map((split) => ({
       method: split.method || "CARD",
+      payerLabel: String(split.payerLabel || "").trim(),
       amount: Number(split.amount || 0),
     }))
     .filter((split) => split.amount > 0);
@@ -2136,7 +2228,7 @@ function fillPaymentSplitRemaining(split) {
     0
   );
 
-  split.amount = Math.max(0, paymentPayableAmount.value - otherTotal);
+  split.amount = Math.max(0, paymentDueAmount.value - otherTotal);
 }
 
 function getHiddenPreviewCount(table) {
@@ -2170,22 +2262,22 @@ function buildCartItemKey(productId, selectedOptions) {
   return `${productId}__${optionKey}`;
 }
 
-function subscribeOrderSheets() {
-  const loadOrderSheets = async () => {
-    try {
-      // Egress 절감: 전체 이력을 매번 받지 않고 최근 갱신된 주문서만 받습니다.
-      // (테이블 카드는 "테이블별 최신 주문서"만 쓰므로 최근 400건이면 충분합니다.)
-      orderSheetList.value = await fetchList("orderSheets", {
-        order: ["updatedAt", "desc"],
-        limit: 400,
-      });
-    } catch (error) {
-      console.error("주문서 구독 실패:", error);
-    } finally {
-      isLoadingOrderSheets.value = false;
-    }
-  };
+async function loadOrderSheets() {
+  try {
+    // Egress 절감: 전체 이력을 매번 받지 않고 최근 갱신된 주문서만 받습니다.
+    // (테이블 카드는 "테이블별 최신 주문서"만 쓰므로 최근 400건이면 충분합니다.)
+    orderSheetList.value = await fetchList("orderSheets", {
+      order: ["updatedAt", "desc"],
+      limit: 400,
+    });
+  } catch (error) {
+    console.error("주문서 구독 실패:", error);
+  } finally {
+    isLoadingOrderSheets.value = false;
+  }
+}
 
+function subscribeOrderSheets() {
   unsubscribeOrderSheets = subscribeTable("orderSheets", loadOrderSheets);
 }
 
@@ -2886,6 +2978,8 @@ function selectManualProduct(product) {
 
 function openTablePaymentModal(table) {
   const amount = Number(table.totalAmount || 0);
+  const paidAmount = Number(table.paidAmount || 0);
+  const dueAmount = Math.max(0, amount - paidAmount);
 
   paymentModalState.value = {
     isOpen: true,
@@ -2894,8 +2988,9 @@ function openTablePaymentModal(table) {
     displayName: table.displayName || `No.${table.tableNumber}`,
     paymentMethod: "CARD",
     amount,
+    paidAmount,
     discounts: [],
-    paymentSplits: [createPaymentSplit("CARD", amount)],
+    paymentSplits: [createPaymentSplit("CARD", dueAmount)],
   };
 }
 
@@ -2907,6 +3002,7 @@ function closePaymentModal() {
     displayName: "",
     paymentMethod: "CARD",
     amount: 0,
+    paidAmount: 0,
     discounts: [],
     paymentSplits: [],
   };
@@ -2920,6 +3016,9 @@ function closePaymentCompleteModal() {
     amount: 0,
     originalAmount: 0,
     discountTotal: 0,
+    alreadyPaidAmount: 0,
+    isPartial: false,
+    remainingAmount: 0,
     paymentSplits: [],
   };
 }
@@ -2938,6 +3037,8 @@ async function completePayment() {
     )
   );
   const payableAmount = Math.max(0, originalAmount - discountTotal);
+  const alreadyPaidAmount = Number(state.paidAmount || 0);
+  const dueAmount = Math.max(0, payableAmount - alreadyPaidAmount);
   const paymentSplits = normalizePaymentSplits(state.paymentSplits);
   const splitTotal = paymentSplits.reduce(
     (acc, split) => acc + Number(split.amount || 0),
@@ -2945,14 +3046,32 @@ async function completePayment() {
   );
   const paymentMethod = getRepresentativePaymentMethod(paymentSplits);
 
-  if (payableAmount > 0 && paymentSplits.length === 0) {
+  if (payableAmount <= 0) {
+    alert("결제 금액이 0원이라 결제를 처리할 수 없어요.");
+    return;
+  }
+
+  if (paymentSplits.length === 0) {
     alert("결제 수단별 금액을 1개 이상 입력해주세요.");
     return;
   }
 
-  if (splitTotal !== payableAmount) {
-    alert("결제 입력 합계가 최종 결제 금액과 같아야 합니다.");
+  if (splitTotal > dueAmount) {
+    alert(`결제 입력 합계가 남은 금액(${formatPrice(dueAmount)}원)보다 커요.`);
     return;
+  }
+
+  const isPartial = splitTotal < dueAmount;
+  const remainingAfterPayment = dueAmount - splitTotal;
+
+  if (isPartial) {
+    const confirmed = window.confirm(
+      `일부만 결제할까요?\n이번 결제 ${formatPrice(
+        splitTotal
+      )}원 / 남은 금액 ${formatPrice(remainingAfterPayment)}원`
+    );
+
+    if (!confirmed) return;
   }
 
   await runGlobalBusy(async () => {
@@ -2962,30 +3081,49 @@ async function completePayment() {
       await completeOrderSheetPayment({
         orderSheetId: state.orderSheetId,
         tableNumber: state.tableNumber,
-        paymentMethod,
         originalAmount,
-        discountTotal,
         totalAmount: payableAmount,
         discounts,
         paymentSplits,
+        close: !isPartial,
       });
 
       paymentCompleteModalState.value = {
         isOpen: true,
         displayName: state.displayName,
         paymentMethod,
-        amount: payableAmount,
+        amount: splitTotal,
         originalAmount,
         discountTotal,
+        alreadyPaidAmount,
+        isPartial,
+        remainingAmount: remainingAfterPayment,
         paymentSplits,
       };
 
       playNotificationSound("paymentComplete", { silent: true });
       closePaymentModal();
-      closeTableModal();
+
+      if (isPartial) {
+        await loadOrderSheets();
+        const refreshed = orderSheetList.value.find(
+          (sheet) => sheet.orderSheetId === state.orderSheetId
+        );
+
+        if (refreshed && selectedTable.value) {
+          selectedTable.value = {
+            ...selectedTable.value,
+            totalAmount: refreshed.totalAmount,
+            paidAmount: refreshed.paidAmount,
+            paymentStatus: refreshed.paymentStatus,
+          };
+        }
+      } else {
+        closeTableModal();
+      }
     } catch (error) {
       console.error("결제 완료 처리 실패:", error);
-      alert("결제 완료 처리 중 문제가 발생했어요.");
+      alert(error?.message || "결제 처리 중 문제가 발생했어요.");
     }
   }, "결제를 처리하는 중이에요.");
 }
@@ -3150,7 +3288,7 @@ async function handleRunTableNumberCleanup() {
   }
 }
 
-watch(paymentPayableAmount, (amount) => {
+watch(paymentDueAmount, (amount) => {
   if (!paymentModalState.value.isOpen) return;
   if (paymentModalState.value.paymentSplits.length !== 1) return;
 
@@ -4064,7 +4202,7 @@ onUnmounted(() => {
   grid-template-columns: minmax(0, 1fr) 96px 120px auto;
 }
 .payment-edit-row.split-row {
-  grid-template-columns: 120px minmax(0, 1fr) auto auto;
+  grid-template-columns: 108px minmax(0, 0.9fr) minmax(0, 1fr) auto auto;
 }
 .payment-edit-row input,
 .payment-edit-row select {

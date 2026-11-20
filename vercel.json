@@ -16,6 +16,14 @@
     {
       "source": "/api/guest/(.*)",
       "destination": "https://api.honjaya-server.xyz/api/guest/$1"
+    },
+    {
+      "source": "/api/payments",
+      "destination": "https://api.honjaya-server.xyz/api/payments"
+    },
+    {
+      "source": "/api/payments/(.*)",
+      "destination": "https://api.honjaya-server.xyz/api/payments/$1"
     }
   ]
 }

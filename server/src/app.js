@@ -6,6 +6,7 @@ import { config } from "./config.js";
 import { HttpError, PG_MESSAGES, PG_STATUS } from "./http/errors.js";
 import { registerAdminRoutes } from "./routes/api/admin.js";
 import { registerGuestRoutes } from "./routes/api/guest.js";
+import { registerPaymentRoutes } from "./routes/api/payments.js";
 import { registerStaffAuthRoutes } from "./routes/api/staffAuth.js";
 import { registerEventRoutes } from "./routes/events.js";
 import { registerRestRoutes } from "./routes/rest.js";
@@ -182,6 +183,7 @@ export async function buildApp(options = {}) {
       "/api/guest/session",
       "/api/staff/login",
       "/api/admin/employees",
+      "/api/payments",
       "/health",
     ],
   }));
@@ -192,6 +194,7 @@ export async function buildApp(options = {}) {
   registerGuestRoutes(app);
   registerStaffAuthRoutes(app);
   registerAdminRoutes(app);
+  registerPaymentRoutes(app);
 
   return app;
 }

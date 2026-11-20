@@ -210,6 +210,9 @@ export async function applySchema(connectionString, log = console) {
     await runSqlFile(client, join(serverRoot, "sql", "staff.sql"), log);
     // guest.sql 은 orders 를 alter 하므로 schema.sql 이후에 실행되어야 합니다.
     await runSqlFile(client, join(serverRoot, "sql", "guest.sql"), log);
+    // payments.sql 은 order_sheets 에 paid_amount 를 추가하고 기존 결제를 이관합니다.
+    // staff.sql(employees) 이후여야 employee_id 참조가 성립합니다.
+    await runSqlFile(client, join(serverRoot, "sql", "payments.sql"), log);
   } finally {
     await client.end();
   }

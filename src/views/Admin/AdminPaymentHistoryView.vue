@@ -83,11 +83,13 @@
             <label for="paymentMethod">결제수단</label>
             <select id="paymentMethod" v-model="selectedPaymentMethod">
               <option value="ALL">전체</option>
-              <option value="CARD">카드</option>
-              <option value="BANK">계좌이체</option>
-              <option value="CASH">현금</option>
-              <option value="MIXED">부분 결제</option>
-              <option value="DISCOUNT">할인 처리</option>
+              <option
+                v-for="option in paymentMethodOptions"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </option>
             </select>
           </div>
         </div>
@@ -122,6 +124,120 @@
         <span class="summary-label">현재 페이지</span>
         <strong>{{ currentPage }} / {{ totalPages }}</strong>
       </article>
+    </section>
+
+    <section class="ledger-section">
+      <div class="ledger-head">
+        <div>
+          <h2>결제 원장</h2>
+          <p class="description">
+            선택한 기간의 결제·환불 기록이에요. (영업일 기준)
+          </p>
+        </div>
+        <button
+          type="button"
+          class="preset-button"
+          :disabled="isLoadingLedger"
+          @click="loadLedger"
+        >
+          새로고침
+        </button>
+      </div>
+
+      <p v-if="ledgerError" class="ledger-error">{{ ledgerError }}</p>
+
+      <div class="summary-grid ledger-summary-grid">
+        <article class="summary-card">
+          <span class="summary-label">총 결제</span>
+          <strong>{{ formatPrice(ledger.totalPaid) }}원</strong>
+        </article>
+        <article class="summary-card">
+          <span class="summary-label">총 환불</span>
+          <strong>-{{ formatPrice(ledger.totalRefunded) }}원</strong>
+        </article>
+        <article class="summary-card">
+          <span class="summary-label">순 매출</span>
+          <strong>{{ formatPrice(ledgerNetTotal) }}원</strong>
+        </article>
+      </div>
+
+      <div v-if="ledgerMethodTotals.length > 0" class="ledger-method-list">
+        <span
+          v-for="item in ledgerMethodTotals"
+          :key="`ledger-method-${item.method}`"
+          class="method-chip"
+        >
+          {{ methodLabel(item.method) }}
+          <strong>{{ formatPrice(item.amount) }}원</strong>
+          <em v-if="item.refunded > 0">-{{ formatPrice(item.refunded) }}원</em>
+        </span>
+      </div>
+
+      <div v-if="isLoadingLedger" class="empty-box">
+        <p>결제 원장을 불러오는 중이에요.</p>
+      </div>
+
+      <div v-else-if="ledger.payments.length === 0" class="empty-box">
+        <p>결제 기록이 없어요.</p>
+      </div>
+
+      <div v-else class="table-wrap">
+        <table class="payment-table ledger-table">
+          <thead>
+            <tr>
+              <th>일시</th>
+              <th>주문서</th>
+              <th>테이블</th>
+              <th>결제수단</th>
+              <th>결제자</th>
+              <th>금액</th>
+              <th>환불</th>
+              <th v-if="canRefund">관리</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="payment in ledger.payments" :key="payment.id">
+              <td>{{ formatDateTime(payment.occurredAt) }}</td>
+              <td>{{ payment.orderSheetId }}</td>
+              <td>{{ payment.tableNumber || "-" }}</td>
+              <td>{{ methodLabel(payment.method) }}</td>
+              <td>{{ payment.payerLabel || "-" }}</td>
+              <td>
+                <strong>{{ formatPrice(payment.amount) }}원</strong>
+              </td>
+              <td>
+                <span v-if="payment.refundedAmount > 0" class="refund-amount">
+                  -{{ formatPrice(payment.refundedAmount) }}원
+                </span>
+                <span v-else class="muted-text">-</span>
+              </td>
+              <td v-if="canRefund">
+                <button
+                  type="button"
+                  class="preset-button small"
+                  :disabled="payment.refundedAmount >= payment.amount"
+                  @click="openRefundModal(payment)"
+                >
+                  환불
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div v-if="ledger.refunds.length > 0" class="ledger-refund-block">
+        <h3>환불 기록</h3>
+        <ul class="ledger-refund-list">
+          <li v-for="refund in ledger.refunds" :key="refund.id">
+            <span>{{ formatDateTime(refund.occurredAt) }}</span>
+            <span>{{ refund.orderSheetId }}</span>
+            <span>{{ methodLabel(refund.method) }}</span>
+            <strong>-{{ formatPrice(refund.amount) }}원</strong>
+            <span class="muted-text">{{ refund.reason || "-" }}</span>
+          </li>
+        </ul>
+      </div>
     </section>
 
     <section class="table-section">
@@ -170,7 +286,7 @@
                 </div>
                 <span v-else class="muted-text">-</span>
               </td>
-              <td>{{ convertPaymentMethodText(sheet.paymentMethod) }}</td>
+              <td>{{ methodLabel(sheet.paymentMethod) }}</td>
               <td>
                 <strong>{{ formatPrice(sheet.totalAmount || 0) }}원</strong>
               </td>
@@ -249,7 +365,7 @@
             <div class="detail-summary-card">
               <span>Payment</span>
               <strong>{{
-                convertPaymentMethodText(selectedPaymentSheet.paymentMethod)
+                methodLabel(selectedPaymentSheet.paymentMethod)
               }}</strong>
             </div>
             <div class="detail-summary-card">
@@ -329,6 +445,82 @@
         </div>
       </div>
     </transition>
+    <transition name="fade">
+      <div
+        v-if="refundModalState.isOpen"
+        class="modal-overlay"
+        @click.self="closeRefundModal"
+      >
+        <div class="modal-card refund-modal">
+          <div class="modal-head">
+            <div>
+              <p class="eyebrow">REFUND</p>
+              <h2>결제 환불</h2>
+              <p class="modal-subtitle">
+                {{ refundModalState.orderSheetId }} ·
+                {{ methodLabel(refundModalState.method) }} ·
+                {{ formatPrice(refundModalState.paidAmount) }}원 결제
+              </p>
+            </div>
+            <button
+              type="button"
+              class="close-button"
+              @click="closeRefundModal"
+            >
+              X
+            </button>
+          </div>
+
+          <div class="refund-field">
+            <label for="refundAmount">환불 금액</label>
+            <input
+              id="refundAmount"
+              v-model.number="refundModalState.amount"
+              type="number"
+              min="1"
+              :max="refundModalState.maxAmount"
+              placeholder="환불할 금액"
+            />
+            <p class="refund-helper">
+              환불 가능 금액 {{ formatPrice(refundModalState.maxAmount) }}원
+            </p>
+          </div>
+
+          <div class="refund-field">
+            <label for="refundReason">환불 사유</label>
+            <input
+              id="refundReason"
+              v-model.trim="refundModalState.reason"
+              type="text"
+              maxlength="200"
+              placeholder="예: 주문 착오, 서비스 이슈"
+            />
+          </div>
+
+          <p v-if="refundModalState.error" class="ledger-error">
+            {{ refundModalState.error }}
+          </p>
+
+          <div class="refund-actions">
+            <button
+              type="button"
+              class="reset-button"
+              @click="closeRefundModal"
+            >
+              취소
+            </button>
+            <button
+              type="button"
+              class="preset-button"
+              :disabled="refundModalState.isSaving"
+              @click="submitRefund"
+            >
+              {{ refundModalState.isSaving ? "처리 중..." : "환불 처리" }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -343,8 +535,16 @@ import {
   parseBusinessDateStart,
 } from "@/lib/businessDay";
 import { normalizeOrderSheetTags } from "@/lib/orderSheetTags";
+import {
+  fetchPaymentLedger,
+  getPaymentMethodLabel,
+  PAYMENT_METHOD_OPTIONS as paymentMethodOptions,
+  refundSheetPayment,
+} from "@/lib/payments";
+import { hasPermission } from "@/lib/staffAuth";
 
 const PAGE_SIZE = 20;
+const PAYMENT_REFUND_PERMISSION = "payment.refund";
 
 const isLoadingSheets = ref(true);
 const orderSheetList = ref([]);
@@ -359,6 +559,29 @@ const selectedTag = ref("ALL");
 const selectedWeekday = ref("ALL");
 const selectedPaymentMethod = ref("ALL");
 const currentPage = ref(1);
+
+const isLoadingLedger = ref(false);
+const ledgerError = ref("");
+const ledger = ref({
+  payments: [],
+  refunds: [],
+  methodTotals: [],
+  totalPaid: 0,
+  totalRefunded: 0,
+});
+
+const refundModalState = ref({
+  isOpen: false,
+  paymentId: "",
+  orderSheetId: "",
+  method: "",
+  paidAmount: 0,
+  maxAmount: 0,
+  amount: 0,
+  reason: "",
+  error: "",
+  isSaving: false,
+});
 
 let unsubscribeSheets = null;
 let unsubscribeOrders = null;
@@ -567,13 +790,10 @@ function formatPrice(value) {
   return Number(value || 0).toLocaleString("ko-KR");
 }
 
-function convertPaymentMethodText(method) {
-  if (method === "CARD") return "카드";
-  if (method === "BANK") return "계좌이체";
-  if (method === "CASH") return "현금";
-  if (method === "MIXED") return "부분 결제";
-  if (method === "DISCOUNT") return "할인 처리";
-  return method || "-";
+/* payment method labels are provided by @/lib/payments */
+function methodLabel(method) {
+  if (method === "MIXED") return "여러 수단";
+  return getPaymentMethodLabel(method);
 }
 
 function matchesPaymentMethod(sheet, method) {
@@ -586,19 +806,136 @@ function matchesPaymentMethod(sheet, method) {
   return false;
 }
 
-function subscribeOrderSheets() {
-  const loadOrderSheets = async () => {
-    try {
-      orderSheetList.value = await fetchList("orderSheets", {
-        order: ["updatedAt", "desc"],
-      });
-    } catch (error) {
-      console.error("주문서 조회 실패:", error);
-    } finally {
-      isLoadingSheets.value = false;
-    }
-  };
+const canRefund = computed(() => hasPermission(PAYMENT_REFUND_PERMISSION));
 
+const ledgerNetTotal = computed(() => {
+  return (
+    Number(ledger.value.totalPaid || 0) -
+    Number(ledger.value.totalRefunded || 0)
+  );
+});
+
+const ledgerMethodTotals = computed(() => ledger.value.methodTotals || []);
+
+async function loadLedger() {
+  isLoadingLedger.value = true;
+  ledgerError.value = "";
+
+  try {
+    const data = await fetchPaymentLedger({
+      from: startDate.value || "",
+      to: endDate.value || "",
+      limit: 200,
+    });
+
+    ledger.value = {
+      payments: data?.payments || [],
+      refunds: data?.refunds || [],
+      methodTotals: data?.methodTotals || [],
+      totalPaid: Number(data?.totalPaid || 0),
+      totalRefunded: Number(data?.totalRefunded || 0),
+    };
+  } catch (error) {
+    console.error("결제 원장 조회 실패:", error);
+    ledgerError.value = error?.message || "결제 원장을 불러오지 못했어요.";
+  } finally {
+    isLoadingLedger.value = false;
+  }
+}
+
+function openRefundModal(payment) {
+  const maxAmount = Math.max(
+    0,
+    Number(payment.amount || 0) - Number(payment.refundedAmount || 0)
+  );
+
+  if (maxAmount <= 0) return;
+
+  refundModalState.value = {
+    isOpen: true,
+    paymentId: payment.id,
+    orderSheetId: payment.orderSheetId || "",
+    method: payment.method || "",
+    paidAmount: Number(payment.amount || 0),
+    maxAmount,
+    amount: maxAmount,
+    reason: "",
+    error: "",
+    isSaving: false,
+  };
+}
+
+function closeRefundModal() {
+  refundModalState.value = {
+    isOpen: false,
+    paymentId: "",
+    orderSheetId: "",
+    method: "",
+    paidAmount: 0,
+    maxAmount: 0,
+    amount: 0,
+    reason: "",
+    error: "",
+    isSaving: false,
+  };
+}
+
+async function submitRefund() {
+  const state = refundModalState.value;
+  if (!state.isOpen || state.isSaving) return;
+
+  const amount = Math.floor(Number(state.amount || 0));
+  const reason = String(state.reason || "").trim();
+
+  if (amount <= 0) {
+    state.error = "환불 금액을 입력해주세요.";
+    return;
+  }
+
+  if (amount > state.maxAmount) {
+    state.error = `환불 가능 금액은 ${formatPrice(state.maxAmount)}원이에요.`;
+    return;
+  }
+
+  if (!reason) {
+    state.error = "환불 사유를 입력해주세요.";
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `${state.orderSheetId} 결제 ${formatPrice(amount)}원을 환불 처리할까요?`
+  );
+
+  if (!confirmed) return;
+
+  state.isSaving = true;
+  state.error = "";
+
+  try {
+    await refundSheetPayment({ paymentId: state.paymentId, amount, reason });
+    closeRefundModal();
+    await loadLedger();
+    await loadOrderSheets();
+  } catch (error) {
+    console.error("환불 처리 실패:", error);
+    state.error = error?.message || "환불 처리 중 문제가 발생했어요.";
+    state.isSaving = false;
+  }
+}
+
+async function loadOrderSheets() {
+  try {
+    orderSheetList.value = await fetchList("orderSheets", {
+      order: ["updatedAt", "desc"],
+    });
+  } catch (error) {
+    console.error("주문서 조회 실패:", error);
+  } finally {
+    isLoadingSheets.value = false;
+  }
+}
+
+function subscribeOrderSheets() {
   unsubscribeSheets = subscribeTable("orderSheets", loadOrderSheets);
 }
 
@@ -638,9 +975,14 @@ watch(totalPages, () => {
     currentPage.value = totalPages.value;
 });
 
+watch([startDate, endDate], () => {
+  loadLedger();
+});
+
 onMounted(() => {
   subscribeOrderSheets();
   subscribeOrders();
+  loadLedger();
 });
 
 onUnmounted(() => {
@@ -680,7 +1022,8 @@ h1 {
 .filter-card,
 .summary-card,
 .empty-box,
-.table-wrap {
+.table-wrap,
+.ledger-section {
   border-radius: 22px;
   background: rgba(255, 255, 255, 0.08);
 }
@@ -795,6 +1138,124 @@ h1 {
 }
 .muted-text {
   color: rgba(255, 255, 255, 0.42);
+}
+.ledger-section {
+  margin-top: 20px;
+  padding: 20px;
+}
+.ledger-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.ledger-head h2 {
+  margin: 0 0 6px;
+  font-size: 18px;
+}
+.ledger-summary-grid {
+  margin-bottom: 14px;
+}
+.ledger-method-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.method-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 12px;
+}
+.method-chip em {
+  font-style: normal;
+  color: #fca5a5;
+}
+.ledger-error {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(248, 113, 113, 0.16);
+  color: #fecaca;
+  font-size: 13px;
+}
+.ledger-table {
+  min-width: 920px;
+}
+.ledger-table .preset-button.small {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+.preset-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.refund-amount {
+  color: #fca5a5;
+  font-weight: 800;
+}
+.ledger-refund-block {
+  margin-top: 18px;
+}
+.ledger-refund-block h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+.ledger-refund-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ledger-refund-list li {
+  display: grid;
+  grid-template-columns: 130px 100px 90px 110px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 12px;
+}
+.refund-modal {
+  width: 100%;
+  max-width: 460px;
+}
+.refund-field {
+  margin-bottom: 14px;
+}
+.refund-field label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.refund-field input {
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+.refund-helper {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+}
+.refund-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
 }
 .pagination {
   justify-content: center;

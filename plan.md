@@ -65,7 +65,7 @@ Guest phone / staff tablet
 | **P0** | Staff auth (login/logout/me/password), role permissions, admin employee API, audit log, cookie infra, deploy config, frontend login + route guard | **DONE (verified)** |
 | **P1** | Table master (`bar_tables`, 30 tables: 1–10 bar / 11–30 large), admin table settings page, tablet layout driven by the master | **DONE (verified)** |
 | **P2** | Guest table session cookie + per-guest attribution + order ownership (guest sees only own table sheet; staff any) | **DONE (verified)** |
-| **P3** | Payment ledger (`payments`, `payment_allocations`, `refunds`), split/partial payment, refunds | pending |
+| **P3** | Payment ledger (`payments`, `payment_allocations`, `refunds`), split/partial payment, refunds | **DONE (verified)** |
 | **P4** | Kakao login readiness (channel, app, consent, callback) | pending |
 | **P5** | Points ledger (earn / redeem / expire / adjust), FEFO deduction | pending |
 | **P6** | CRM & consent (customer profile, marketing consent, visit history) | pending |
@@ -243,10 +243,86 @@ Scope policy on `/rest/v1`:
 
 ---
 
+## 3-3. P3 — Payment ledger, split/partial payment, refunds (DONE)
+
+Decision: a **real ledger** replaces the single `order_sheets.payment_status` flag. One `payments` row per
+(payment method × payer), so split-by-method and split-by-person are the same mechanism.
+All three modes are supported: **partial payment**, **split by method**, **split by person**.
+
+Money rules (server-authoritative):
+
+- `order_sheets.original_amount` = gross, `discount_total` / `discounts` = server-recomputed discounts,
+  `total_amount` = payable (`original − discount`). The client's `totalAmount` is **ignored**.
+- `order_sheets.paid_amount` = **net settled** (paid − refunded). `payment_status` is derived:
+  `UNPAID` (0) / `PARTIAL` (<total) / `COMPLETED` (>=total).
+- `remaining = total_amount − paid_amount`; overpay is rejected with 400, paying a closed sheet with 409.
+- Refunds reverse allocations newest-first and re-derive the sheet state (a fully refunded sheet returns to
+  `UNPAID`). The sheet `status` (OPEN/CLOSED) is **not** reopened by a refund.
+
+### Schema — `server/sql/payments.sql`
+
+- `payments` — `id` text PK, `order_sheet_id`, `table_number`, `business_date date` (KST 15:00 rollback),
+  `amount > 0`, `method`, `payer_label`, `guest_session_id`, `employee_id` → `employees(id) on delete set null`,
+  `employee_name`, `memo`, `occurred_at`, `created_at` + 3 indexes.
+- `payment_allocations` — `payment_id` → `payments on delete cascade`, `order_id` (nullable), `amount` + 2 indexes.
+- `refunds` — `payment_id` → `payments on delete restrict`, `order_sheet_id`, `business_date`, `amount > 0`,
+  `method`, `reason`, `employee_id`/`employee_name`, `occurred_at` + 3 indexes.
+- `order_sheets.paid_amount integer not null default 0`.
+- Idempotent legacy backfill: existing `payment_splits` jsonb → `payments` rows (`legacy_<sheet>_<nn>`), a
+  `legacy_<sheet>` fallback from `payment_method`, then `paid_amount = total_amount` for `COMPLETED` sheets.
+
+### Backend
+
+| File | Purpose |
+| --- | --- |
+| `server/src/payments.js` | `toBusinessDate`, `computeDiscountTotal`, `normalizeEntries`, `allocatePaymentAmount` (FIFO by order creation, leftover → `order_id null`), `syncSheetPaymentState` (keeps `payment_splits`/`payment_method`/`paid_at` compatible), `getSheetLedger`, `recordPayment`, `refundPayment`, `listPayments` |
+| `server/src/routes/api/payments.js` | `GET /api/payments`, `GET /api/payments/sheet/:orderSheetId`, `POST /api/payments`, `POST /api/payments/:paymentId/refund` (+ audit `payment.record` / `payment.refund`) |
+| `server/src/app.js` | registers the payment routes |
+| `server/scripts/apply-schema.mjs` | applies `sql/payments.sql` after `guest.sql` |
+
+Permissions: `payment.view` (STAFF+), `payment.manage` (STAFF+), `payment.refund` (MANAGER+).
+The ledger tables are **not** in `server/src/tables.js`, so `/rest/v1/payments` returns 404 — writes only via `/api/payments`.
+
+### Frontend
+
+| File | Purpose |
+| --- | --- |
+| `src/lib/payments.js` | method labels (7 methods + `MIXED`), `fetchSheetLedger`, `fetchPaymentLedger`, `recordSheetPayment`, `refundSheetPayment` |
+| `src/lib/orderSheet.js` | `completeOrderSheetPayment` now delegates to `POST /api/payments` (splits → entries with `method`/`payerLabel`/`amount`) |
+| `src/views/Tablet/TabletAdminView.vue` | 결제 모달: 결제된 금액 / 이번 결제 필요 금액, per-row method select + 결제자 label + 남은 금액, "일부 결제 처리" confirm; 결제 완료 모달 shows 이번 결제 / 남은 금액; table detail shows 결제된 금액 + 남은 금액 |
+| `src/views/Admin/AdminPaymentHistoryView.vue` | 결제 원장 section (총 결제 / 총 환불 / 순 매출, method chips, ledger table, 환불 기록) + 환불 modal (`payment.refund` only) |
+| `src/lib/supabase.js` | `order_sheets` FIELD_MAP gained `paidAmount` |
+| `vercel.json` / `vue.config.js` | `/api/payments` rewrite + dev proxy |
+
+### Deploy checklist (server first, then Vercel)
+
+1. `docker compose --profile tools build migrate && docker compose run --rm migrate` (applies `payments.sql` + backfill)
+2. `docker compose up -d --force-recreate api`
+3. Vercel redeploy (new `/api/payments` rewrites)
+
+### Verification (local)
+
+- `npm run smoke` → **109/109** (P3 added 34 checks: partial payment, ledger read, overpay 400, split payers, close,
+  409 on closed sheet, partial refund, over-refund 400, ledger totals, staff-only 401s).
+- `pnpm lint` → clean (auto-formatted `src/lib/payments.js`, `AdminPaymentHistoryView.vue`, `TabletAdminView.vue`).
+- `pnpm build` → OK (only the pre-existing bundle-size warning).
+
+### Known nuances
+
+- Second-round billing: the tablet sends the sheet's current `total_amount` as `originalAmount`, so an earlier
+  discount is baked into `original_amount` and `discount_total` resets unless new discounts are added. `due` is
+  always `total_amount − paid_amount`, so amounts stay consistent.
+- `payment_splits` keeps **gross** per-method totals (refunds are tracked in `refunds`, mirrored in `paid_amount`).
+  Legacy views filter `paymentStatus === 'COMPLETED'`, so a refunded sheet drops out of their revenue.
+
+---
+
 ## 4. Open questions
 
 1. **₩30,000 point-redemption threshold**: before or after discount? (currently assumed after)
 2. Kakao: does a Kakao channel / app already exist, or fully from scratch?
+3. P3: should a refund mark the sheet `REFUNDED` instead of deriving back to `UNPAID`? (current: `status` untouched)
+4. P3: is per-order allocation (`orderIds`) needed, or is FIFO by order creation enough?
 
 ---
 
@@ -257,8 +333,8 @@ done     p1-table-master        bar_tables master (30 tables) + seed + tablet la
 done     p7-cloudflare-cutover  api.honjaya-server.xyz live via Cloudflare Tunnel, vercel.json rewrite swapped, Tailscale = backup
 done     p2-guest-session       guest table session cookie (guest_sessions) + /api/guest/session + hj_guest cookie
 done     p2-order-ownership     enforce order ownership on /rest/v1 (staff/guest/anon scope) + per-guest attribution
-pending  p3-payment-ledger      payments / payment_allocations / refunds schema + API
-pending  p3-split-payment       UI + API for split and partial payment
+done     p3-payment-ledger      payments / payment_allocations / refunds schema + API
+done     p3-split-payment       UI + API for split and partial payment
 pending  p4-kakao-readiness     Kakao channel/app/consent checklist + callback route
 pending  p5-points-ledger       point_ledger + earn/redeem/expire/adjust + FEFO
 pending  p6-crm-consent         customer profile + marketing consent + visit history

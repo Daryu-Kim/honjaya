@@ -20,6 +20,7 @@ server/
 │  ├─ db.js               pg Pool, 컬럼 캐시, LISTEN 전용 커넥션
 │  ├─ tables.js           허용 테이블 화이트리스트
 │  ├─ guest.js            손님 입장(테이블 확인 + 열린 주문서 준비)
+│  ├─ payments.js         결제 원장(부분/분할 결제, 환불, 주문서 상태 동기화)
 │  ├─ http/
 │  │  ├─ sql.js           필터/정렬/select → SQL (식별자 검증)
 │  │  ├─ prefer.js        Prefer 헤더 파싱
@@ -39,12 +40,14 @@ server/
 │  └─ routes/api/
 │     ├─ staffAuth.js     /api/staff/{login,logout,me,password}
 │     ├─ guest.js         /api/guest/{table,session,logout}
+│     ├─ payments.js      /api/payments, /api/payments/sheet/:id, /api/payments/:id/refund
 │     └─ admin.js         /api/admin/employees, /api/admin/audit-logs, /api/admin/tables
 ├─ sql/
 │  ├─ tables.sql          테이블 마스터(bar_tables) + 1~30번 시드
 │  ├─ events.sql          변경 알림 트리거(pg_notify)
 │  ├─ staff.sql           직원/세션/감사로그 테이블
-│  └─ guest.sql           손님 세션(guest_sessions) + orders.guest_* 컬럼
+│  ├─ guest.sql           손님 세션(guest_sessions) + orders.guest_* 컬럼
+│  └─ payments.sql        결제 원장(payments/payment_allocations/refunds) + order_sheets.paid_amount
 ├─ scripts/
 │  ├─ apply-schema.mjs    스키마 적용(멱등)
 │  ├─ import-supabase-export.mjs  Supabase CSV 백업 가져오기(멱등)
@@ -222,13 +225,19 @@ psql "$DATABASE_URL" -f supabase_data.sql
 | `GET` | `/api/admin/audit-logs` | 감사 로그 조회 (`audit.view`) |
 | `GET` | `/api/admin/tables` | 테이블 마스터 목록 (`table.view`) |
 | `PATCH` | `/api/admin/tables/:tableNumber` | 구역/좌석/표시이름/정렬/사용여부/메모 수정 (`settings.manage`) |
+| `GET` | `/api/payments` | 결제 원장 조회(`from`, `to`, `limit`) + 수단별/환불 집계 (`payment.view`) |
+| `GET` | `/api/payments/sheet/:orderSheetId` | 주문서별 결제/환불 내역과 남은 금액 (`payment.view`) |
+| `POST` | `/api/payments` | 결제 기록(`orderSheetId`, `originalAmount`, `discounts`, `entries[]`, `memo`, `close`) (`payment.manage`) |
+| `POST` | `/api/payments/:paymentId/refund` | 환불(`amount`, `reason`) — 결제 건별 부분 환불 가능 (`payment.refund`) |
 
-> `/api/staff/*` · `/api/admin/*` · `/api/guest/*` 도 전역 `apikey` 검사를 통과해야 합니다(프런트엔드 `src/lib/api.js` 가 자동으로 붙입니다).
+> `/api/staff/*` · `/api/admin/*` · `/api/guest/*` · `/api/payments/*` 도 전역 `apikey` 검사를 통과해야 합니다(프런트엔드 `src/lib/api.js` 가 자동으로 붙입니다).
 > 세션 토큰은 DB 에 **sha256 해시로만** 저장되며, 평문은 쿠키에만 존재합니다.
 > `bar_tables`(테이블 마스터)는 `/rest/v1` 로 **읽기만** 가능합니다(쓰기 요청은 403). 수정은 위 `PATCH /api/admin/tables/:tableNumber` 로만 합니다.
 > **손님 범위(P2)**: `/rest/v1` 의 `orders` · `order_sheets` · `active_order_sheets` 는 `hj_guest`(손님) 또는 `hj_staff`(직원)
 > 쿠키가 있어야 접근할 수 있습니다(없으면 403). 손님은 자기 테이블 주문서로 범위가 강제되고,
 > `orders` 는 생성만 가능하며 `status` 는 항상 `REQUESTED` 로 고정됩니다.
+> **결제 원장(P3)**: `payments` · `payment_allocations` · `refunds` 는 `/rest/v1` 화이트리스트에 없어 조회/수정이 404 입니다.
+> 모든 결제/환불은 위 `/api/payments` 로만 기록하며, 금액·할인·상태(`payment_status`, `paid_amount`)는 서버가 계산해 덮어씁니다.
 
 지원 필터: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `is`, `like`, `ilike`, `cs`(contains), `cd`, `ov`.
 지원 헤더: `Prefer: return=representation|minimal`, `count=exact|planned|estimated`, `resolution=merge-duplicates|ignore-duplicates`, `Accept: application/vnd.pgrst.object+json`, `Range: 0-9`.

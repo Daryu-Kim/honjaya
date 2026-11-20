@@ -113,6 +113,7 @@ const FIELD_MAPS = {
     latestOrderSummaryText: "latest_order_summary_text",
     originalAmount: "original_amount",
     discountTotal: "discount_total",
+    paidAmount: "paid_amount",
     paymentSplits: "payment_splits",
     internalTags: "internal_tags",
     createdAt: "created_at",

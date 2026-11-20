@@ -469,6 +469,202 @@ try {
     "테스터"
   );
 
+  // ---------------------------------------------------------------- payment ledger (P3)
+  const p3SheetInsert = await app.inject({
+    method: "POST",
+    url: "/rest/v1/order_sheets?select=*",
+    headers: {
+      prefer: "return=representation",
+      "content-type": "application/json",
+      cookie: staffCookie,
+    },
+    payload: {
+      id: "sheet-p3",
+      sequence_no: 9001,
+      business_date: new Date().toISOString(),
+      table_number: "7",
+      display_name: "No.7",
+      total_amount: 50000,
+      order_count: 2,
+    },
+  });
+  check("P3 주문서 생성 → 201", p3SheetInsert.statusCode === 201, p3SheetInsert.body);
+
+  for (const [id, price] of [
+    ["order-p3-a", 30000],
+    ["order-p3-b", 20000],
+  ]) {
+    const orderInsert = await app.inject({
+      method: "POST",
+      url: "/rest/v1/orders?select=*",
+      headers: {
+        prefer: "return=representation",
+        "content-type": "application/json",
+        cookie: staffCookie,
+      },
+      payload: {
+        id,
+        order_sheet_id: "sheet-p3",
+        table_number: "7",
+        total_price: price,
+        total_count: 1,
+        items: [{ productName: id, quantity: 1, unitPrice: price }],
+      },
+    });
+    equal(`P3 주문 생성(${id}) → 201`, orderInsert.statusCode, 201);
+  }
+
+  const partialPayment = await app.inject({
+    method: "POST",
+    url: "/api/payments",
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: {
+      orderSheetId: "sheet-p3",
+      originalAmount: 50000,
+      discounts: [],
+      entries: [{ method: "CARD", amount: 20000, payerLabel: "지민" }],
+      close: false,
+    },
+  });
+  check("P3 일부 결제 → 200", partialPayment.statusCode === 200, partialPayment.body);
+  equal("P3 일부 결제 → 부분결제 상태", partialPayment.json().paymentStatus, "PARTIAL");
+  equal("P3 일부 결제 → 남은 금액", partialPayment.json().remainingAmount, 30000);
+  equal("P3 일부 결제 → 마감하지 않음", partialPayment.json().closed, false);
+
+  const p3SheetAfterPartial = await app.inject({
+    method: "GET",
+    url: "/rest/v1/order_sheets?select=*&id=eq.sheet-p3",
+    headers: { cookie: staffCookie },
+  });
+  const p3Row = p3SheetAfterPartial.json()[0] || {};
+  equal("P3 일부 결제 → 주문서는 OPEN 유지", p3Row.status, "OPEN");
+  equal("P3 일부 결제 → payment_status PARTIAL", p3Row.payment_status, "PARTIAL");
+  equal("P3 일부 결제 → paid_amount 반영", p3Row.paid_amount, 20000);
+
+  const p3SheetLedger = await app.inject({
+    method: "GET",
+    url: "/api/payments/sheet/sheet-p3",
+    headers: { cookie: staffCookie },
+  });
+  check("P3 주문서 원장 조회 → 200", p3SheetLedger.statusCode === 200, p3SheetLedger.body);
+  equal("P3 주문서 원장 → 결제 1건", p3SheetLedger.json().payments.length, 1);
+  equal("P3 주문서 원장 → 결제자 기록", p3SheetLedger.json().payments[0]?.payerLabel, "지민");
+  check(
+    "P3 주문서 원장 → 정산 금액/잔액",
+    p3SheetLedger.json().settledAmount === 20000 &&
+      p3SheetLedger.json().remainingAmount === 30000,
+    p3SheetLedger.body
+  );
+
+  const overPayment = await app.inject({
+    method: "POST",
+    url: "/api/payments",
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: {
+      orderSheetId: "sheet-p3",
+      originalAmount: 50000,
+      entries: [{ method: "CASH", amount: 40000 }],
+      close: true,
+    },
+  });
+  check("P3 남은 금액 초과 결제 → 400", overPayment.statusCode === 400, overPayment.body);
+
+  const finalPayment = await app.inject({
+    method: "POST",
+    url: "/api/payments",
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: {
+      orderSheetId: "sheet-p3",
+      originalAmount: 50000,
+      entries: [
+        { method: "CASH", amount: 15000, payerLabel: "수현" },
+        { method: "BANK", amount: 15000, payerLabel: "민수" },
+      ],
+      close: true,
+    },
+  });
+  check("P3 잔액 결제 → 200", finalPayment.statusCode === 200, finalPayment.body);
+  equal("P3 잔액 결제 → 결제완료", finalPayment.json().paymentStatus, "COMPLETED");
+  equal("P3 잔액 결제 → 주문서 마감", finalPayment.json().closed, true);
+  equal("P3 잔액 결제 → 남은 금액 0", finalPayment.json().remainingAmount, 0);
+
+  const p3SheetAfterFull = await app.inject({
+    method: "GET",
+    url: "/rest/v1/order_sheets?select=*&id=eq.sheet-p3",
+    headers: { cookie: staffCookie },
+  });
+  const p3ClosedRow = p3SheetAfterFull.json()[0] || {};
+  equal("P3 잔액 결제 → 주문서 CLOSED", p3ClosedRow.status, "CLOSED");
+  equal("P3 잔액 결제 → 여러 수단 표시", p3ClosedRow.payment_method, "MIXED");
+  equal("P3 잔액 결제 → paid_amount 합계", p3ClosedRow.paid_amount, 50000);
+  check("P3 잔액 결제 → paid_at 기록", Boolean(p3ClosedRow.paid_at), p3ClosedRow.paid_at);
+
+  const closedPayment = await app.inject({
+    method: "POST",
+    url: "/api/payments",
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: {
+      orderSheetId: "sheet-p3",
+      originalAmount: 50000,
+      entries: [{ method: "CARD", amount: 1000 }],
+      close: true,
+    },
+  });
+  check("P3 마감된 주문서 추가 결제 → 409", closedPayment.statusCode === 409, closedPayment.body);
+
+  const p3FirstPaymentId = partialPayment.json().payments[0]?.id || "";
+  const partialRefund = await app.inject({
+    method: "POST",
+    url: `/api/payments/${p3FirstPaymentId}/refund`,
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: { amount: 5000, reason: "주문 착오" },
+  });
+  check("P3 부분 환불 → 200", partialRefund.statusCode === 200, partialRefund.body);
+  equal("P3 부분 환불 → 정산 금액 차감", partialRefund.json().settledAmount, 45000);
+  equal("P3 부분 환불 → 남은 금액 복구", partialRefund.json().remainingAmount, 5000);
+  equal("P3 부분 환불 → 상태 되돌림", partialRefund.json().paymentStatus, "PARTIAL");
+
+  const overRefund = await app.inject({
+    method: "POST",
+    url: `/api/payments/${p3FirstPaymentId}/refund`,
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: { amount: 20000, reason: "초과 환불" },
+  });
+  check("P3 환불 가능 금액 초과 → 400", overRefund.statusCode === 400, overRefund.body);
+
+  const p3LedgerList = await app.inject({
+    method: "GET",
+    url: "/api/payments?limit=50",
+    headers: { cookie: staffCookie },
+  });
+  check("P3 결제 원장 목록 → 200", p3LedgerList.statusCode === 200, p3LedgerList.body);
+  check(
+    "P3 결제 원장 목록 → 결제/환불 집계",
+    p3LedgerList.json().totalPaid === 50000 && p3LedgerList.json().totalRefunded === 5000,
+    p3LedgerList.body
+  );
+
+  const anonPayments = await app.inject({ method: "GET", url: "/api/payments" });
+  check("P3 비로그인 결제 원장 조회 → 401", anonPayments.statusCode === 401, anonPayments.body);
+
+  const guestPayments = await app.inject({
+    method: "GET",
+    url: "/api/payments",
+    headers: { cookie: guestCookie },
+  });
+  check("P3 손님 결제 원장 조회 → 401", guestPayments.statusCode === 401, guestPayments.body);
+
+  const guestRecordPayment = await app.inject({
+    method: "POST",
+    url: "/api/payments",
+    headers: { "content-type": "application/json", cookie: guestCookie },
+    payload: {
+      orderSheetId: guestSheetId,
+      entries: [{ method: "CARD", amount: 1000 }],
+    },
+  });
+  check("P3 손님 결제 기록 → 401", guestRecordPayment.statusCode === 401, guestRecordPayment.body);
+
   // ---------------------------------------------------------------- select
   const list = await app.inject({
     method: "GET",

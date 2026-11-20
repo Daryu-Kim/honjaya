@@ -7,6 +7,7 @@ import {
   updateRow,
   upsertRow,
 } from "@/lib/supabase";
+import { recordSheetPayment } from "@/lib/payments";
 
 export async function finalizeOrderSheetCleanup({ orderSheetId }) {
   const safeOrderSheetId = String(orderSheetId || "").trim();
@@ -254,50 +255,45 @@ export async function updateOrderSheetNickname({ orderSheetId, nickname }) {
 export async function completeOrderSheetPayment({
   orderSheetId,
   tableNumber,
-  paymentMethod,
   originalAmount,
-  discountTotal,
   totalAmount,
   discounts,
   paymentSplits,
+  memo,
+  close = true,
 }) {
   const safeOrderSheetId = String(orderSheetId || "").trim();
   const safeTableNumber = normalizeTableNumber(tableNumber);
-  const safePaymentMethod = String(paymentMethod || "").trim();
 
   if (!safeOrderSheetId || !safeTableNumber) {
     throw new Error("주문서 정보가 올바르지 않아요.");
   }
 
-  const now = nowIso();
+  const entries = (Array.isArray(paymentSplits) ? paymentSplits : [])
+    .map((split) => ({
+      method: String(split?.method || "").trim(),
+      // 인원별로 나눠낼 때 누가 낸 금액인지 남깁니다.
+      payerLabel: String(split?.payerLabel || "").trim(),
+      amount: Number(split?.amount || 0),
+    }))
+    .filter((entry) => entry.method && entry.amount > 0);
 
-  await updateRow("orderSheets", safeOrderSheetId, {
-    status: "CLOSED",
-    paymentStatus: "COMPLETED",
-    paymentMethod: safePaymentMethod,
-    ...(originalAmount !== undefined
-      ? { originalAmount: Number(originalAmount || 0) }
-      : {}),
-    ...(discountTotal !== undefined
-      ? { discountTotal: Number(discountTotal || 0) }
-      : {}),
-    ...(totalAmount !== undefined
-      ? { totalAmount: Number(totalAmount || 0) }
-      : {}),
-    ...(discounts !== undefined
-      ? { discounts: Array.isArray(discounts) ? discounts : [] }
-      : {}),
-    ...(paymentSplits !== undefined
-      ? { paymentSplits: Array.isArray(paymentSplits) ? paymentSplits : [] }
-      : {}),
-    paidAt: now,
-    closedAt: now,
-    updatedAt: now,
-  });
+  if (entries.length === 0) {
+    throw new Error("결제 수단별 금액을 1개 이상 입력해주세요.");
+  }
 
-  await removeActiveOrderSheetForSheet({
-    tableNumber: safeTableNumber,
+  // 할인/최종 금액 검증과 원장 기록은 서버(/api/payments)에서 처리합니다.
+  return recordSheetPayment({
     orderSheetId: safeOrderSheetId,
+    originalAmount: Number(
+      originalAmount !== undefined && originalAmount !== null
+        ? originalAmount
+        : totalAmount || 0
+    ),
+    discounts: Array.isArray(discounts) ? discounts : [],
+    entries,
+    memo,
+    close,
   });
 }
 
