@@ -204,6 +204,8 @@ export async function applySchema(connectionString, log = console) {
       await runSqlFile(client, join(repoRoot, "supabase", patch), log);
     }
 
+    // 마스터 표가 먼저 있어야 events.sql 의 트리거 생성 루프가 bar_tables 를 잡습니다.
+    await runSqlFile(client, join(serverRoot, "sql", "tables.sql"), log);
     await runSqlFile(client, join(serverRoot, "sql", "events.sql"), log);
     await runSqlFile(client, join(serverRoot, "sql", "staff.sql"), log);
   } finally {

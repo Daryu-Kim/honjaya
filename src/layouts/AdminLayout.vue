@@ -144,6 +144,12 @@ const menuList = [
     matchStartsWith: "/admin/categories",
   },
   {
+    to: "/admin/tables",
+    label: "테이블 관리",
+    description: "테이블·좌석 설정",
+    matchStartsWith: "/admin/tables",
+  },
+  {
     to: "/tablet",
     label: "태블릿 운영판",
     description: "매장 현장용 화면",

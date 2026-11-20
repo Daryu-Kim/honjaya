@@ -8,7 +8,7 @@ import {
   parseSelect,
   quoteIdent,
 } from "../http/sql.js";
-import { tableMeta } from "../tables.js";
+import { assertWritable, tableMeta } from "../tables.js";
 
 const DEFAULT_LIMIT = 10_000;
 const MAX_LIMIT = 10_000;
@@ -158,7 +158,9 @@ async function handleSelect(request, reply) {
 
 async function handleInsert(request, reply) {
   const table = request.params.table;
-  const { cols, types } = await resolveTable(table);
+  const { meta, cols, types } = await resolveTable(table);
+
+  assertWritable(table, meta);
   const prefer = parsePrefer(request.headers.prefer);
   const rows = Array.isArray(request.body) ? request.body : [request.body];
   const body = rows.filter((row) => row !== undefined && row !== null);
@@ -233,7 +235,9 @@ async function handleInsert(request, reply) {
 
 async function handleUpdate(request, reply) {
   const table = request.params.table;
-  const { cols, types } = await resolveTable(table);
+  const { meta, cols, types } = await resolveTable(table);
+
+  assertWritable(table, meta);
   const prefer = parsePrefer(request.headers.prefer);
   const body = Array.isArray(request.body) ? request.body[0] : request.body;
 
@@ -274,7 +278,9 @@ async function handleUpdate(request, reply) {
 
 async function handleDelete(request, reply) {
   const table = request.params.table;
-  const { cols } = await resolveTable(table);
+  const { meta, cols } = await resolveTable(table);
+
+  assertWritable(table, meta);
   const prefer = parsePrefer(request.headers.prefer);
   const params = [];
   const where = buildWhere(parseFilters(request.query), cols, params);

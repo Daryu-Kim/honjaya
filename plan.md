@@ -16,7 +16,7 @@ Write in English. UI strings stay Korean.
 | Points basis | assumed = amount **after** discount and point deduction (UNCONFIRMED) |
 | Staff | 3 people, 3 roles: `OWNER` / `MANAGER` / `STAFF` |
 | Frontend origin | `https://honjaya.vercel.app` (operational) |
-| API origin (target) | `https://honjaya-server.xyz` via Cloudflare Tunnel (in progress) |
+| API origin (target) | `https://api.honjaya-server.xyz` via Cloudflare Tunnel — **LIVE** (`/health` → db up) |
 | API origin (backup) | Tailscale Funnel `https://<device>.<tailnet>.ts.net` |
 | Auth transport | HttpOnly + SameSite=Lax first-party cookie via `vercel.json` rewrite for `/api/staff/*`, `/api/admin/*` only |
 | Payment scope | Split / partial payment included in phase 1 |
@@ -40,7 +40,7 @@ Guest phone / staff tablet
       │                  │  vercel.json rewrite (staff + admin only)
       │                  │  → first-party cookie
       │                  ▼
-      └──────────────▶ Cloudflare Tunnel  https://honjaya-server.xyz
+      └──────────────▶ Cloudflare Tunnel  https://api.honjaya-server.xyz
                          │   (backup: Tailscale Funnel)
                          ▼
                  Laptop (Ubuntu 24.04)
@@ -60,13 +60,13 @@ Guest phone / staff tablet
 | Phase | Scope | Status |
 | --- | --- | --- |
 | **P0** | Staff auth (login/logout/me/password), role permissions, admin employee API, audit log, cookie infra, deploy config, frontend login + route guard | **DONE (verified)** |
-| **P1** | Table master (`bar_tables`, 30 seats), guest table sessions, `order_sheet_members` | pending |
-| **P2** | Order ownership (guest can only see/edit own order; staff can act on any) | pending |
+| **P1** | Table master (`bar_tables`, 30 tables: 1–10 bar / 11–30 large), admin table settings page, tablet layout driven by the master | **DONE (verified)** |
+| **P2** | Guest table session cookie + `order_sheet_members` + order ownership (guest sees only own order; staff any) | pending |
 | **P3** | Payment ledger (`payments`, `payment_allocations`, `refunds`), split/partial payment, refunds | pending |
 | **P4** | Kakao login readiness (channel, app, consent, callback) | pending |
 | **P5** | Points ledger (earn / redeem / expire / adjust), FEFO deduction | pending |
 | **P6** | CRM & consent (customer profile, marketing consent, visit history) | pending |
-| **P7** | Cloudflare cutover (honjaya-server.xyz goes live, Tailscale → backup) | pending |
+| **P7** | Cloudflare cutover (`api.honjaya-server.xyz` live, Tailscale → backup, `vercel.json` rewrite swapped) | **DONE** (verify Vercel `VUE_APP_SUPABASE_URL` + redeploy) |
 
 ---
 
@@ -138,28 +138,67 @@ Not yet run (project Rule 15 — only on request): `pnpm lint`, `pnpm build`, `n
 
 ---
 
+## 3-1. P1 — Table master (DONE)
+
+### Schema — `server/sql/tables.sql`
+
+- `bar_tables` — `table_number` int PK (1..999), `zone` (`BAR` | `LARGE`), `seat_capacity`, `display_name`,
+  `is_active`, `sort_order`, `note`, timestamps.
+- Seed: `generate_series(1,30)` with `on conflict (table_number) do nothing`
+  → 1–10 `BAR` / 4 seats, 11–30 `LARGE` / 8 seats, `sort_order = table_number`, `display_name` empty.
+- Reachable **read-only** through `/rest/v1` (public tablet/guest reads); writes are blocked server-side.
+
+### Backend
+
+| File | Purpose |
+| --- | --- |
+| `server/sql/tables.sql` | new table + constraints + 30-row seed |
+| `server/scripts/apply-schema.mjs` | applies `tables.sql` **before** `events.sql` (trigger needs the table) |
+| `server/sql/events.sql` | `bar_tables` added to the trigger target list; `row_id` falls back to `table_number` |
+| `server/src/tables.js` | `bar_tables: { pk: "table_number", readOnly: true }` + `assertWritable()` |
+| `server/src/routes/rest.js` | insert/update/delete call `assertWritable()` → **403** |
+| `server/src/routes/api/admin.js` | `GET /api/admin/tables` (table.view), `PATCH /api/admin/tables/:tableNumber` (**settings.manage = OWNER**), `TABLE_UPDATE` audit log |
+
+### Frontend
+
+| File | Purpose |
+| --- | --- |
+| `src/lib/supabase.js` | `barTables` / `bar_tables` in `TABLE_MAPS`, `FIELD_MAPS` for snake_case |
+| `src/lib/tableMaster.js` | `fetchTableMaster`, `subscribeTableMaster`, `updateTableMaster`, `tableLabelOf`, `zoneLabel` |
+| `src/views/Tablet/TabletAdminView.vue` | `tableLayoutList` merges the master + latest order sheets → empty tables render as non-interactive `손님 없음` cards |
+| `src/views/Admin/AdminTableView.vue` | new page: 30-row table list, zone/seat/name/sort/active/note editor |
+| `src/router/index.js` / `src/layouts/AdminLayout.vue` | `/admin/tables` route + `테이블 관리` menu |
+
+### Verification
+
+- `server/scripts/tmp-verify-tables.mjs` (temporary, deleted): embedded Postgres 55434 → **32/32 passed**
+  (seed 30 rows, `/rest/v1` read OK + POST/PATCH/DELETE 403, admin GET 401→200, PATCH validation 400s,
+  404, audit log, STAFF 403 on PATCH, SSE `bar_tables` change frame).
+- `npm run smoke` → **55/55 passed** (no regression).
+- `pnpm lint` / `pnpm build`: not run yet (project Rule 15 — only on request).
+
+---
+
 ## 4. Open questions
 
-1. **Seat capacity defaults** for the P1 seed (bar 1–10, large 11–30) — how many per table?
-2. **₩30,000 point-redemption threshold**: before or after discount? (currently assumed after)
-3. Kakao: does a Kakao channel / app already exist, or fully from scratch?
+1. **₩30,000 point-redemption threshold**: before or after discount? (currently assumed after)
+2. Kakao: does a Kakao channel / app already exist, or fully from scratch?
 
 ---
 
 ## 5. SQL todos
 
 ```
-pending  p1-table-master        bar_tables master (30 seats) + seed + tablet layout from master
-pending  p1-guest-session       guest table session cookie + order_sheet_members
+done     p1-table-master        bar_tables master (30 tables) + seed + tablet layout from master + /admin/tables
+done     p7-cloudflare-cutover  api.honjaya-server.xyz live via Cloudflare Tunnel, vercel.json rewrite swapped, Tailscale = backup
+pending  p2-guest-session       guest table session cookie + order_sheet_members
 pending  p2-order-ownership     enforce order ownership on /rest/v1 + /api
 pending  p3-payment-ledger      payments / payment_allocations / refunds schema + API
 pending  p3-split-payment       UI + API for split and partial payment
 pending  p4-kakao-readiness     Kakao channel/app/consent checklist + callback route
 pending  p5-points-ledger       point_ledger + earn/redeem/expire/adjust + FEFO
 pending  p6-crm-consent         customer profile + marketing consent + visit history
-pending  p7-cloudflare-cutover  honjaya-server.xyz live, Vercel env swap, Tailscale to backup
-blocked  p1-seat-capacity       waiting on open question #1
-blocked  p5-point-basis         waiting on open question #2
+assumed  p5-point-basis         redemption threshold counted AFTER discount (open question #1)
 ```
 
 ---
@@ -175,5 +214,9 @@ blocked  p5-point-basis         waiting on open question #2
 - `process.exit()` with embedded-postgres prints a benign termination notice and a non-zero exit code.
 - Console output of Korean text is CP949 mojibake; read files with `-Encoding UTF8`.
 - `order_sheets` doubles as the visit session (`active_order_sheets` unique index on `table_number`).
-- Tablet `tableLayoutList` is derived from `order_sheets`, so empty tables never appear
-  (must move to a master-based list in P1).
+- `bar_tables` has **no `id` column** → `events.sql` uses `table_number` as `row_id` fallback, and
+  `server/src/tables.js` declares `pk: "table_number"`.
+- `bar_tables` is `readOnly` in `server/src/tables.js`; `/rest/v1` writes return **403**.
+  Master settings go through `PATCH /api/admin/tables/:tableNumber` (`settings.manage`, OWNER only).
+- Tablet `tableLayoutList` now merges `bar_tables` (master) with the latest order sheet per table.
+  If the master list is empty (old DB), it falls back to the legacy order-sheet-only derivation.

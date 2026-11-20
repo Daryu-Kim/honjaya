@@ -53,7 +53,11 @@
             :key="table.tableNumber"
             type="button"
             class="table-card"
-            :class="{ paid: table.paymentStatus === 'COMPLETED' }"
+            :class="{
+              paid: table.paymentStatus === 'COMPLETED',
+              'is-empty': !table.isOccupied,
+            }"
+            :disabled="!table.isOccupied"
             @click="selectTable(table)"
           >
             <div class="table-card-top">
@@ -63,14 +67,18 @@
                   {{ table.tableNickname }}
                 </span>
               </div>
-              <span class="status-badge">
+              <span v-if="table.isOccupied" class="status-badge">
                 {{ convertOrderSheetStatusText(table.status) }}
               </span>
+              <span v-else class="status-badge is-empty">손님 없음</span>
             </div>
 
             <div class="table-card-middle">
               <p class="table-location">{{ table.locationLabel }}</p>
-              <p class="table-amount">{{ formatPrice(table.totalAmount) }}원</p>
+              <p v-if="table.isOccupied" class="table-amount">
+                {{ formatPrice(table.totalAmount) }}원
+              </p>
+              <p v-else class="table-amount is-empty">-</p>
               <div
                 v-if="normalizeOrderSheetTags(table.internalTags).length > 0"
                 class="table-tag-list"
@@ -85,7 +93,7 @@
               </div>
             </div>
 
-            <div class="table-card-bottom">
+            <div v-if="table.isOccupied" class="table-card-bottom">
               <div
                 v-if="
                   table.latestOrderItemsPreview &&
@@ -110,6 +118,9 @@
               </div>
 
               <p v-else class="no-preview">주문 내역 없음</p>
+            </div>
+            <div v-else class="table-card-bottom">
+              <p class="no-preview">주문이 들어오면 자동으로 표시돼요.</p>
             </div>
           </button>
         </div>
@@ -1448,6 +1459,12 @@ import {
   runLegacyTableNumberCleanup,
   scanLegacyTableNumbers,
 } from "@/lib/tableNumberCleanup";
+import {
+  fetchTableMaster,
+  subscribeTableMaster,
+  tableLabelOf,
+  zoneLabel,
+} from "@/lib/tableMaster";
 import { staffLogout } from "@/lib/staffAuth.js";
 
 const router = useRouter();
@@ -1573,6 +1590,9 @@ const paymentSoundSrc = "/audio/payment-request.mp3"; // 나중에 경로 수정
 let previousOrderIds = new Set();
 
 let unsubscribeOrderSheets = null;
+let unsubscribeTableMaster = null;
+
+const tableMasterList = ref([]);
 let unsubscribeOrders = null;
 let unsubscribeCategories = null;
 let unsubscribeProducts = null;
@@ -1588,7 +1608,7 @@ const currentDateText = computed(() => {
   return `${year}.${month}.${day}`;
 });
 
-const tableLayoutList = computed(() => {
+function buildLatestSheetMap() {
   const latestMap = new Map();
 
   [...orderSheetList.value]
@@ -1608,13 +1628,73 @@ const tableLayoutList = computed(() => {
       }
     });
 
-  return [...latestMap.values()]
-    .sort((a, b) => Number(a.tableNumber || 0) - Number(b.tableNumber || 0))
-    .map((item) => ({
-      ...item,
-      tableLabel: `${item.tableNumber}번 테이블`,
-      locationLabel: item.locationLabel || `테이블 ${item.tableNumber}`,
-    }));
+  return latestMap;
+}
+
+function decorateSheet(sheet, master) {
+  const tableNumber = sheet.tableNumber;
+
+  return {
+    ...sheet,
+    tableLabel: master ? tableLabelOf(master) : `${tableNumber}번 테이블`,
+    locationLabel:
+      sheet.locationLabel ||
+      (master ? `${zoneLabel(master.zone)} · ${master.seatCapacity}석` : ""),
+    zone: master?.zone || "",
+    zoneLabel: master ? zoneLabel(master.zone) : "",
+    seatCapacity: master?.seatCapacity ?? null,
+    isOccupied: true,
+  };
+}
+
+// 마스터(bar_tables)가 있으면 빈 테이블까지 전부 보여주고,
+// 아직 마스터가 없는 예전 DB 라면 기존처럼 주문서 기준으로만 그립니다.
+const tableLayoutList = computed(() => {
+  const latestMap = buildLatestSheetMap();
+  const masterList = tableMasterList.value;
+
+  if (masterList.length === 0) {
+    return [...latestMap.values()]
+      .sort((a, b) => Number(a.tableNumber || 0) - Number(b.tableNumber || 0))
+      .map((item) => ({
+        ...item,
+        tableLabel: `${item.tableNumber}번 테이블`,
+        locationLabel: item.locationLabel || `테이블 ${item.tableNumber}`,
+        isOccupied: true,
+      }));
+  }
+
+  return masterList
+    .filter((master) => {
+      const key = normalizeTableNumber(master.tableNumber);
+
+      // 손님이 앉아 있는 테이블은 비활성으로 바꿔도 숨기지 않습니다.
+      return master.isActive !== false || latestMap.has(key);
+    })
+    .map((master) => {
+      const sheet = latestMap.get(normalizeTableNumber(master.tableNumber));
+
+      if (sheet) {
+        return decorateSheet(sheet, master);
+      }
+
+      return {
+        orderSheetId: "",
+        tableNumber: normalizeTableNumber(master.tableNumber),
+        tableLabel: tableLabelOf(master),
+        locationLabel: `${zoneLabel(master.zone)} · ${master.seatCapacity}석`,
+        zone: master.zone,
+        zoneLabel: zoneLabel(master.zone),
+        seatCapacity: master.seatCapacity,
+        tableNickname: "",
+        status: "",
+        paymentStatus: "",
+        totalAmount: 0,
+        internalTags: [],
+        latestOrderItemsPreview: [],
+        isOccupied: false,
+      };
+    });
 });
 
 const recipeProductList = computed(() => {
@@ -2102,6 +2182,19 @@ function subscribeOrderSheets() {
   };
 
   unsubscribeOrderSheets = subscribeTable("orderSheets", loadOrderSheets);
+}
+
+function subscribeTableList() {
+  const loadTableMaster = async () => {
+    try {
+      tableMasterList.value = await fetchTableMaster();
+    } catch (error) {
+      // 마스터를 못 읽어도 기존 주문서 기준 화면으로 계속 동작해야 합니다.
+      console.error("테이블 목록 구독 실패:", error);
+    }
+  };
+
+  unsubscribeTableMaster = subscribeTableMaster(loadTableMaster);
 }
 
 function playNotificationSound(type, options = {}) {
@@ -3060,6 +3153,7 @@ watch(paymentPayableAmount, (amount) => {
 });
 
 onMounted(() => {
+  subscribeTableList();
   subscribeOrderSheets();
   subscribeOrders();
   subscribeCategories();
@@ -3068,6 +3162,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (unsubscribeOrderSheets) unsubscribeOrderSheets();
+  if (unsubscribeTableMaster) unsubscribeTableMaster();
   if (unsubscribeOrders) unsubscribeOrders();
   if (unsubscribeCategories) unsubscribeCategories();
   if (unsubscribeProducts) unsubscribeProducts();
@@ -3327,6 +3422,25 @@ onUnmounted(() => {
 }
 .table-card.paid {
   outline: 2px solid rgba(52, 211, 153, 0.35);
+}
+.table-card.is-empty {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  cursor: default;
+}
+.table-card:disabled {
+  opacity: 1;
+  color: #fff;
+}
+.table-card.is-empty .table-card-title strong {
+  color: rgba(255, 255, 255, 0.62);
+}
+.table-amount.is-empty {
+  color: rgba(255, 255, 255, 0.35);
+}
+.status-badge.is-empty {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.55);
 }
 .status-badge {
   display: inline-flex;

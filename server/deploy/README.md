@@ -14,8 +14,8 @@
         │                          │  (그 외 /rest/v1, SSE 는 절대 주소로 직접 호출)
         │                          ▼
         │                 ┌──────────────────────────────┐
-        └────────────────▶│ Cloudflare Tunnel (목표)      │
-                          │ https://honjaya-server.xyz   │
+        └────────────────▶│ Cloudflare Tunnel (운영 중)   │
+                          │ api.honjaya-server.xyz       │
                           │ (백업: Tailscale Funnel)      │
                           └───────────┬──────────────────┘
                                       │ http://localhost:3000
@@ -43,7 +43,7 @@
 | 노트북 | i5-5300U / 16GB (SSD 교체 권장) |
 | OS | Ubuntu Server 24.04 LTS (설치 USB 필요) |
 | 네트워크 | 공유기 LAN 케이블 연결 권장(Wi-Fi 보다 안정적) |
-| 도메인 | `honjaya-server.xyz` (Cloudflare 구매) — Cloudflare Tunnel 로 연결. Tailscale Funnel 은 백업 |
+| 도메인 | `honjaya-server.xyz` (가비아에서 구입 → 네임서버를 Cloudflare 로 위임) — API 는 `https://api.honjaya-server.xyz` (Cloudflare Tunnel). Tailscale Funnel 은 백업 |
 | 백업 | Supabase CSV 백업 폴더 |
 
 
@@ -355,6 +355,9 @@ docker compose run --rm import node scripts/import-supabase-export.mjs --dir /cs
 > `pgdata/` 폴더가 이미 있는 상태에서 `POSTGRES_PASSWORD` 를 바꾸면 DB 에 접속할 수 없습니다.
 > 비밀번호를 바꾸려면 백업 후 `pgdata/` 를 지우고 7단계를 다시 실행하세요.
 
+> `migrate`(=`npm run db:apply`)는 `tables.sql` → `events.sql` → `staff.sql` 순서로 적용합니다.
+> `tables.sql` 이 테이블 마스터(`bar_tables`) 1~30번을 자동으로 채우므로 CSV 백업에는 넣지 마세요.
+
 ### 7-1. 직원(사장) 계정 만들기
 
 `/admin`, `/tablet` 은 직원 로그인 없이는 열리지 않습니다. 최초 1회 사장 계정을 만들어야 합니다.
@@ -377,9 +380,12 @@ docker compose run --rm api node scripts/seed-staff.mjs --reset-password
 
 | 권한 | 할 수 있는 일 |
 | --- | --- |
-| `OWNER` (사장) | 전부 + 상품 가격 수정, 직원 관리, 포인트 수동 조정, 설정 |
+| `OWNER` (사장) | 전부 + 상품 가격 수정, 직원 관리, 포인트 수동 조정, 테이블 마스터(구역/좌석/이름) 설정 |
 | `MANAGER` (매니저) | 주문·결제·환불, 매출/고객/CRM 조회, 감사 로그 조회 |
 | `STAFF` (알바) | 주문 접수/상태 변경, 테이블 관리, 결제, 상품 판매중지 토글 |
+
+> 테이블 마스터(`/admin/tables`)의 좌석 수 기본값은 바 4석 / 큰 테이블 8석으로 들어갑니다.
+> 매장 실정과 다르면 사장 계정으로 로그인해 `/admin/tables` 에서 바로 수정하세요.
 
 ---
 
@@ -397,26 +403,104 @@ curl -s -H "apikey: $ANON" "http://localhost:3000/rest/v1/categories?select=id,n
 
 ---
 
-## 9. 외부 공개 (Tailscale Funnel → Cloudflare Tunnel)
+## 9. 외부 공개 (Cloudflare Tunnel = 운영, Tailscale Funnel = 백업)
 
-> **현재 위치**: 운영 도메인은 `honjaya-server.xyz` (**Cloudflare Tunnel**) 로 갈 예정이고,
-> Tailscale Funnel 은 **백업 경로**로 남겨 둡니다. Cloudflare 연동이 끝나면
-> Vercel 의 `VUE_APP_SUPABASE_URL` 과 `vercel.json` 의 rewrite 주소만 `https://honjaya-server.xyz` 로 바꾸면 됩니다
-> (서버 코드는 수정할 필요 없습니다).
+> **현재 위치**: 서버 API 는 `https://api.honjaya-server.xyz` (**Cloudflare Tunnel**) 로 **동작 중**이고,
+> Tailscale Funnel 은 **백업 경로**로 켜 둡니다. 남은 작업은 Vercel 의 `VUE_APP_SUPABASE_URL` 과
+> `vercel.json` rewrite 주소를 새 주소로 바꾸고 **재배포**하는 것뿐입니다(서버 코드 수정 없음).
 >
 > | 구분 | 주소 | 상태 |
 > | --- | --- | --- |
 > | 고객/직원이 접속하는 화면 | `https://honjaya.vercel.app` | 운영 중 |
-> | 서버 API (목표) | `https://honjaya-server.xyz` | Cloudflare Tunnel 준비 중 |
-> | 서버 API (백업) | `https://<기기이름>.<tailnet이름>.ts.net` | 아래 9-1 ~ 9-3 |
+> | 서버 API (운영) | `https://api.honjaya-server.xyz` | **Cloudflare Tunnel — 동작 중** (9-0) |
+> | 서버 API (백업) | `https://bar.taild838e4.ts.net` | 켜 둠 (9-1 ~ 9-3) |
 >
-> Cloudflare Tunnel 로 넘어갈 때는 `cloudflared tunnel` 로 `honjaya-server.xyz` → `http://localhost:3000` 을 연결하고,
-> Cloudflare 대시보드에서 프록시(주황 구름)를 켠 뒤 Vercel 환경변수를 교체하면 됩니다.
+> 전환 절차 · 검증 결과 · 되돌리기는 아래 **9-0** 에 정리했습니다.
 > 서버 쪽 추가 설정은 없습니다(`trustProxy` 가 이미 켜져 있어 `X-Forwarded-Proto` 로 https 를 인식합니다).
 
 공유기 포트를 열지 않고 HTTPS 주소를 붙이는 방법입니다. **프런트엔드가 HTTPS 라서 API 도 HTTPS 여야** 합니다(HTTP 를 부르면 브라우저가 차단).
-Tailscale Funnel 은 도메인 구입 없이 `https://<기기이름>.<tailnet이름>.ts.net` 이라는 **고정 주소**를 무료로 줍니다.
+지금은 **9-0(Cloudflare Tunnel)** 이 운영 경로이고, 9-1 ~ 9-3 은 **백업 경로(Tailscale Funnel)** 설명입니다.
 
+### 9-0. Cloudflare Tunnel (현재 운영 경로)
+
+> **2026-11-20 전환 완료.** `https://api.honjaya-server.xyz` → `http://localhost:3000`.
+> Tailscale Funnel 은 백업으로 계속 켜 둡니다.
+
+토큰 방식(대시보드 관리형) 터널입니다. **대시보드에서 터널과 Public Hostname 을 먼저 만들고**, 그 토큰으로 노트북에 서비스를 설치합니다.
+
+1. Cloudflare 대시보드 → **Networks → Tunnels → Create a tunnel** (Cloudflared) → 이름 예: `honjaya-api`
+2. **Public Hostname** 탭에서 추가하고 저장
+   - Subdomain `api` / Domain `honjaya-server.xyz` / Type `HTTP` / URL `localhost:3000`
+   - 저장하면 `api.honjaya-server.xyz` CNAME 이 `<터널ID>.cfargotunnel.com` 으로 **자동 생성**됩니다.
+3. 노트북에 설치 + 서비스 등록
+
+```bash
+# 저장소 등록
+sudo mkdir -p --mode=0755 /usr/share/keyrings
+curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' | sudo tee /etc/apt/sources.list.d/cloudflared.list
+sudo apt-get update && sudo apt-get install -y cloudflared
+
+# 서비스 등록 (토큰은 대시보드에서 복사)
+sudo cloudflared service install <TUNNEL_TOKEN>
+```
+
+확인:
+
+```bash
+systemctl is-enabled cloudflared   # enabled
+systemctl is-active  cloudflared   # active
+journalctl -u cloudflared -n 50 --no-pager | grep "Registered tunnel connection"   # 4개 연결
+curl -s http://localhost:3000/health                                              # {"ok":true,...}
+curl -s https://api.honjaya-server.xyz/health                                     # 같은 응답
+```
+
+- 토큰은 `/etc/cloudflared/token` 에 `600 root:root` 로 저장되고, 서비스는
+  `cloudflared --no-autoupdate tunnel run --token-file /etc/cloudflared/token` 으로 뜹니다.
+- **대시보드에 Public Hostname 을 저장하지 않으면** 로그에
+  `WRN No ingress rules were defined ... will return 503` 이 찍히고 모든 요청이 503 이 됩니다.
+  저장하면 곧바로 `INF Updated to new configuration config=...` 가 찍히는데, 이 로그가 보여야 실제 반영된 것입니다.
+- 설정을 바꾸면 **재시작 없이 자동 반영**됩니다. Cloudflare 가 열려 있는 연결로 밀어 넣습니다.
+
+#### 왜 Cloudflare 로 옮겼나 (2026-11-20 실측, 매장 Wi-Fi 에서 10회씩)
+
+| 항목 | Tailscale Funnel | Cloudflare Tunnel |
+| --- | --- | --- |
+| 새 연결 TLS 완료 | 0.94 ~ 4.76 초 | **0.28 ~ 0.70 초** |
+| 새 연결 첫 응답(TTFB) | 1.34 ~ 5.49 초 | **0.60 ~ 0.96 초** |
+| 연결 재사용 시 중위값 | 92 ~ 234 ms | 313 ~ 349 ms |
+| 5개 동시 요청 | 682 ~ 758 ms | 704 ~ 832 ms |
+
+브라우저는 페이지를 열 때마다 **새 연결**을 맺으므로 위쪽 두 줄이 실제 체감 속도입니다.
+Tailscale 은 연결을 재사용하면 빠르지만 새 연결에서 최대 5초까지 튀는 반면, Cloudflare 는 편차가 작습니다.
+
+> 더 중요한 이유는 **안정성**입니다. Tailscale Funnel 은 공인 IP 가 바뀌면(ISP 재할당) 조용히 끊깁니다.
+> 2026-11-20 에 실제로 겪었고 `sudo systemctl restart tailscaled` 로 복구했습니다.
+> Cloudflare Tunnel 은 노트북에서 **바깥으로만** 연결하므로 IP 가 바뀌어도 영향이 없습니다.
+
+#### 알아 둘 점
+
+- **도메인 위임 반영에 시간이 걸립니다.** 가비아에서 네임서버를 `aitana.ns.cloudflare.com` / `clay.ns.cloudflare.com` 로 바꿔도
+  WHOIS/RDAP 는 몇 분 만에 갱신되지만 **실제 DNS 위임은 30~40분** 걸렸습니다. 그동안 공인 리졸버에서는 NXDOMAIN 이 납니다.
+- Cloudflare 존이 **Active** 가 되기 전에는 TLS 핸드셰이크가 `ssl/tls alert handshake failure` 로 실패합니다.
+  대시보드에 **"Your domain is now protected by Cloudflare"** 가 보이면 준비된 것입니다.
+- 지금 엣지 위치는 **HKG/NRT**(홍콩/도쿄)로 잡힙니다. 서울(ICN)보다 멀지만 위 표처럼 Tailscale 보다는 훨씬 빠릅니다.
+- REST 는 `apikey` 를 **헤더**로 보내야 합니다. 쿼리 파라미터(`?apikey=`)로 보내면 **401** 입니다 —
+  `/rest/v1` 에서 쿼리 파라미터는 곧 컬럼 필터라서 일부러 읽지 않습니다. SSE(`/api/events`)만 쿼리 파라미터를 허용합니다.
+- SSE 는 서버가 25초마다 `: ping` 을 보내므로 Cloudflare 의 유휴 연결 끊김(100초)에 걸리지 않습니다(60초 테스트에서 ping 2회 수신 확인).
+
+#### 되돌리기 (Cloudflare 장애 시)
+
+Vercel 환경변수와 `vercel.json` 을 백업 주소로 되돌리고 재배포하면 끝입니다. 서버 코드는 그대로 둡니다.
+
+```dotenv
+VUE_APP_SUPABASE_URL=https://bar.taild838e4.ts.net
+```
+
+```json
+{ "source": "/api/staff/(.*)", "destination": "https://bar.taild838e4.ts.net/api/staff/$1" }
+{ "source": "/api/admin/(.*)", "destination": "https://bar.taild838e4.ts.net/api/admin/$1" }
+```
 
 ### 9-1. 설치
 
@@ -474,7 +558,7 @@ Vercel 대시보드 → 프로젝트 → **Settings → Environment Variables**:
 
 | Key | Value | 환경 |
 | --- | --- | --- |
-| `VUE_APP_SUPABASE_URL` | `https://<기기이름>.<tailnet이름>.ts.net` (9-3 에서 확인한 주소, 끝에 `/` 없이) | Production (필요 시 Preview 포함) |
+| `VUE_APP_SUPABASE_URL` | `https://api.honjaya-server.xyz` (운영 · 9-0, 끝에 `/` 없이) — 백업은 9-3 에서 확인한 `https://<기기이름>.<tailnet이름>.ts.net` | Production (필요 시 Preview 포함) |
 | `VUE_APP_SUPABASE_PUBLISHABLE_KEY` | `server/.env` 의 `ANON_KEY` 와 **똑같은 값** | Production (필요 시 Preview 포함) |
 
 > `VUE_APP_API_BASE_URL` 은 **비워 두세요**. 비우면 같은 오리진(→ `vercel.json` rewrite)으로 직원/관리자 API 를 부르므로 쿠키가 1st-party 로 유지됩니다.
@@ -490,7 +574,7 @@ Vercel 대시보드 → 프로젝트 → **Settings → Environment Variables**:
 
 ### 10-1. 직원 로그인 쿠키 (중요)
 
-직원 로그인은 **쿠키**로 유지됩니다. 브라우저가 `honjaya.vercel.app` 에서 `honjaya-server.xyz` 를 직접 부르면
+직원 로그인은 **쿠키**로 유지됩니다. 브라우저가 `honjaya.vercel.app` 에서 `api.honjaya-server.xyz` 를 직접 부르면
 `SameSite=Lax` 쿠키가 전송되지 않아 로그인이 계속 풀립니다(Safari/iOS 는 더 엄격합니다).
 그래서 저장소 루트의 `vercel.json` 이 아래 두 경로만 서버로 **되돌려 보냅니다(rewrite)**.
 
@@ -499,14 +583,14 @@ Vercel 대시보드 → 프로젝트 → **Settings → Environment Variables**:
 { "source": "/api/admin/(.*)", "destination": "https://<서버주소>/api/admin/$1" }
 ```
 
-> **지금은 백업 경로(`https://bar.taild838e4.ts.net`)를 가리키고 있습니다.**
-> `honjaya-server.xyz` 는 아직 Cloudflare Tunnel 이 붙지 않아서, 먼저 그 주소로 바꾸면 직원 로그인이 100% 실패합니다.
-> Cloudflare 연동이 끝나면 위 두 줄의 주소만 `https://honjaya-server.xyz` 로 바꾸고 Vercel 을 재배포하세요. (코드 수정 없음)
+> 현재 `vercel.json` 은 **백업 경로(`https://bar.taild838e4.ts.net`)** 를 가리키고 있습니다.
+> Cloudflare Tunnel 은 `https://api.honjaya-server.xyz` 로 **이미 동작 중**이므로, 위 두 줄의 주소만 그 값으로 바꾸고
+> Vercel 을 재배포하면 전환됩니다. (코드 수정 없음)
 
 - 브라우저 입장에서는 같은 오리진 호출이므로 **1st-party 쿠키**가 됩니다. `SameSite=None` 이 필요 없습니다.
 - `/rest/v1/*` 와 SSE(`/api/events`)는 **일부러 제외**했습니다. 이 둘은 `VUE_APP_SUPABASE_URL` 절대 주소를 그대로 씁니다.
   SSE 는 rewrite 를 거치면 스트리밍이 끊길 수 있어 절대 주소를 유지해야 합니다.
-- 서버 도메인이 바뀌면 `vercel.json` 의 두 줄도 같이 바꾸고 재배포하세요. (P7 Cloudflare 전환 시점)
+- 서버 도메인이 바뀌면 `vercel.json` 의 두 줄도 같이 바꾸고 재배포하세요. (전환·되돌리기는 9-0 참고)
 
 > Vercel 프리뷰 배포도 `vercel.json` 을 그대로 쓰므로 rewrite 는 동작합니다.
 > 다만 서버의 `CORS_ORIGINS` 에 그 프리뷰 오리진을 추가해야 API 호출이 통과합니다.

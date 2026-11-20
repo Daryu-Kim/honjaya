@@ -3,11 +3,11 @@
   "rewrites": [
     {
       "source": "/api/staff/(.*)",
-      "destination": "https://bar.taild838e4.ts.net/api/staff/$1"
+      "destination": "https://api.honjaya-server.xyz/api/staff/$1"
     },
     {
       "source": "/api/admin/(.*)",
-      "destination": "https://bar.taild838e4.ts.net/api/admin/$1"
+      "destination": "https://api.honjaya-server.xyz/api/admin/$1"
     }
   ]
 }

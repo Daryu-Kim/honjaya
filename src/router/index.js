@@ -8,6 +8,7 @@ import UserOrderCompleteView from "@/views/User/UserOrderCompleteView.vue";
 import AdminProductView from "@/views/Admin/AdminProductView.vue";
 import AdminProductFormView from "@/views/Admin/AdminProductFormView.vue";
 import AdminCategoryView from "@/views/Admin/AdminCategoryView.vue";
+import AdminTableView from "@/views/Admin/AdminTableView.vue";
 import AdminRecipeView from "@/views/Admin/AdminRecipeView.vue";
 import TabletAdminView from "@/views/Tablet/TabletAdminView.vue";
 import AdminDashboardView from "@/views/Admin/AdminDashboardView.vue";
@@ -112,6 +113,11 @@ const routes = [
         path: "categories",
         name: "admin-categories",
         component: AdminCategoryView,
+      },
+      {
+        path: "tables",
+        name: "admin-tables",
+        component: AdminTableView,
       },
     ],
   },

@@ -12,6 +12,8 @@ declare
 begin
   row_id := coalesce(
     case when tg_op = 'DELETE' then (to_jsonb(old) ->> 'id') else (to_jsonb(new) ->> 'id') end,
+    -- id 컬럼이 없는 마스터 표(bar_tables)는 table_number 를 식별자로 씁니다.
+    case when tg_op = 'DELETE' then (to_jsonb(old) ->> 'table_number') else (to_jsonb(new) ->> 'table_number') end,
     ''
   );
 
@@ -37,7 +39,8 @@ begin
     'orders',
     'active_order_sheets',
     'counters',
-    'app_settings'
+    'app_settings',
+    'bar_tables'
   ]
   loop
     if exists (

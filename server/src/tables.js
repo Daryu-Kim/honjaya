@@ -4,6 +4,7 @@ import { HttpError } from "./http/errors.js";
 export const TABLES = {
   app_settings: { pk: "id" },
   active_order_sheets: { pk: "id" },
+  bar_tables: { pk: "table_number", readOnly: true },
   categories: { pk: "id" },
   counters: { pk: "id" },
   order_sheets: { pk: "id" },
@@ -21,4 +22,16 @@ export function tableMeta(name) {
   }
 
   return meta;
+}
+
+// 읽기 전용 표(마스터 데이터)는 /rest/v1 으로 쓰지 못하게 막습니다.
+// 수정은 권한 검사를 거치는 /api/admin/* 로만 합니다.
+export function assertWritable(name, meta) {
+  if (meta.readOnly) {
+    throw new HttpError(
+      403,
+      "HJ403",
+      `읽기 전용 테이블이에요: ${name} (관리자 API 로 수정하세요)`
+    );
+  }
 }

@@ -35,8 +35,9 @@ server/
 │  │  └─ audit.js         감사 로그 기록
 │  └─ routes/api/
 │     ├─ staffAuth.js     /api/staff/{login,logout,me,password}
-│     └─ admin.js         /api/admin/employees, /api/admin/audit-logs
+│     └─ admin.js         /api/admin/employees, /api/admin/audit-logs, /api/admin/tables
 ├─ sql/
+│  ├─ tables.sql          테이블 마스터(bar_tables) + 1~30번 시드
 │  ├─ events.sql          변경 알림 트리거(pg_notify)
 │  └─ staff.sql           직원/세션/감사로그 테이블
 ├─ scripts/
@@ -165,6 +166,7 @@ npm run db:import -- --dir ~/supabase-export --dry-run   # 미리 확인만
 | `app_settings` | ⭕ | 지금은 쓰는 값이 없어 비어 있어도 됩니다 |
 
 > `chat_messages`, `hearts`, `market_history`, `push_subscriptions` 는 삭제된 기능이라 필요 없습니다.
+> `bar_tables`(테이블 마스터)는 `npm run db:apply` 가 1~30번을 자동으로 만들기 때문에 백업에서 받지 않습니다.
 
 ### 방법 B — `pg_dump` (Supabase가 다시 열리면 이게 가장 깔끔)
 
@@ -206,9 +208,12 @@ psql "$DATABASE_URL" -f supabase_data.sql
 | `PATCH` | `/api/admin/employees/:id` | 이름/권한/활성 상태 수정 (`employee.manage`) |
 | `POST` | `/api/admin/employees/:id/password` | 비밀번호 재발급 (`employee.manage`) |
 | `GET` | `/api/admin/audit-logs` | 감사 로그 조회 (`audit.view`) |
+| `GET` | `/api/admin/tables` | 테이블 마스터 목록 (`table.view`) |
+| `PATCH` | `/api/admin/tables/:tableNumber` | 구역/좌석/표시이름/정렬/사용여부/메모 수정 (`settings.manage`) |
 
 > `/api/staff/*` · `/api/admin/*` 도 전역 `apikey` 검사를 통과해야 합니다(프런트엔드 `src/lib/api.js` 가 자동으로 붙입니다).
 > 세션 토큰은 DB 에 **sha256 해시로만** 저장되며, 평문은 쿠키에만 존재합니다.
+> `bar_tables`(테이블 마스터)는 `/rest/v1` 로 **읽기만** 가능합니다(쓰기 요청은 403). 수정은 위 `PATCH /api/admin/tables/:tableNumber` 로만 합니다.
 
 지원 필터: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `is`, `like`, `ilike`, `cs`(contains), `cd`, `ov`.
 지원 헤더: `Prefer: return=representation|minimal`, `count=exact|planned|estimated`, `resolution=merge-duplicates|ignore-duplicates`, `Accept: application/vnd.pgrst.object+json`, `Range: 0-9`.
