@@ -235,6 +235,92 @@ try {
   check("POST products(text[] 컬럼) → 201", productInsert.statusCode === 201, productInsert.body);
   equal("POST products → 배열 값 보존", productInsert.json()[0].category_ids, ["cat-1", "cat-3"]);
 
+  // ---------------------------------------------------------------- jsonb
+  // node-postgres 는 JS 배열을 Postgres 배열 리터럴로 바꿔서 보냅니다.
+  // jsonb 컬럼에 그대로 바인딩하면 22P02(invalid input syntax for type json) 가 납니다.
+  const jsonbArrayInsert = await app.inject({
+    method: "POST",
+    url: "/rest/v1/orders?select=*",
+    headers: { prefer: "return=representation", "content-type": "application/json" },
+    payload: {
+      id: "order-1",
+      order_sheet_id: "000001",
+      items: [
+        { productName: "진 토닉", quantity: 2, unitPrice: 9000 },
+        { productName: "모히토", quantity: 1, unitPrice: 11000 },
+      ],
+    },
+  });
+  check("POST orders(jsonb 배열) → 201", jsonbArrayInsert.statusCode === 201, jsonbArrayInsert.body);
+  equal(
+    "POST orders(jsonb 배열) → 배열 그대로 저장",
+    jsonbArrayInsert.json()[0]?.items?.map((item) => item.productName),
+    ["진 토닉", "모히토"]
+  );
+
+  const jsonbEmptyArray = await app.inject({
+    method: "POST",
+    url: "/rest/v1/orders?select=*",
+    headers: { prefer: "return=representation", "content-type": "application/json" },
+    payload: { id: "order-empty", order_sheet_id: "000001", items: [] },
+  });
+  equal(
+    "POST orders(jsonb 빈 배열) → [] 로 저장 ({} 아님)",
+    jsonbEmptyArray.json()[0]?.items,
+    []
+  );
+
+  const jsonbObjectInsert = await app.inject({
+    method: "POST",
+    url: "/rest/v1/products?select=*",
+    headers: { prefer: "return=representation", "content-type": "application/json" },
+    payload: {
+      id: "prod-jsonb",
+      product_name: "옵션 테스트",
+      option_groups: [{ id: "g1", name: "얼음", options: [{ id: "o1", name: "각얼음" }] }],
+      recipe_info: { description: "설명", ingredients: ["진"], steps: [], tips: [] },
+    },
+  });
+  check("POST products(jsonb 배열+객체) → 201", jsonbObjectInsert.statusCode === 201, jsonbObjectInsert.body);
+  equal(
+    "POST products(jsonb 배열) → 배열 그대로 저장",
+    jsonbObjectInsert.json()[0]?.option_groups?.[0]?.name,
+    "얼음"
+  );
+
+  const jsonbStringInsert = await app.inject({
+    method: "POST",
+    url: "/rest/v1/products?select=*",
+    headers: { prefer: "return=representation", "content-type": "application/json" },
+    payload: { id: "prod-jsonb-str", product_name: "문자열 테스트", option_groups: '[{"id":"g2"}]' },
+  });
+  equal(
+    "POST products(미리 stringify 한 JSON) → 계속 동작",
+    jsonbStringInsert.json()[0]?.option_groups,
+    [{ id: "g2" }]
+  );
+
+  const jsonbPatch = await app.inject({
+    method: "PATCH",
+    url: "/rest/v1/orders?id=eq.order-1&select=*",
+    headers: { prefer: "return=representation", "content-type": "application/json" },
+    payload: { items: [{ productName: "블랙 러시안", quantity: 1, unitPrice: 12000 }] },
+  });
+  check("PATCH orders(jsonb 배열) → 200", jsonbPatch.statusCode === 200, jsonbPatch.body);
+  equal(
+    "PATCH orders(jsonb 배열) → 배열 교체",
+    jsonbPatch.json()[0]?.items?.map((item) => item.productName),
+    ["블랙 러시안"]
+  );
+
+  const jsonbPatchEmpty = await app.inject({
+    method: "PATCH",
+    url: "/rest/v1/orders?id=eq.order-1&select=*",
+    headers: { prefer: "return=representation", "content-type": "application/json" },
+    payload: { items: [] },
+  });
+  equal("PATCH orders(jsonb 빈 배열) → [] 로 저장", jsonbPatchEmpty.json()[0]?.items, []);
+
   // ---------------------------------------------------------------- select
   const list = await app.inject({
     method: "GET",

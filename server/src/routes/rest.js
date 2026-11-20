@@ -1,4 +1,4 @@
-import { columns, pool } from "../db.js";
+import { columns, columnTypes, pool } from "../db.js";
 import { HttpError, badRequest } from "../http/errors.js";
 import { wantsObject, parsePrefer } from "../http/prefer.js";
 import {
@@ -13,10 +13,32 @@ import { tableMeta } from "../tables.js";
 const DEFAULT_LIMIT = 10_000;
 const MAX_LIMIT = 10_000;
 
+// node-postgres 는 JS 배열을 Postgres 배열 리터럴로 직렬화합니다.
+// json/jsonb 컬럼에 그대로 바인딩하면 invalid input syntax for type json 이 나므로
+// (PostgREST 와 동일하게) 배열·객체를 JSON 문자열로 바꿔서 넘깁니다.
+const JSON_TYPE_NAMES = new Set(["json", "jsonb"]);
+
+function toColumnValue(types, column, value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  // 이미 문자열이면 그대로 둡니다. (미리 stringify 된 JSON 도 계속 동작해야 합니다.)
+  if (JSON_TYPE_NAMES.has(types.get(column)) && typeof value !== "string") {
+    return JSON.stringify(value);
+  }
+
+  return value;
+}
+
 async function resolveTable(table) {
   const meta = tableMeta(table);
 
-  return { meta, cols: await columns(table) };
+  return {
+    meta,
+    cols: await columns(table),
+    types: await columnTypes(table),
+  };
 }
 
 function pagination(request) {
@@ -136,7 +158,7 @@ async function handleSelect(request, reply) {
 
 async function handleInsert(request, reply) {
   const table = request.params.table;
-  const { cols } = await resolveTable(table);
+  const { cols, types } = await resolveTable(table);
   const prefer = parsePrefer(request.headers.prefer);
   const rows = Array.isArray(request.body) ? request.body : [request.body];
   const body = rows.filter((row) => row !== undefined && row !== null);
@@ -167,7 +189,9 @@ async function handleInsert(request, reply) {
     };
 
     const tuples = group.rows.map((row) => {
-      const placeholders = group.keys.map((key) => push(row[key]));
+      const placeholders = group.keys.map((key) =>
+        push(toColumnValue(types, key, row[key]))
+      );
 
       return `(${placeholders.join(", ")})`;
     });
@@ -209,7 +233,7 @@ async function handleInsert(request, reply) {
 
 async function handleUpdate(request, reply) {
   const table = request.params.table;
-  const { cols } = await resolveTable(table);
+  const { cols, types } = await resolveTable(table);
   const prefer = parsePrefer(request.headers.prefer);
   const body = Array.isArray(request.body) ? request.body[0] : request.body;
 
@@ -229,7 +253,7 @@ async function handleUpdate(request, reply) {
       throw new HttpError(400, "PGRST204", `컬럼을 찾을 수 없어요: ${key}`);
     }
 
-    params.push(value ?? null);
+    params.push(toColumnValue(types, key, value));
 
     return `${quoteIdent(key)} = $${params.length}`;
   });

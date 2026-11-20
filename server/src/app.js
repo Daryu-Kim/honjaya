@@ -3,7 +3,7 @@ import cors from "@fastify/cors";
 import Fastify from "fastify";
 
 import { config } from "./config.js";
-import { HttpError, PG_STATUS } from "./http/errors.js";
+import { HttpError, PG_MESSAGES, PG_STATUS } from "./http/errors.js";
 import { registerEventRoutes } from "./routes/events.js";
 import { registerRestRoutes } from "./routes/rest.js";
 import { registerRpcRoutes } from "./routes/rpc.js";
@@ -147,9 +147,9 @@ export async function buildApp(options = {}) {
 
       return reply.code(status).send({
         code: error.code,
-        details: error.detail ?? null,
+        details: error.detail ?? error.message ?? null,
         hint: error.hint ?? null,
-        message: error.message,
+        message: PG_MESSAGES[error.code] || error.message,
       });
     }
 
