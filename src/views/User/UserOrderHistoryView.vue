@@ -67,9 +67,21 @@
                   <span class="order-time-label">주문 시간</span>
                   <strong>{{ formatDateTime(order.createdAt) }}</strong>
                 </div>
-                <span class="status-badge" :class="order.status">
-                  {{ convertOrderStatusText(order.status) }}
-                </span>
+                <div class="order-card-tags">
+                  <span
+                    v-if="order.guestNickname"
+                    class="guest-badge"
+                    :class="{ mine: isMyOrder(order) }"
+                  >
+                    {{ order.guestNickname }}
+                  </span>
+                  <span v-if="isMyOrder(order)" class="mine-badge"
+                    >내 주문</span
+                  >
+                  <span class="status-badge" :class="order.status">
+                    {{ convertOrderStatusText(order.status) }}
+                  </span>
+                </div>
               </div>
 
               <div class="order-items-section">
@@ -136,6 +148,7 @@ const isMobile = ref(false);
 const tableNumber = ref("");
 const displayName = ref("");
 const orderSheetId = ref("");
+const guestSessionId = ref("");
 
 const isLoading = ref(true);
 const orderList = ref([]);
@@ -178,11 +191,21 @@ function loadEntryInfo() {
     tableNumber.value = entryInfo.tableNumber || "";
     displayName.value = entryInfo.displayName || "";
     orderSheetId.value = entryInfo.orderSheetId || "";
+    guestSessionId.value = entryInfo.guestSessionId || "";
   } catch (error) {
     tableNumber.value = "";
     displayName.value = "";
     orderSheetId.value = "";
+    guestSessionId.value = "";
   }
+}
+
+// 같은 테이블에서 여러 명이 주문할 수 있어, 누가 시킨 주문인지 표시합니다.
+function isMyOrder(order) {
+  return (
+    Boolean(guestSessionId.value) &&
+    String(order?.guestSessionId || "") === guestSessionId.value
+  );
 }
 
 function subscribeOrders() {
@@ -475,6 +498,47 @@ onUnmounted(() => {
 .order-time strong {
   font-size: 14px;
   font-weight: 800;
+}
+
+.order-card-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.guest-badge {
+  display: inline-flex;
+  align-items: center;
+  max-width: 96px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 10px;
+  font-weight: 800;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+
+  &.mine {
+    background: rgba(251, 191, 36, 0.18);
+    color: #fcd34d;
+  }
+}
+
+.mine-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
 }
 
 .status-badge {

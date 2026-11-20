@@ -29,18 +29,19 @@
 
         <div class="nickname-box">
           <label class="nickname-label" for="table-nickname-input">
-            닉네임
+            주문자 닉네임
           </label>
           <input
             id="table-nickname-input"
             v-model="tableNickname"
             type="text"
             class="nickname-input"
-            placeholder="예: 홍길동, 생일팀"
+            placeholder="예: 홍길동"
             autocomplete="off"
           />
           <p class="nickname-helper">
-            한글 8자, 영문·숫자 16자까지 입력할 수 있어요.
+            누가 주문했는지 표시되는 이름이에요. 한글 8자, 영문·숫자 16자까지
+            입력할 수 있어요.
           </p>
           <p class="nickname-notice">
             비속어나 불쾌감을 주는 닉네임은 안내 없이 강제로 변경될 수 있어요.
@@ -71,12 +72,10 @@
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { runGlobalBusy } from "@/lib/globalBusy";
+import { loadGuestTableInfo, startGuestSession } from "@/lib/guestAuth";
 import {
-  getActiveOrderSheetInfo,
-  getOrCreateOpenOrderSheet,
   getTableNicknameErrorMessage,
   normalizeTableNumber,
-  updateOrderSheetNickname,
 } from "@/lib/orderSheet";
 
 const router = useRouter();
@@ -153,13 +152,16 @@ async function prefillEntryInfo() {
   if (!tableNumber.value) return;
 
   try {
-    const activeInfo = await getActiveOrderSheetInfo(tableNumber.value);
+    const tableInfo = await loadGuestTableInfo(tableNumber.value);
 
-    if (activeInfo?.isReusable) {
-      tableNickname.value = activeInfo.tableNickname || "";
+    if (tableInfo) {
+      displayName.value = tableInfo.displayName || displayName.value;
+      tableNickname.value = tableInfo.tableNickname || "";
     }
   } catch (error) {
     console.error("입장 정보 조회 실패:", error);
+    entryErrorMessage.value =
+      error?.message || "테이블 정보를 확인하지 못했어요.";
   }
 }
 
@@ -171,28 +173,10 @@ async function handleStart() {
     entryErrorMessage.value = "";
 
     try {
-      const result = await getOrCreateOpenOrderSheet(tableNumber.value);
-
-      const submittedNickname = tableNickname.value.trim();
-      let savedNickname = result.tableNickname || "";
-
-      if (submittedNickname && submittedNickname !== savedNickname) {
-        savedNickname = await updateOrderSheetNickname({
-          orderSheetId: result.orderSheetId,
-          nickname: submittedNickname,
-        });
-      }
-
-      sessionStorage.setItem(
-        "userEntryInfo",
-        JSON.stringify({
-          tableNumber: tableNumber.value,
-          displayName: result.displayName,
-          orderSheetId: result.orderSheetId,
-          tableNickname: savedNickname,
-          enteredAt: Date.now(),
-        })
-      );
+      await startGuestSession({
+        tableNumber: tableNumber.value,
+        nickname: tableNickname.value,
+      });
 
       router.push("/user/main");
     } catch (error) {

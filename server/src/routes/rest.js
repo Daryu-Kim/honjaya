@@ -9,6 +9,14 @@ import {
   quoteIdent,
 } from "../http/sql.js";
 import { assertWritable, tableMeta } from "../tables.js";
+import {
+  resolveRestIdentity,
+  scopeDeleteFilters,
+  scopeInsertRows,
+  scopeSelectFilters,
+  scopeUpdateBody,
+} from "../auth/restIdentity.js";
+import { revokeGuestSessionsForSheet } from "../auth/guestSessions.js";
 
 const DEFAULT_LIMIT = 10_000;
 const MAX_LIMIT = 10_000;
@@ -129,11 +137,25 @@ function groupRowsByKeySet(rows, cols) {
   return [...groups.values()];
 }
 
+// 필터에 걸리는 행의 id 만 뽑습니다. (주문서 마감 시 손님 세션을 끊을 때 사용)
+async function collectIds(table, cols, filters) {
+  const params = [];
+  const where = buildWhere(filters, cols, params);
+  const { rows } = await pool.query(
+    `select id from ${quoteIdent(table)}${where}`,
+    params
+  );
+
+  return rows.map((row) => row.id);
+}
+
 async function handleSelect(request, reply) {
   const table = request.params.table;
   const { cols } = await resolveTable(table);
   const params = [];
-  const where = buildWhere(parseFilters(request.query), cols, params);
+  const identity = await resolveRestIdentity(request);
+  const filters = scopeSelectFilters(table, identity, parseFilters(request.query));
+  const where = buildWhere(filters, cols, params);
   const select = parseSelect(request.query?.select, cols);
   const order = parseOrder(request.query?.order, cols);
   const { limit, offset } = pagination(request);
@@ -162,11 +184,16 @@ async function handleInsert(request, reply) {
 
   assertWritable(table, meta);
   const prefer = parsePrefer(request.headers.prefer);
-  const rows = Array.isArray(request.body) ? request.body : [request.body];
-  const body = rows.filter((row) => row !== undefined && row !== null);
+  const identity = await resolveRestIdentity(request);
+  const rawRows = Array.isArray(request.body) ? request.body : [request.body];
+  const rows = scopeInsertRows(
+    table,
+    identity,
+    rawRows.filter((row) => row !== undefined && row !== null)
+  );
+  const body = rows;
 
-  if (body.length === 0) {
-    throw badRequest("저장할 값이 없어요");
+  if (body.length === 0) {    throw badRequest("저장할 값이 없어요");
   }
 
   const onConflict = String(request.query?.on_conflict || "")
@@ -239,12 +266,14 @@ async function handleUpdate(request, reply) {
 
   assertWritable(table, meta);
   const prefer = parsePrefer(request.headers.prefer);
-  const body = Array.isArray(request.body) ? request.body[0] : request.body;
+  const identity = await resolveRestIdentity(request);
+  const rawBody = Array.isArray(request.body) ? request.body[0] : request.body;
 
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
+  if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
     throw badRequest("요청 본문은 객체여야 해요");
   }
 
+  const body = scopeUpdateBody(table, identity, rawBody);
   const entries = Object.entries(body);
 
   if (entries.length === 0) {
@@ -262,12 +291,28 @@ async function handleUpdate(request, reply) {
     return `${quoteIdent(key)} = $${params.length}`;
   });
 
-  const where = buildWhere(parseFilters(request.query), cols, params);
+  const filters = scopeSelectFilters(
+    table,
+    identity,
+    parseFilters(request.query)
+  );
+  const where = buildWhere(filters, cols, params);
   const returning = prefer.return === "representation"
     ? ` returning ${parseSelect(request.query?.select, cols)}`
     : "";
+  // 주문서를 마감하면 그 테이블 손님 세션을 끊습니다. (다음 손님과 주문이 섞이지 않게)
+  const closingSheets = table === "order_sheets" && body.status === "CLOSED";
+  const closedIds = closingSheets ? await collectIds(table, cols, filters) : [];
   const sql = `update ${quoteIdent(table)} set ${assignments.join(", ")}${where}${returning}`;
   const result = await pool.query(sql, params);
+
+  for (const sheetId of closedIds) {
+    try {
+      await revokeGuestSessionsForSheet(sheetId);
+    } catch (error) {
+      request.log.warn({ err: error }, "손님 세션 정리에 실패했습니다");
+    }
+  }
 
   if (prefer.return === "representation") {
     return sendRows(request, reply, result.rows);
@@ -282,8 +327,14 @@ async function handleDelete(request, reply) {
 
   assertWritable(table, meta);
   const prefer = parsePrefer(request.headers.prefer);
+  const identity = await resolveRestIdentity(request);
   const params = [];
-  const where = buildWhere(parseFilters(request.query), cols, params);
+  const filters = scopeDeleteFilters(
+    table,
+    identity,
+    parseFilters(request.query)
+  );
+  const where = buildWhere(filters, cols, params);
   const returning = prefer.return === "representation"
     ? ` returning ${parseSelect(request.query?.select, cols)}`
     : "";

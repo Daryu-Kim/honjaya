@@ -32,6 +32,16 @@ function equal(name, actual, expected) {
   check(name, ok, `기대값 ${JSON.stringify(expected)} / 실제값 ${JSON.stringify(actual)}`);
 }
 
+function toCookieHeader(response) {
+  const raw = response.headers["set-cookie"];
+  const list = Array.isArray(raw) ? raw : [raw];
+
+  return list
+    .filter(Boolean)
+    .map((value) => String(value).split(";")[0])
+    .join("; ");
+}
+
 function sseCollect(port, tables) {
   return new Promise((resolve, reject) => {
     const frames = [];
@@ -235,16 +245,43 @@ try {
   check("POST products(text[] 컬럼) → 201", productInsert.statusCode === 201, productInsert.body);
   equal("POST products → 배열 값 보존", productInsert.json()[0].category_ids, ["cat-1", "cat-3"]);
 
+  // ---------------------------------------------------------------- staff session
+  // P2 부터 /rest/v1 의 주문 관련 표(orders, order_sheets, active_order_sheets)는
+  // 직원 또는 손님 세션이 있어야 접근할 수 있습니다. 아래 검사는 직원 세션으로 진행합니다.
+  const { hashPassword } = await import("../src/auth/password.js");
+  const staffPassword = "smoke-test-password";
+
+  await db.pool.query(
+    `insert into public.employees (id, login_id, password_hash, name, role, is_active)
+     values ('smoke-owner', 'smoke-owner', $1, '스모크', 'OWNER', true)`,
+    [await hashPassword(staffPassword)]
+  );
+
+  const staffLogin = await app.inject({
+    method: "POST",
+    url: "/api/staff/login",
+    headers: { "content-type": "application/json" },
+    payload: { loginId: "smoke-owner", password: staffPassword },
+  });
+  check("POST /api/staff/login → 200", staffLogin.statusCode === 200, staffLogin.body);
+
+  const staffCookie = toCookieHeader(staffLogin);
+  check("직원 로그인 → 세션 쿠키 발급", Boolean(staffCookie), staffLogin.body);
+
   // ---------------------------------------------------------------- jsonb
   // node-postgres 는 JS 배열을 Postgres 배열 리터럴로 바꿔서 보냅니다.
   // jsonb 컬럼에 그대로 바인딩하면 22P02(invalid input syntax for type json) 가 납니다.
   const jsonbArrayInsert = await app.inject({
     method: "POST",
     url: "/rest/v1/orders?select=*",
-    headers: { prefer: "return=representation", "content-type": "application/json" },
+    headers: {
+      prefer: "return=representation",
+      "content-type": "application/json",
+      cookie: staffCookie,
+    },
     payload: {
       id: "order-1",
-      order_sheet_id: "000001",
+      order_sheet_id: "sheet-staff",
       items: [
         { productName: "진 토닉", quantity: 2, unitPrice: 9000 },
         { productName: "모히토", quantity: 1, unitPrice: 11000 },
@@ -261,8 +298,12 @@ try {
   const jsonbEmptyArray = await app.inject({
     method: "POST",
     url: "/rest/v1/orders?select=*",
-    headers: { prefer: "return=representation", "content-type": "application/json" },
-    payload: { id: "order-empty", order_sheet_id: "000001", items: [] },
+    headers: {
+      prefer: "return=representation",
+      "content-type": "application/json",
+      cookie: staffCookie,
+    },
+    payload: { id: "order-empty", order_sheet_id: "sheet-staff", items: [] },
   });
   equal(
     "POST orders(jsonb 빈 배열) → [] 로 저장 ({} 아님)",
@@ -303,7 +344,11 @@ try {
   const jsonbPatch = await app.inject({
     method: "PATCH",
     url: "/rest/v1/orders?id=eq.order-1&select=*",
-    headers: { prefer: "return=representation", "content-type": "application/json" },
+    headers: {
+      prefer: "return=representation",
+      "content-type": "application/json",
+      cookie: staffCookie,
+    },
     payload: { items: [{ productName: "블랙 러시안", quantity: 1, unitPrice: 12000 }] },
   });
   check("PATCH orders(jsonb 배열) → 200", jsonbPatch.statusCode === 200, jsonbPatch.body);
@@ -316,10 +361,113 @@ try {
   const jsonbPatchEmpty = await app.inject({
     method: "PATCH",
     url: "/rest/v1/orders?id=eq.order-1&select=*",
-    headers: { prefer: "return=representation", "content-type": "application/json" },
+    headers: {
+      prefer: "return=representation",
+      "content-type": "application/json",
+      cookie: staffCookie,
+    },
     payload: { items: [] },
   });
   equal("PATCH orders(jsonb 빈 배열) → [] 로 저장", jsonbPatchEmpty.json()[0]?.items, []);
+
+  // ---------------------------------------------------------------- guest scoping (P2)
+  const anonOrders = await app.inject({
+    method: "GET",
+    url: "/rest/v1/orders?select=id",
+  });
+  check("세션 없이 orders 조회 → 403", anonOrders.statusCode === 403, anonOrders.body);
+
+  const guestJoin = await app.inject({
+    method: "POST",
+    url: "/api/guest/session",
+    headers: { "content-type": "application/json", "user-agent": "smoke-test" },
+    payload: { tableNumber: "1", nickname: "테스터" },
+  });
+  check("POST /api/guest/session → 200", guestJoin.statusCode === 200, guestJoin.body);
+
+  const guestCookie = toCookieHeader(guestJoin);
+  const guestSheetId = String(guestJoin.json().orderSheet?.orderSheetId || "");
+  check("손님 입장 → 주문서 발급", Boolean(guestSheetId), guestJoin.body);
+  check("손님 입장 → 세션 쿠키 발급", Boolean(guestCookie), guestJoin.body);
+
+  const guestInsert = await app.inject({
+    method: "POST",
+    url: "/rest/v1/orders?select=*",
+    headers: {
+      prefer: "return=representation",
+      "content-type": "application/json",
+      cookie: guestCookie,
+    },
+    payload: {
+      id: "order-guest",
+      order_sheet_id: "sheet-staff",
+      table_number: "99",
+      guest_nickname: "해커",
+      status: "SERVED",
+      items: [{ productName: "하이볼", quantity: 1, unitPrice: 9000 }],
+    },
+  });
+  check("손님 주문 생성 → 201", guestInsert.statusCode === 201, guestInsert.body);
+  equal("손님 주문 → 주문서 강제 지정", guestInsert.json()[0]?.order_sheet_id, guestSheetId);
+  equal("손님 주문 → 테이블 번호 강제", guestInsert.json()[0]?.table_number, "1");
+  equal("손님 주문 → 닉네임 강제", guestInsert.json()[0]?.guest_nickname, "테스터");
+  equal("손님 주문 → 상태는 항상 REQUESTED", guestInsert.json()[0]?.status, "REQUESTED");
+
+  const guestList = await app.inject({
+    method: "GET",
+    url: "/rest/v1/orders?select=id",
+    headers: { cookie: guestCookie },
+  });
+  check("손님 주문 조회 → 200", guestList.statusCode === 200, guestList.body);
+  equal("손님 주문 조회 → 우리 테이블 것만", guestList.json().map((row) => row.id), ["order-guest"]);
+
+  const guestPatchOrder = await app.inject({
+    method: "PATCH",
+    url: "/rest/v1/orders?id=eq.order-guest",
+    headers: { "content-type": "application/json", cookie: guestCookie },
+    payload: { status: "SERVED" },
+  });
+  check("손님 주문 수정 → 403", guestPatchOrder.statusCode === 403, guestPatchOrder.body);
+
+  const guestCloseSheet = await app.inject({
+    method: "PATCH",
+    url: `/rest/v1/order_sheets?id=eq.${guestSheetId}`,
+    headers: { "content-type": "application/json", cookie: guestCookie },
+    payload: { status: "CLOSED" },
+  });
+  check("손님 주문서 마감 → 403", guestCloseSheet.statusCode === 403, guestCloseSheet.body);
+
+  const guestTotals = await app.inject({
+    method: "PATCH",
+    url: `/rest/v1/order_sheets?id=eq.${guestSheetId}&select=*`,
+    headers: {
+      prefer: "return=representation",
+      "content-type": "application/json",
+      cookie: guestCookie,
+    },
+    payload: { total_amount: 9000, order_count: 1 },
+  });
+  check("손님 주문서 합계 갱신 → 200", guestTotals.statusCode === 200, guestTotals.body);
+  equal("손님 주문서 합계 갱신 → 반영", guestTotals.json()[0]?.total_amount, 9000);
+
+  const guestOtherSheet = await app.inject({
+    method: "GET",
+    url: "/rest/v1/order_sheets?select=id&id=eq.sheet-staff",
+    headers: { cookie: guestCookie },
+  });
+  check("손님 다른 주문서 조회 → 200 이지만 0건", guestOtherSheet.statusCode === 200 && guestOtherSheet.json().length === 0, guestOtherSheet.body);
+
+  const staffSeesGuest = await app.inject({
+    method: "GET",
+    url: "/rest/v1/orders?select=id,guest_nickname",
+    headers: { cookie: staffCookie },
+  });
+  check("직원은 모든 주문 조회 → 200", staffSeesGuest.statusCode === 200, staffSeesGuest.body);
+  equal(
+    "직원 화면에 손님 닉네임이 보임",
+    staffSeesGuest.json().find((row) => row.id === "order-guest")?.guest_nickname,
+    "테스터"
+  );
 
   // ---------------------------------------------------------------- select
   const list = await app.inject({
@@ -506,6 +654,13 @@ try {
   check("중복 PK → 409", duplicate.statusCode === 409, String(duplicate.statusCode));
 
   // ------------------------------------------------------- reserve sequence
+  // 앞선 테스트(손님 입장 등)가 이미 시퀀스를 소비했을 수 있으므로 현재 값부터 계산한다.
+  const counterBefore = await app.inject({
+    method: "GET",
+    url: "/rest/v1/counters?id=eq.orderSheet&select=last_sequence_no",
+  });
+  const startNo = Number(counterBefore.json()?.[0]?.last_sequence_no ?? 0);
+
   const reservations = await Promise.all(
     Array.from({ length: 20 }, () =>
       app.inject({ method: "POST", url: "/api/rpc/reserve-sequence", payload: { counterId: "orderSheet" } })
@@ -513,9 +668,9 @@ try {
   );
   const numbers = reservations.map((response) => response.json().lastSequenceNo).sort((a, b) => a - b);
   equal(
-    "reserve-sequence 20회 동시 호출 → 1..20 중복 없음",
+    `reserve-sequence 20회 동시 호출 → ${startNo + 1}..${startNo + 20} 중복 없음`,
     numbers,
-    Array.from({ length: 20 }, (_, index) => index + 1)
+    Array.from({ length: 20 }, (_, index) => startNo + index + 1)
   );
 
   // ---------------------------------------------------------------- events

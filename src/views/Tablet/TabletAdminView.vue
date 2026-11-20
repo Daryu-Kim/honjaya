@@ -237,7 +237,12 @@
                 <strong>{{
                   order.displayName || `No.${order.tableNumber}`
                 }}</strong>
-                <p>{{ order.orderSheetId }}</p>
+                <p>
+                  <span v-if="order.guestNickname" class="order-guest-name">{{
+                    order.guestNickname
+                  }}</span>
+                  {{ order.orderSheetId }}
+                </p>
               </div>
               <span class="status-badge">
                 {{ convertOrderStatusText(order.status) }}
@@ -3486,6 +3491,11 @@ onUnmounted(() => {
   margin: 0;
   font-size: 12px;
   color: rgba(255, 255, 255, 0.62);
+}
+.order-guest-name {
+  margin-right: 6px;
+  font-weight: 800;
+  color: #fcd34d;
 }
 .table-amount {
   margin: 0;

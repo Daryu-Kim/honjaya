@@ -67,4 +67,7 @@ export const config = {
   staffCookieDomain: String(process.env.STAFF_COOKIE_DOMAIN || "").trim(),
   // auto(기본): https 요청일 때만 Secure. 로컬 http 개발에서는 자동으로 꺼집니다.
   cookieSecure: String(process.env.COOKIE_SECURE || "auto").trim().toLowerCase(),
+  // 손님 테이블 세션(쿠키). 술자리 한 번을 덮을 정도로 넉넉하게 잡습니다.
+  guestCookieName: process.env.GUEST_COOKIE_NAME || "hj_guest",
+  guestSessionHours: Number(process.env.GUEST_SESSION_HOURS || 12),
 };

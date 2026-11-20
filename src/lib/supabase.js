@@ -9,20 +9,37 @@
 import { createClient } from "@supabase/supabase-js";
 
 // "/" 처럼 상대 경로로 지정하면 지금 접속한 오리진을 그대로 씁니다.
-// (Vercel 처럼 프런트와 API 오리진이 다르면 절대 주소를 넣어야 합니다.)
+// 브라우저에서는 항상 같은 오리진을 사용합니다. 손님 세션이 HttpOnly 쿠키라서,
+// /rest/v1 이 다른 오리진이면 쿠키가 실리지 않아 주문서 범위 제한이 동작하지 않습니다.
+// (실제 API 연결은 Vercel rewrites(vercel.json) / vue.config.js devServer.proxy 가 담당합니다.)
 function resolveSupabaseUrl() {
   const raw = String(process.env.VUE_APP_SUPABASE_URL || "").trim();
 
-  if (!raw.startsWith("/")) {
+  if (typeof window === "undefined") {
     return raw;
   }
 
-  const origin = typeof window === "undefined" ? "" : window.location.origin;
+  const suffix = raw.startsWith("/") ? raw.replace(/\/+$/, "") : "";
 
-  return `${origin}${raw.replace(/\/+$/, "")}`;
+  return `${window.location.origin}${suffix}`;
+}
+
+// SSE(/api/events) 는 프록시를 거치면 버퍼링될 수 있어 절대 주소를 그대로 씁니다.
+// VUE_APP_EVENTS_BASE_URL 이 없으면 기존 VUE_APP_SUPABASE_URL 의 절대 주소를 재사용합니다.
+function resolveEventsUrl() {
+  const explicit = String(process.env.VUE_APP_EVENTS_BASE_URL || "").trim();
+  const raw = String(process.env.VUE_APP_SUPABASE_URL || "").trim();
+  const base = explicit || (raw.startsWith("/") ? "" : raw);
+
+  if (base) {
+    return base.replace(/\/+$/, "");
+  }
+
+  return typeof window === "undefined" ? "" : window.location.origin;
 }
 
 const SUPABASE_URL = resolveSupabaseUrl();
+const EVENTS_URL = resolveEventsUrl();
 const SUPABASE_KEY = String(
   process.env.VUE_APP_SUPABASE_PUBLISHABLE_KEY || ""
 ).trim();
@@ -110,6 +127,8 @@ const FIELD_MAPS = {
     requestMessage: "request_message",
     totalCount: "total_count",
     totalPrice: "total_price",
+    guestSessionId: "guest_session_id",
+    guestNickname: "guest_nickname",
     createdAt: "created_at",
     updatedAt: "updated_at",
   },
@@ -512,7 +531,7 @@ function openChangeStream(tableName, onEvent) {
     params.set("apikey", SUPABASE_KEY);
   }
 
-  const url = `${SUPABASE_URL.replace(/\/+$/, "")}/api/events?${params}`;
+  const url = `${EVENTS_URL}/api/events?${params}`;
   const source = new EventSource(url);
 
   source.addEventListener("change", (event) => {

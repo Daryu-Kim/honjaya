@@ -208,6 +208,8 @@ export async function applySchema(connectionString, log = console) {
     await runSqlFile(client, join(serverRoot, "sql", "tables.sql"), log);
     await runSqlFile(client, join(serverRoot, "sql", "events.sql"), log);
     await runSqlFile(client, join(serverRoot, "sql", "staff.sql"), log);
+    // guest.sql 은 orders 를 alter 하므로 schema.sql 이후에 실행되어야 합니다.
+    await runSqlFile(client, join(serverRoot, "sql", "guest.sql"), log);
   } finally {
     await client.end();
   }

@@ -19,6 +19,7 @@ server/
 │  ├─ config.js           .env 로더 + 설정
 │  ├─ db.js               pg Pool, 컬럼 캐시, LISTEN 전용 커넥션
 │  ├─ tables.js           허용 테이블 화이트리스트
+│  ├─ guest.js            손님 입장(테이블 확인 + 열린 주문서 준비)
 │  ├─ http/
 │  │  ├─ sql.js           필터/정렬/select → SQL (식별자 검증)
 │  │  ├─ prefer.js        Prefer 헤더 파싱
@@ -32,14 +33,18 @@ server/
 │  │  ├─ sessions.js      직원 세션 + 쿠키 + 권한 가드
 │  │  ├─ permissions.js   OWNER/MANAGER/STAFF 권한표
 │  │  ├─ rateLimit.js     로그인 시도 제한
-│  │  └─ audit.js         감사 로그 기록
+│  │  ├─ audit.js         감사 로그 기록
+│  │  ├─ guestSessions.js 손님 테이블 세션 + hj_guest 쿠키
+│  │  └─ restIdentity.js  /rest/v1 접근 범위(직원/손님/비회원)
 │  └─ routes/api/
 │     ├─ staffAuth.js     /api/staff/{login,logout,me,password}
+│     ├─ guest.js         /api/guest/{table,session,logout}
 │     └─ admin.js         /api/admin/employees, /api/admin/audit-logs, /api/admin/tables
 ├─ sql/
 │  ├─ tables.sql          테이블 마스터(bar_tables) + 1~30번 시드
 │  ├─ events.sql          변경 알림 트리거(pg_notify)
-│  └─ staff.sql           직원/세션/감사로그 테이블
+│  ├─ staff.sql           직원/세션/감사로그 테이블
+│  └─ guest.sql           손님 세션(guest_sessions) + orders.guest_* 컬럼
 ├─ scripts/
 │  ├─ apply-schema.mjs    스키마 적용(멱등)
 │  ├─ import-supabase-export.mjs  Supabase CSV 백업 가져오기(멱등)
@@ -98,9 +103,11 @@ VUE_APP_SUPABASE_PUBLISHABLE_KEY=<server/.env 의 ANON_KEY 값>
 | `LOG_LEVEL` | `info` | Fastify 로그 레벨 |
 | `STAFF_SESSION_HOURS` | `12` | 직원 로그인 유지 시간(시간). "로그인 유지" 체크 시 아래 값 사용 |
 | `STAFF_REMEMBER_DAYS` | `30` | "로그인 유지" 체크 시 세션 유지 일수 |
-| `STAFF_COOKIE_NAME` | `honjaya_staff` | 직원 세션 쿠키 이름 |
+| `STAFF_COOKIE_NAME` | `hj_staff` | 직원 세션 쿠키 이름 |
 | `STAFF_COOKIE_DOMAIN` | (빈 값) | 비우면 호스트 전용 쿠키. 서브도메인 공유가 필요할 때만 지정 |
 | `COOKIE_SECURE` | `auto` | `auto` = https 요청에서만 `Secure` 부여. `always`/`never` 로 고정 가능 |
+| `GUEST_SESSION_HOURS` | `12` | 손님 테이블 세션 유지 시간(시간) |
+| `GUEST_COOKIE_NAME` | `hj_guest` | 손님 세션 쿠키 이름 |
 | `STAFF_OWNER_PASSWORD` | (빈 값) | `staff:seed` 실행 시 사용할 초기 비밀번호. 비우면 무작위 생성 |
 
 ---
@@ -199,6 +206,11 @@ psql "$DATABASE_URL" -f supabase_data.sql
 | `DELETE` | `/rest/v1/:table` | 삭제 |
 | `POST` | `/api/rpc/reserve-sequence` | 주문서 번호 원자적 발급 |
 | `GET` | `/api/events?tables=a,b` | SSE 실시간 변경 알림 |
+| `GET` | `/api/guest/table?tableNumber=N` | 입장 화면용 테이블 정보(세션 생성 없음) |
+| `POST` | `/api/guest/session` | 테이블 입장 (`tableNumber`, `nickname`) → `hj_guest` 쿠키 + 열린 주문서 |
+| `GET` | `/api/guest/session` | 새로고침/재접속 시 내 세션 + 주문서 복구 |
+| `PATCH` | `/api/guest/session` | 내 닉네임 변경 (`nickname`) |
+| `POST` | `/api/guest/logout` | 손님 세션 폐기 + 쿠키 삭제 |
 | `POST` | `/api/staff/login` | 직원 로그인 (`loginId`, `password`, `remember`) → HttpOnly 쿠키 발급 |
 | `POST` | `/api/staff/logout` | 로그아웃(세션 폐기 + 쿠키 삭제) |
 | `GET` | `/api/staff/me` | 내 정보 + 권한 목록 |
@@ -211,9 +223,12 @@ psql "$DATABASE_URL" -f supabase_data.sql
 | `GET` | `/api/admin/tables` | 테이블 마스터 목록 (`table.view`) |
 | `PATCH` | `/api/admin/tables/:tableNumber` | 구역/좌석/표시이름/정렬/사용여부/메모 수정 (`settings.manage`) |
 
-> `/api/staff/*` · `/api/admin/*` 도 전역 `apikey` 검사를 통과해야 합니다(프런트엔드 `src/lib/api.js` 가 자동으로 붙입니다).
+> `/api/staff/*` · `/api/admin/*` · `/api/guest/*` 도 전역 `apikey` 검사를 통과해야 합니다(프런트엔드 `src/lib/api.js` 가 자동으로 붙입니다).
 > 세션 토큰은 DB 에 **sha256 해시로만** 저장되며, 평문은 쿠키에만 존재합니다.
 > `bar_tables`(테이블 마스터)는 `/rest/v1` 로 **읽기만** 가능합니다(쓰기 요청은 403). 수정은 위 `PATCH /api/admin/tables/:tableNumber` 로만 합니다.
+> **손님 범위(P2)**: `/rest/v1` 의 `orders` · `order_sheets` · `active_order_sheets` 는 `hj_guest`(손님) 또는 `hj_staff`(직원)
+> 쿠키가 있어야 접근할 수 있습니다(없으면 403). 손님은 자기 테이블 주문서로 범위가 강제되고,
+> `orders` 는 생성만 가능하며 `status` 는 항상 `REQUESTED` 로 고정됩니다.
 
 지원 필터: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `is`, `like`, `ilike`, `cs`(contains), `cd`, `ov`.
 지원 헤더: `Prefer: return=representation|minimal`, `count=exact|planned|estimated`, `resolution=merge-duplicates|ignore-duplicates`, `Accept: application/vnd.pgrst.object+json`, `Range: 0-9`.

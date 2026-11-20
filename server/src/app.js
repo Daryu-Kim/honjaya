@@ -5,6 +5,7 @@ import Fastify from "fastify";
 import { config } from "./config.js";
 import { HttpError, PG_MESSAGES, PG_STATUS } from "./http/errors.js";
 import { registerAdminRoutes } from "./routes/api/admin.js";
+import { registerGuestRoutes } from "./routes/api/guest.js";
 import { registerStaffAuthRoutes } from "./routes/api/staffAuth.js";
 import { registerEventRoutes } from "./routes/events.js";
 import { registerRestRoutes } from "./routes/rest.js";
@@ -178,6 +179,7 @@ export async function buildApp(options = {}) {
       "/rest/v1/:table",
       "/api/events",
       "/api/rpc/reserve-sequence",
+      "/api/guest/session",
       "/api/staff/login",
       "/api/admin/employees",
       "/health",
@@ -187,6 +189,7 @@ export async function buildApp(options = {}) {
   registerRestRoutes(app);
   registerRpcRoutes(app);
   registerEventRoutes(app, app.log);
+  registerGuestRoutes(app);
   registerStaffAuthRoutes(app);
   registerAdminRoutes(app);
 

@@ -2,12 +2,20 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
     {
+      "source": "/rest/v1/(.*)",
+      "destination": "https://api.honjaya-server.xyz/rest/v1/$1"
+    },
+    {
       "source": "/api/staff/(.*)",
       "destination": "https://api.honjaya-server.xyz/api/staff/$1"
     },
     {
       "source": "/api/admin/(.*)",
       "destination": "https://api.honjaya-server.xyz/api/admin/$1"
+    },
+    {
+      "source": "/api/guest/(.*)",
+      "destination": "https://api.honjaya-server.xyz/api/guest/$1"
     }
   ]
 }

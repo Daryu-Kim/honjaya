@@ -23,9 +23,9 @@
             <strong>{{ displayNameText }}</strong>
           </div>
           <div class="session-row">
-            <span>닉네임</span>
+            <span>내 닉네임</span>
             <div class="session-nickname">
-              <strong>{{ tableNicknameText }}</strong>
+              <strong>{{ guestNicknameText }}</strong>
               <button
                 type="button"
                 class="nickname-edit-button"
@@ -114,9 +114,9 @@
         @click.self="closeNicknameEditor"
       >
         <div class="nickname-editor-card">
-          <h3>닉네임 변경</h3>
+          <h3>내 닉네임 변경</h3>
           <p class="nickname-editor-description">
-            주문서 마감 전까지 언제든 바꿀 수 있어요.
+            주문 내역에 표시되는 이름이에요. 언제든 바꿀 수 있어요.
           </p>
 
           <input
@@ -164,11 +164,8 @@
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { runGlobalBusy } from "@/lib/globalBusy";
-import {
-  getActiveOrderSheetInfo,
-  getTableNicknameErrorMessage,
-  updateOrderSheetNickname,
-} from "@/lib/orderSheet";
+import { loadGuestSession, updateGuestNickname } from "@/lib/guestAuth";
+import { getTableNicknameErrorMessage } from "@/lib/orderSheet";
 
 const router = useRouter();
 
@@ -176,7 +173,7 @@ const isMobile = ref(false);
 const tableNumber = ref("");
 const displayName = ref("");
 const orderSheetId = ref("");
-const tableNickname = ref("");
+const guestNickname = ref("");
 const isNicknameEditorOpen = ref(false);
 const nicknameDraft = ref("");
 const isSavingNickname = ref(false);
@@ -195,8 +192,8 @@ const orderSheetIdText = computed(() => {
   return orderSheetId.value || "주문서 없음";
 });
 
-const tableNicknameText = computed(() => {
-  return tableNickname.value || "설정 안 함";
+const guestNicknameText = computed(() => {
+  return guestNickname.value || "설정 안 함";
 });
 
 const nicknameDraftError = computed(() => {
@@ -221,45 +218,30 @@ function loadEntryInfo() {
     tableNumber.value = entryInfo.tableNumber || "";
     displayName.value = entryInfo.displayName || "";
     orderSheetId.value = entryInfo.orderSheetId || "";
-    tableNickname.value = entryInfo.tableNickname || "";
+    guestNickname.value = entryInfo.guestNickname || "";
   } catch (error) {
     tableNumber.value = "";
     displayName.value = "";
     orderSheetId.value = "";
-    tableNickname.value = "";
+    guestNickname.value = "";
   }
 }
 
-function persistTableNickname(nickname) {
+function persistGuestNickname(nickname) {
   try {
     const entryInfo = JSON.parse(
       sessionStorage.getItem("userEntryInfo") || "{}"
     );
 
-    entryInfo.tableNickname = nickname || "";
+    entryInfo.guestNickname = nickname || "";
     sessionStorage.setItem("userEntryInfo", JSON.stringify(entryInfo));
   } catch (error) {
     console.error("입장 정보 저장 실패:", error);
   }
 }
 
-async function refreshTableNickname() {
-  if (!tableNumber.value || !orderSheetId.value) return;
-
-  try {
-    const activeInfo = await getActiveOrderSheetInfo(tableNumber.value);
-
-    if (!activeInfo || activeInfo.orderSheetId !== orderSheetId.value) return;
-
-    tableNickname.value = activeInfo.tableNickname || "";
-    persistTableNickname(tableNickname.value);
-  } catch (error) {
-    console.error("닉네임 정보 조회 실패:", error);
-  }
-}
-
 function openNicknameEditor() {
-  nicknameDraft.value = tableNickname.value;
+  nicknameDraft.value = guestNickname.value;
   isNicknameEditorOpen.value = true;
 }
 
@@ -277,13 +259,11 @@ async function saveNickname() {
     isSavingNickname.value = true;
 
     try {
-      const savedNickname = await updateOrderSheetNickname({
-        orderSheetId: orderSheetId.value,
-        nickname: nicknameDraft.value,
-      });
+      const session = await updateGuestNickname(nicknameDraft.value);
+      const savedNickname = session?.nickname || nicknameDraft.value.trim();
 
-      tableNickname.value = savedNickname;
-      persistTableNickname(savedNickname);
+      guestNickname.value = savedNickname;
+      persistGuestNickname(savedNickname);
       isNicknameEditorOpen.value = false;
     } catch (error) {
       console.error("닉네임 저장 실패:", error);
@@ -302,14 +282,23 @@ function goOrderHistory() {
   router.push("/user/order-history");
 }
 
-onMounted(() => {
+onMounted(async () => {
   detectMobile();
   loadEntryInfo();
-  refreshTableNickname();
+
+  // sessionStorage 가 비었으면(탭 재시작/폰 잠금 해제) 쿠키 세션으로 복구합니다.
+  if (!orderSheetId.value || !guestNickname.value) {
+    const session = await loadGuestSession({ force: true });
+    loadEntryInfo();
+
+    if (!session) {
+      router.replace("/enter");
+      return;
+    }
+  }
 
   if (!tableNumber.value || !displayName.value || !orderSheetId.value) {
     router.replace("/enter");
-    return;
   }
 });
 </script>

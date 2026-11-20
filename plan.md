@@ -18,7 +18,7 @@ Write in English. UI strings stay Korean.
 | Frontend origin | `https://honjaya.vercel.app` (operational) |
 | API origin (target) | `https://api.honjaya-server.xyz` via Cloudflare Tunnel — **LIVE** (`/health` → db up) |
 | API origin (backup) | Tailscale Funnel `https://<device>.<tailnet>.ts.net` |
-| Auth transport | HttpOnly + SameSite=Lax first-party cookie via `vercel.json` rewrite for `/api/staff/*`, `/api/admin/*` only |
+| Auth transport | HttpOnly + SameSite=Lax first-party cookie via `vercel.json` rewrites for `/rest/v1/*`, `/api/staff/*`, `/api/admin/*`, `/api/guest/*` |
 | Payment scope | Split / partial payment included in phase 1 |
 | Tablet console | Keep and extend (not replaced) |
 | Removed from original spec | Supabase hosted, chat, hearts, market, character, push, gift — already gone |
@@ -37,8 +37,9 @@ Guest phone / staff tablet
       │ HTTPS
       ├──────────────▶ Vercel  https://honjaya.vercel.app
       │                  │
-      │                  │  vercel.json rewrite (staff + admin only)
-      │                  │  → first-party cookie
+      │                  │  vercel.json rewrite:
+      │                  │    /rest/v1/*, /api/guest/*, /api/staff/*, /api/admin/*
+      │                  │  → same-origin → first-party cookie (hj_guest, hj_staff)
       │                  ▼
       └──────────────▶ Cloudflare Tunnel  https://api.honjaya-server.xyz
                          │   (backup: Tailscale Funnel)
@@ -48,9 +49,11 @@ Guest phone / staff tablet
                    db   Postgres 16
 ```
 
-- `/rest/v1/*` and SSE `/api/events` are **deliberately excluded** from the rewrite and keep using the
-  absolute `VUE_APP_SUPABASE_URL`.
-- `VUE_APP_SUPABASE_URL` must stay absolute.
+- `/rest/v1/*` is now **same-origin** (rewritten) so the `hj_guest` cookie is sent; `src/lib/supabase.js`
+  resolves the URL to `window.location.origin` in the browser.
+- SSE `/api/events` stays **absolute** (`VUE_APP_SUPABASE_URL` / `VUE_APP_EVENTS_BASE_URL`) — streaming
+  through a Vercel rewrite risks buffering and timeouts.
+- `VUE_APP_SUPABASE_URL` may stay absolute; the browser ignores it for REST.
 - `trustProxy: true` is already enabled, so `X-Forwarded-Proto` drives the `Secure` cookie flag.
 
 ---
@@ -61,7 +64,7 @@ Guest phone / staff tablet
 | --- | --- | --- |
 | **P0** | Staff auth (login/logout/me/password), role permissions, admin employee API, audit log, cookie infra, deploy config, frontend login + route guard | **DONE (verified)** |
 | **P1** | Table master (`bar_tables`, 30 tables: 1–10 bar / 11–30 large), admin table settings page, tablet layout driven by the master | **DONE (verified)** |
-| **P2** | Guest table session cookie + `order_sheet_members` + order ownership (guest sees only own order; staff any) | pending |
+| **P2** | Guest table session cookie + per-guest attribution + order ownership (guest sees only own table sheet; staff any) | **DONE (verified)** |
 | **P3** | Payment ledger (`payments`, `payment_allocations`, `refunds`), split/partial payment, refunds | pending |
 | **P4** | Kakao login readiness (channel, app, consent, callback) | pending |
 | **P5** | Points ledger (earn / redeem / expire / adjust), FEFO deduction | pending |
@@ -179,6 +182,67 @@ Not yet run (project Rule 15 — only on request): `pnpm lint`, `pnpm build`, `n
 
 ---
 
+## 3-2. P2 — Guest table session & order ownership (DONE)
+
+Decision: **table-level shared visibility** (every guest at the table sees the table's orders, unchanged UX)
+**plus per-guest attribution** ("누가 어떤 주문했는지") and server-side ownership enforcement.
+`order_sheet_members` from the original draft is **not** needed — one session row per device covers it.
+
+### Schema — `server/sql/guest.sql`
+
+- `guest_sessions` — `id` uuid PK, `table_number`, `order_sheet_id`, `nickname`, `token_hash` (unique, sha256),
+  `user_agent`, `ip`, `created_at`, `last_seen_at`, `expires_at`, `revoked_at` + 3 indexes.
+- `orders.guest_session_id uuid` (nullable) + `orders.guest_nickname text` + index.
+- Applied **after** `schema.sql`/`staff.sql` in `server/scripts/apply-schema.mjs`.
+
+### Backend
+
+| File | Purpose |
+| --- | --- |
+| `server/src/auth/guestSessions.js` | create/resolve/update/revoke/purge session, `hj_guest` cookie (HttpOnly, Lax, 12h) |
+| `server/src/guest.js` | `openTableOrderSheet` (transaction: validate `bar_tables`, reuse OPEN sheet or create), `readOrderSheetById`, `readTableEntryInfo`, `validateGuestNickname` (Hangul = 2 units, max 16) |
+| `server/src/routes/api/guest.js` | `GET /api/guest/table`, `POST/GET/PATCH /api/guest/session`, `POST /api/guest/logout` |
+| `server/src/auth/restIdentity.js` | `resolveRestIdentity` → staff / guest / anon, plus the scoping policy |
+| `server/src/routes/rest.js` | all 4 handlers apply the scope; closing an `order_sheets` row revokes that sheet's guest sessions |
+| `server/src/config.js` | `guestCookieName: "hj_guest"`, `guestSessionHours: 12` |
+
+Scope policy on `/rest/v1`:
+
+| Table | guest | anon |
+| --- | --- | --- |
+| `orders` | SELECT forced `order_sheet_id = eq.<own>`; INSERT forces `order_sheet_id`/`table_number`/`display_name`/`guest_session_id`/`guest_nickname`/`status='REQUESTED'`; PATCH/DELETE 403 | 403 |
+| `order_sheets` | SELECT forced `id = eq.<own>`; INSERT 403; PATCH whitelist (`table_nickname`, `total_amount`, `order_count`, `latest_*`, `updated_at`); DELETE 403 | 403 |
+| `active_order_sheets` | SELECT forced `order_sheet_id = eq.<own>`; writes 403 | 403 |
+| `products`, `categories`, `bar_tables`, `app_settings`, `counters` | unchanged (public) | unchanged |
+
+### Frontend
+
+| File | Purpose |
+| --- | --- |
+| `src/lib/guestAuth.js` | reactive guest state, `startGuestSession`, `loadGuestSession`, `updateGuestNickname`, `endGuestSession`, `saveEntryInfo` (sessionStorage `userEntryInfo` incl. `guestSessionId`) |
+| `src/lib/supabase.js` | REST is same-origin now; `EVENTS_URL` kept absolute; `orders` FIELD_MAPS gained `guestSessionId` / `guestNickname` |
+| `src/views/HomeView.vue` | entry screen calls `POST /api/guest/session` (no more client-side sheet creation); label **주문자 닉네임** |
+| `src/views/User/UserMainView.vue` | **내 닉네임** editor → `PATCH /api/guest/session`; restores the cookie session on mount |
+| `src/views/User/UserOrderHistoryView.vue` | per-order nickname chip + **내 주문** badge (`order.guestSessionId === mine`) |
+| `src/views/Tablet/TabletAdminView.vue` | order cards show `guestNickname` next to the sheet id |
+| `vercel.json` / `vue.config.js` | rewrites + dev proxy for `/rest/v1` and `/api/guest` |
+
+### Deploy checklist (server first, then Vercel)
+
+1. `docker compose --profile tools build migrate && docker compose run --rm migrate` (applies `guest.sql`)
+2. `docker compose up -d --force-recreate api`
+3. Vercel redeploy (new `vercel.json` rewrites must exist before the frontend is used)
+
+### Verification (local)
+
+- `npm run smoke` → **75/75** (P2 added 20 checks: staff login, guest join, forced columns, guest 403s, sheet scoping).
+  - The `reserve-sequence` check now reads the live counter first, because `POST /api/guest/session` consumes
+    one sequence number before that test runs.
+- `pnpm lint` → clean (auto-formatted `src/lib/guestAuth.js`, `UserOrderHistoryView.vue`).
+- `pnpm build` → OK (only the pre-existing 722 KiB entrypoint size warning).
+
+---
+
 ## 4. Open questions
 
 1. **₩30,000 point-redemption threshold**: before or after discount? (currently assumed after)
@@ -191,8 +255,8 @@ Not yet run (project Rule 15 — only on request): `pnpm lint`, `pnpm build`, `n
 ```
 done     p1-table-master        bar_tables master (30 tables) + seed + tablet layout from master + /admin/tables
 done     p7-cloudflare-cutover  api.honjaya-server.xyz live via Cloudflare Tunnel, vercel.json rewrite swapped, Tailscale = backup
-pending  p2-guest-session       guest table session cookie + order_sheet_members
-pending  p2-order-ownership     enforce order ownership on /rest/v1 + /api
+done     p2-guest-session       guest table session cookie (guest_sessions) + /api/guest/session + hj_guest cookie
+done     p2-order-ownership     enforce order ownership on /rest/v1 (staff/guest/anon scope) + per-guest attribution
 pending  p3-payment-ledger      payments / payment_allocations / refunds schema + API
 pending  p3-split-payment       UI + API for split and partial payment
 pending  p4-kakao-readiness     Kakao channel/app/consent checklist + callback route
@@ -220,3 +284,9 @@ assumed  p5-point-basis         redemption threshold counted AFTER discount (ope
   Master settings go through `PATCH /api/admin/tables/:tableNumber` (`settings.manage`, OWNER only).
 - Tablet `tableLayoutList` now merges `bar_tables` (master) with the latest order sheet per table.
   If the master list is empty (old DB), it falls back to the legacy order-sheet-only derivation.
+- **P2:** `/rest/v1` on `orders` / `order_sheets` / `active_order_sheets` now needs the `hj_guest` or
+  `hj_staff` cookie; anon gets **403**. Don't add those tables to unscoped paths.
+- **P2:** the browser must call `/rest/v1` on `window.location.origin`. If it hits the API host directly,
+  the first-party cookie is not sent and every guest read fails with 403.
+- **P2:** guests cannot PATCH/DELETE `orders` and cannot close/pay a sheet — those stay staff/tablet only.
+- **P2:** closing an `order_sheets` row (`status = 'CLOSED'`) auto-revokes that sheet's guest sessions.
