@@ -487,16 +487,50 @@ export async function deleteWhere(table, filters) {
   return (data || []).map((row) => row.id);
 }
 
+// 이 백엔드는 Realtime(WebSocket) 을 제공하지 않습니다.
+// 대신 변경 알림을 SSE(/api/events) 로 받습니다. EventSource 는 헤더를 못 넣으므로
+// apikey 는 쿼리 파라미터로 넘깁니다(anon key 는 원래 공개되는 값).
+function openChangeStream(tableName, onEvent) {
+  if (typeof EventSource === "undefined") {
+    return null;
+  }
+
+  const params = new URLSearchParams({ tables: tableName });
+
+  if (SUPABASE_KEY) {
+    params.set("apikey", SUPABASE_KEY);
+  }
+
+  const url = `${SUPABASE_URL.replace(/\/+$/, "")}/api/events?${params}`;
+  const source = new EventSource(url);
+
+  source.addEventListener("change", (event) => {
+    let changedTable = "";
+
+    try {
+      changedTable = String(JSON.parse(event.data)?.table || "");
+    } catch (error) {
+      changedTable = "";
+    }
+
+    if (changedTable === tableName) {
+      onEvent();
+    }
+  });
+
+  return source;
+}
+
 // Realtime replacement for onSnapshot():
 //   * loads once immediately,
-//   * reloads on every postgres_changes event for the table,
+//   * reloads on every change event for the table (SSE),
 //   * keeps a slow poll as a safety net (pollMs: 0 disables it).
-// `filter` accepts a single eq condition, e.g. ["tableNumber", "5"].
+// SSE 는 테이블 단위 알림만 주므로 행 단위 filter 는 지원하지 않습니다.
 // Supabase egress 절감을 위해 화면이 가려진 동안에는 폴링을 쉬고,
 // 다시 보이면 즉시 한 번 새로고침합니다.
 export function subscribeTable(table, reload, options = {}) {
   const tableName = resolveTable(table);
-  const { filter, pollMs = 120000 } = options;
+  const { pollMs = 120000 } = options;
   let stopped = false;
   let pollTimer = null;
 
@@ -526,24 +560,7 @@ export function subscribeTable(table, reload, options = {}) {
 
   runReload();
 
-  const channelConfig = {
-    event: "*",
-    schema: "public",
-    table: tableName,
-  };
-
-  if (filter) {
-    const [field, value] = filter;
-
-    channelConfig.filter = `${toColumn(tableName, field)}=eq.${value}`;
-  }
-
-  const channel = supabase
-    .channel(`table:${tableName}:${newId().slice(0, 8)}`)
-    .on("postgres_changes", channelConfig, () => {
-      runReload();
-    })
-    .subscribe();
+  const source = openChangeStream(tableName, runReload);
 
   const handleVisibility = () => {
     if (!isHidden()) {
@@ -571,7 +588,9 @@ export function subscribeTable(table, reload, options = {}) {
       document.removeEventListener("visibilitychange", handleVisibility);
     }
 
-    supabase.removeChannel(channel);
+    if (source) {
+      source.close();
+    }
   };
 }
 

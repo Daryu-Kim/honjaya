@@ -62,6 +62,44 @@ function sseCollect(port, tables) {
   });
 }
 
+function sseFirstFrame(port, path) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (value) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      request.destroy();
+      resolve(value);
+    };
+
+    const request = http.get(
+      { host: "127.0.0.1", port, path, headers: { accept: "text/event-stream" } },
+      (response) => {
+        let body = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk) => {
+          body += chunk;
+
+          if (body.includes("event: ready") || response.statusCode !== 200) {
+            done({ status: response.statusCode, body });
+          }
+        });
+        response.on("end", () => done({ status: response.statusCode, body }));
+      }
+    );
+
+    request.on("error", (error) => {
+      if (error.code !== "ECONNRESET") {
+        done({ status: 0, body: error.message });
+      }
+    });
+    request.setTimeout(5000, () => done({ status: 0, body: "SSE 타임아웃" }));
+  });
+}
+
 function sseQuiet(port, tables, windowMs) {
   return new Promise((resolve) => {
     let sawChange = false;
@@ -421,6 +459,41 @@ try {
     headers: { apikey: "test-anon-key" },
   });
   check("ANON_KEY 설정 시 키가 맞으면 200", authorized.statusCode === 200, authorized.body);
+
+  // EventSource 는 헤더를 못 넣으므로 SSE 만 쿼리 파라미터 키를 허용합니다.
+  // REST 경로의 쿼리 파라미터는 컬럼 필터라서 여기서 키를 읽으면 400 이 납니다.
+  const restQueryKey = await guardedApp.inject({
+    method: "GET",
+    url: "/rest/v1/categories?select=id&apikey=test-anon-key",
+  });
+  check(
+    "REST 는 쿼리 파라미터 키를 인정하지 않음 → 401",
+    restQueryKey.statusCode === 401,
+    String(restQueryKey.statusCode)
+  );
+
+  await guardedApp.listen({ port: 0, host: "127.0.0.1" });
+  const guardedPort = guardedApp.server.address().port;
+
+  const authorizedSse = await sseFirstFrame(
+    guardedPort,
+    "/api/events?tables=categories&apikey=test-anon-key"
+  );
+  check(
+    "SSE 는 쿼리 파라미터 키로 연결 → 200",
+    authorizedSse.status === 200 && authorizedSse.body.includes("event: ready"),
+    `${authorizedSse.status} ${authorizedSse.body.slice(0, 80)}`
+  );
+
+  const unauthorizedSse = await sseFirstFrame(
+    guardedPort,
+    "/api/events?tables=categories&apikey=wrong-key"
+  );
+  check(
+    "SSE 쿼리 파라미터 키가 틀리면 401",
+    unauthorizedSse.status === 401,
+    String(unauthorizedSse.status)
+  );
 
   await guardedApp.close();
   config.anonKey = "";

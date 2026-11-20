@@ -8,7 +8,7 @@ import { registerEventRoutes } from "./routes/events.js";
 import { registerRestRoutes } from "./routes/rest.js";
 import { registerRpcRoutes } from "./routes/rpc.js";
 
-function readApiKey(request) {
+function readApiKey(request, options = {}) {
   const apikey = request.headers.apikey;
 
   if (typeof apikey === "string" && apikey.trim()) {
@@ -19,6 +19,23 @@ function readApiKey(request) {
 
   if (authorization.toLowerCase().startsWith("bearer ")) {
     return authorization.slice(7).trim();
+  }
+
+  // 브라우저 EventSource 는 헤더를 지정할 수 없어서 SSE(/api/events) 만
+  // 쿼리 파라미터 키를 허용합니다. (anon key 는 원래 공개되는 값입니다.)
+  // REST 경로는 쿼리 파라미터가 곧 컬럼 필터라서 여기서 읽으면 400 이 납니다.
+  if (options.allowQueryKey) {
+    try {
+      const queryKey = new URL(request.url, "http://localhost").searchParams.get(
+        "apikey"
+      );
+
+      if (queryKey && queryKey.trim()) {
+        return queryKey.trim();
+      }
+    } catch {
+      // query 파싱 실패는 키 없음으로 처리합니다.
+    }
   }
 
   return "";
@@ -32,8 +49,8 @@ function createApiKeyGuard() {
     return async () => {};
   }
 
-  return async (request) => {
-    const key = readApiKey(request);
+  return async (request, options) => {
+    const key = readApiKey(request, options);
 
     if (!allowed.includes(key)) {
       throw new HttpError(401, "PGRST301", "유효하지 않은 API 키예요");
@@ -81,12 +98,14 @@ export async function buildApp(options = {}) {
       return;
     }
 
+    const path = request.url.split("?")[0];
+
     // 배포 확인·모니터링용. 데이터를 노출하지 않으므로 키 없이 열어 둡니다.
-    if (request.url.split("?")[0] === "/health") {
+    if (path === "/health") {
       return;
     }
 
-    await guard(request);
+    await guard(request, { allowQueryKey: path === "/api/events" });
   });
 
   app.setErrorHandler((error, request, reply) => {

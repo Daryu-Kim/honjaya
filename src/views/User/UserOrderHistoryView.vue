@@ -204,9 +204,7 @@ function subscribeOrders() {
     }
   };
 
-  unsubscribeOrders = subscribeTable("orders", loadOrders, {
-    filter: ["orderSheetId", orderSheetId.value],
-  });
+  unsubscribeOrders = subscribeTable("orders", loadOrders);
 }
 
 function convertOrderStatusText(status) {
