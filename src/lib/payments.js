@@ -54,6 +54,7 @@ export function recordSheetPayment({
   close = true,
   customerPhone = "",
   customerName = "",
+  marketingConsent = false,
   pointsUsed = 0,
 }) {
   return apiPost("/api/payments", {
@@ -65,6 +66,7 @@ export function recordSheetPayment({
     close,
     customerPhone,
     customerName,
+    marketingConsent,
     pointsUsed,
   });
 }

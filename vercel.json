@@ -34,6 +34,14 @@
       "destination": "https://api.honjaya-server.xyz/api/points/$1"
     },
     {
+      "source": "/api/crm",
+      "destination": "https://api.honjaya-server.xyz/api/crm"
+    },
+    {
+      "source": "/api/crm/(.*)",
+      "destination": "https://api.honjaya-server.xyz/api/crm/$1"
+    },
+    {
       "source": "/api/kakao/(.*)",
       "destination": "https://api.honjaya-server.xyz/api/kakao/$1"
     }

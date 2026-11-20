@@ -5,6 +5,7 @@ import Fastify from "fastify";
 import { config } from "./config.js";
 import { HttpError, PG_MESSAGES, PG_STATUS } from "./http/errors.js";
 import { registerAdminRoutes } from "./routes/api/admin.js";
+import { registerCrmRoutes } from "./routes/api/crm.js";
 import { registerGuestRoutes } from "./routes/api/guest.js";
 import { registerKakaoRoutes } from "./routes/api/kakao.js";
 import { registerPaymentRoutes } from "./routes/api/payments.js";
@@ -187,6 +188,7 @@ export async function buildApp(options = {}) {
       "/api/admin/employees",
       "/api/payments",
       "/api/points",
+      "/api/crm/customers",
       "/api/kakao/status",
       "/health",
     ],
@@ -200,6 +202,7 @@ export async function buildApp(options = {}) {
   registerAdminRoutes(app);
   registerPaymentRoutes(app);
   registerPointRoutes(app);
+  registerCrmRoutes(app);
   registerKakaoRoutes(app);
 
   return app;

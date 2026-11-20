@@ -46,6 +46,7 @@ export function registerPaymentRoutes(app) {
       close: body.close,
       customerPhone: body.customerPhone ?? "",
       customerName: body.customerName ?? "",
+      marketingConsent: body.marketingConsent === true,
       pointsUsed: body.pointsUsed ?? 0,
       employee,
       ip: clientIp(request),
@@ -65,6 +66,7 @@ export function registerPaymentRoutes(app) {
         pointsUsed: ledger.pointsUsed || 0,
         pointsEarned: ledger.pointsEarned || 0,
         customerPhone: ledger.customer?.phone || "",
+        marketingConsent: ledger.customer?.marketingConsent === true,
         payments: ledger.payments.map((payment) => ({
           method: payment.method,
           amount: payment.amount,

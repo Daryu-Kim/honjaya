@@ -22,6 +22,7 @@ server/
 │  ├─ guest.js            손님 입장(테이블 확인 + 열린 주문서 준비)
 │  ├─ payments.js         결제 원장(부분/분할 결제, 환불, 주문서 상태 동기화)
 │  ├─ points.js           포인트 원장(적립/사용/소멸/조정, FEFO 차감) + 고객 최소 테이블
+│  ├─ crm.js              고객 관리(목록/프로필/방문 이력/마케팅 동의) — 카운터 비정규화 없음
 │  ├─ businessDay.js       영업일 계산(15:00 KST 기준) 공용 헬퍼
 │  ├─ kakao.js            카카오 로그인 준비(P4) — 활성 여부 + authorize URL 조립
 │  ├─ http/
@@ -45,6 +46,7 @@ server/
 │     ├─ guest.js         /api/guest/{table,session,logout}
 │     ├─ payments.js      /api/payments, /api/payments/sheet/:id, /api/payments/:id/refund
 │     ├─ points.js        /api/points/{rules,customer,ledger,adjust}
+│     ├─ crm.js           /api/crm/customers, /api/crm/customers/:id
 │     ├─ kakao.js         /api/kakao/status (P4 준비용 상태 확인)
 │     └─ admin.js         /api/admin/employees, /api/admin/audit-logs, /api/admin/tables
 ├─ sql/
@@ -53,7 +55,8 @@ server/
 │  ├─ staff.sql           직원/세션/감사로그 테이블
 │  ├─ guest.sql           손님 세션(guest_sessions) + orders.guest_* 컬럼
 │  ├─ payments.sql        결제 원장(payments/payment_allocations/refunds) + order_sheets.paid_amount
-│  └─ points.sql          포인트 원장(point_ledger/point_allocations) + customers + order_sheets.points_used
+│  ├─ points.sql          포인트 원장(point_ledger/point_allocations) + customers + order_sheets.points_used
+│  └─ crm.sql             고객 CRM(customers 마케팅 동의/닉네임) + payments.customer_id
 ├─ scripts/
 │  ├─ apply-schema.mjs    스키마 적용(멱등)
 │  ├─ import-supabase-export.mjs  Supabase CSV 백업 가져오기(멱등)
@@ -240,9 +243,12 @@ psql "$DATABASE_URL" -f supabase_data.sql
 | `POST` | `/api/points/customer` | 고객 이름/메모 저장(없으면 생성) — 포인트는 건드리지 않음 (`point.use`) |
 | `GET` | `/api/points/ledger` | 포인트 원장 조회(`from`, `to`, `phone`, `customerId`, `limit`) + 총계 (`customer.view`) |
 | `POST` | `/api/points/adjust` | 포인트 수동 조정(`phone`/`customerId`, `points`, `reason`) (`point.adjust`, 사장 전용) |
+| `GET` | `/api/crm/customers` | 고객 목록(`q`, `consent=yes\|no`, `sort=recent\|spent\|balance\|name`, `limit`, `offset`) + 전체 요약 (`crm.view`) |
+| `GET` | `/api/crm/customers/:customerId` | 고객 프로필 + 방문 이력(결제/환불 포함) (`crm.view`) |
+| `PATCH` | `/api/crm/customers/:customerId` | 이름/닉네임/메모/마케팅 동의 수정 (`crm.view`, 감사 로그 기록) |
 | `GET` | `/api/kakao/status` | 카카오 로그인 준비 상태(`enabled`, `redirectUri`, `authorizeUrl`) — 키가 없으면 모두 비어 있음 (P4) |
 
-> `/api/staff/*` · `/api/admin/*` · `/api/guest/*` · `/api/payments/*` · `/api/points/*` · `/api/kakao/*` 도 전역 `apikey` 검사를 통과해야 합니다(프런트엔드 `src/lib/api.js` 가 자동으로 붙입니다).
+> `/api/staff/*` · `/api/admin/*` · `/api/guest/*` · `/api/payments/*` · `/api/points/*` · `/api/crm/*` · `/api/kakao/*` 도 전역 `apikey` 검사를 통과해야 합니다(프런트엔드 `src/lib/api.js` 가 자동으로 붙입니다).
 > 세션 토큰은 DB 에 **sha256 해시로만** 저장되며, 평문은 쿠키에만 존재합니다.
 > `bar_tables`(테이블 마스터)는 `/rest/v1` 로 **읽기만** 가능합니다(쓰기 요청은 403). 수정은 위 `PATCH /api/admin/tables/:tableNumber` 로만 합니다.
 > **손님 범위(P2)**: `/rest/v1` 의 `orders` · `order_sheets` · `active_order_sheets` 는 `hj_guest`(손님) 또는 `hj_staff`(직원)
@@ -257,6 +263,8 @@ psql "$DATABASE_URL" -f supabase_data.sql
 > 적립·사용은 결제(`POST /api/payments` 의 `customerPhone` / `pointsUsed`) 안에서만 처리되고,
 > 잔액은 `point_ledger.points` 합계, 만료는 조회 시점에 `EXPIRE` 행으로 확정됩니다.
 > 계산 규칙(적립 1% · 1,000P 이상 1,000P 단위 · 결제 3만원 이상 · 유효기간 3개월)은 `src/points.js` 의 `POINT_RULES` 하나로 관리합니다.
+> **고객 CRM(P6)**: `payments.customer_id` 로 고객↔결제를 연결해 방문 이력·누적 결제(환불 차감)를 계산합니다(별도 카운터 없음).
+> 마케팅 동의는 태블릿 결제 화면에서 **켜기만** 가능하고, 철회는 관리자 `고객 관리` 화면에서만 합니다(`customer.consent` 감사 로그).
 
 지원 필터: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `is`, `like`, `ilike`, `cs`(contains), `cd`, `ov`.
 지원 헤더: `Prefer: return=representation|minimal`, `count=exact|planned|estimated`, `resolution=merge-duplicates|ignore-duplicates`, `Accept: application/vnd.pgrst.object+json`, `Range: 0-9`.

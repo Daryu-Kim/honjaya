@@ -15,6 +15,7 @@ import AdminDashboardView from "@/views/Admin/AdminDashboardView.vue";
 import AdminSalesView from "@/views/Admin/AdminSalesView.vue";
 import AdminPaymentHistoryView from "@/views/Admin/AdminPaymentHistoryView.vue";
 import AdminPointHistoryView from "@/views/Admin/AdminPointHistoryView.vue";
+import AdminCustomerView from "@/views/Admin/AdminCustomerView.vue";
 import StaffLoginView from "@/views/Staff/StaffLoginView.vue";
 import AdminLayout from "@/layouts/AdminLayout.vue";
 import { startGlobalBusy } from "@/lib/globalBusy";
@@ -94,6 +95,11 @@ const routes = [
         path: "points",
         name: "admin-points",
         component: AdminPointHistoryView,
+      },
+      {
+        path: "customers",
+        name: "admin-customers",
+        component: AdminCustomerView,
       },
       {
         path: "products",

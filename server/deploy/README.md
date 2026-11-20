@@ -10,7 +10,7 @@
         │ HTTPS
         ├──────────────────▶ Vercel (프런트엔드) https://honjaya.vercel.app
         │                          │
-        │                          │  /api/staff/*, /api/admin/* 는 vercel.json rewrite
+        │                          │  /api/* 는 vercel.json rewrite
         │                          │  (그 외 /rest/v1, SSE 는 절대 주소로 직접 호출)
         │                          ▼
         │                 ┌──────────────────────────────┐
@@ -596,16 +596,20 @@ Vercel 대시보드 → 프로젝트 → **Settings → Environment Variables**:
 
 직원 로그인은 **쿠키**로 유지됩니다. 브라우저가 `honjaya.vercel.app` 에서 `api.honjaya-server.xyz` 를 직접 부르면
 `SameSite=Lax` 쿠키가 전송되지 않아 로그인이 계속 풀립니다(Safari/iOS 는 더 엄격합니다).
-그래서 저장소 루트의 `vercel.json` 이 아래 두 경로만 서버로 **되돌려 보냅니다(rewrite)**.
+그래서 저장소 루트의 `vercel.json` 이 아래 경로들을 서버로 **되돌려 보냅니다(rewrite)**.
 
 ```json
-{ "source": "/api/staff/(.*)", "destination": "https://<서버주소>/api/staff/$1" }
-{ "source": "/api/admin/(.*)", "destination": "https://<서버주소>/api/admin/$1" }
+{ "source": "/api/staff/(.*)",  "destination": "https://<서버주소>/api/staff/$1" }
+{ "source": "/api/admin/(.*)",  "destination": "https://<서버주소>/api/admin/$1" }
+{ "source": "/api/guest/(.*)",  "destination": "https://<서버주소>/api/guest/$1" }
+{ "source": "/api/payments(/(.*))?", "destination": "https://<서버주소>/api/payments$1" }
+{ "source": "/api/points(/(.*))?",   "destination": "https://<서버주소>/api/points$1" }
+{ "source": "/api/crm(/(.*))?",      "destination": "https://<서버주소>/api/crm$1" }
+{ "source": "/api/kakao/(.*)",  "destination": "https://<서버주소>/api/kakao/$1" }
 ```
 
-> 현재 `vercel.json` 은 **백업 경로(`https://bar.taild838e4.ts.net`)** 를 가리키고 있습니다.
-> Cloudflare Tunnel 은 `https://api.honjaya-server.xyz` 로 **이미 동작 중**이므로, 위 두 줄의 주소만 그 값으로 바꾸고
-> Vercel 을 재배포하면 전환됩니다. (코드 수정 없음)
+> 새 `/api/*` 묶음(예: P5 포인트, P6 CRM)을 추가하면 `vercel.json` 에 rewrite 두 줄(목록/하위 경로)을
+> 같이 넣고 Vercel 을 재배포해야 합니다. 지금은 `https://api.honjaya-server.xyz` (Cloudflare Tunnel) 를 가리킵니다.
 
 - 브라우저 입장에서는 같은 오리진 호출이므로 **1st-party 쿠키**가 됩니다. `SameSite=None` 이 필요 없습니다.
 - `/rest/v1/*` 와 SSE(`/api/events`)는 **일부러 제외**했습니다. 이 둘은 `VUE_APP_SUPABASE_URL` 절대 주소를 그대로 씁니다.
@@ -693,6 +697,8 @@ docker compose exec db psql -U postgres -d honjaya -c "\dt"
 > P5 부터는 `server/sql/points.sql`(customers / point_ledger / point_allocations + `order_sheets.points_used`)도
 > 같은 `migrate` 실행에 포함됩니다. 적용 여부는
 > `docker compose exec db psql -U postgres -d honjaya -c "select count(*) from point_ledger;"` 로 확인하세요.
+> P6 부터는 `server/sql/crm.sql`(customers 마케팅 동의/닉네임 + `payments.customer_id` + 백필)도 함께 적용됩니다.
+> 적용 여부는 `docker compose exec db psql -U postgres -d honjaya -c "select count(*) from payments where customer_id is not null;"` 로 확인하세요.
 
 ### 자동 배포 (선택)
 

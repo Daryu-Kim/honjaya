@@ -68,7 +68,7 @@ Guest phone / staff tablet
 | **P3** | Payment ledger (`payments`, `payment_allocations`, `refunds`), split/partial payment, refunds | **DONE (verified)** |
 | **P4** | Kakao login readiness (env flag, `/api/kakao/status`, console checklist) | **DONE** (scaffold + guideline; live login lands in P6) |
 | **P5** | Points ledger (earn / redeem / expire / adjust), FEFO deduction | **DONE (verified: smoke 169/169, lint, build)** |
-| **P6** | CRM & consent (customer profile, marketing consent, visit history) | pending |
+| **P6** | CRM & consent (customer profile, marketing consent, visit history) | **DONE (code)** — verify/commit pending |
 | **P7** | Cloudflare cutover (`api.honjaya-server.xyz` live, Tailscale → backup, `vercel.json` rewrite swapped) | **DONE** (verify Vercel `VUE_APP_SUPABASE_URL` + redeploy) |
 
 ---
@@ -461,6 +461,52 @@ Applied by `npm run db:apply` (and the `migrate` container) after `payments.sql`
 - A refund claws back earned points but **does not restore points that were spent** on that payment
   (open question #5).
 - The phone number is the only customer key right now — a typo creates a second customer row instead of merging.
+
+---
+
+## 3-6. P6 — CRM foundation: profile, marketing consent, visit history (code done)
+
+Scope decision: build the CRM base **without Kakao login** (user choice). Kakao login stays in P4 scaffold
+(`kakao_id` column is pre-created and unused).
+
+### Schema — `server/sql/crm.sql`
+
+- `customers` += `marketing_consent boolean not null default false`, `marketing_consent_at timestamptz`,
+  `nickname text not null default ''`, `kakao_id text` (+ partial unique index `customers_kakao_id_key`).
+- `payments` += `customer_id text references customers(id) on delete set null` (+ `payments_customer_idx`).
+- Backfill: `payments.customer_id` filled once from `point_ledger` for P5-era rows.
+- **No denormalized counters**: 방문 횟수 = `count(distinct payments.business_date)`, 누적 결제 =
+  `sum(payments.amount) - sum(refunds.amount)`, 최근 방문 = `max(payments.occurred_at)`.
+
+### Backend
+
+- `server/src/crm.js` — `listCustomers` (검색/동의 필터/정렬 + 전체 요약), `getCustomerProfile`
+  (고객 + 방문 이력), `updateCustomer` (이름·닉네임·메모·동의), `grantMarketingConsent` (결제 트랜잭션용).
+  보유 포인트는 로트 기준(미만료 적립 − 사용) 합계.
+- `server/src/routes/api/crm.js` — `GET /api/crm/customers`, `GET /api/crm/customers/:id`,
+  `PATCH /api/crm/customers/:id`, guard `crm.view` (MANAGER+), audit `customer.update` / `customer.consent`.
+- `server/src/payments.js` — `recordPayment` now stores `payments.customer_id` and accepts
+  `marketingConsent` (켜기만; 철회는 관리자 화면). Response `customer.marketingConsent`.
+- `vercel.json` + `vue.config.js` — `/api/crm` rewrite/proxy.
+
+### Frontend
+
+- `src/lib/crm.js` — API wrappers + formatters (reuses `formatPointValue`, `getPaymentMethodLabel`).
+- `src/views/Admin/AdminCustomerView.vue` at `/admin/customers` ("고객 관리"): 검색·동의 필터·정렬,
+  요약 카드(전체/동의/미사용 포인트), 고객 목록, 상세(요약·동의 토글·이름/닉네임/메모 저장·방문 이력),
+  "포인트 관리에서 보기" 이동. AdminLayout 메뉴에 `고객 관리` 추가.
+- `AdminPointHistoryView` accepts `?phone=` so the CRM detail page can deep-link.
+- Tablet payment modal: 마케팅 수신 동의 checkbox (전화번호 입력 시) → `marketingConsent` 전송.
+
+### Verification (local)
+
+_Not run yet (Rule 15 — awaiting user approval)._
+
+### Deploy checklist
+
+1. `docker compose --profile tools build migrate && docker compose run --rm migrate` (applies `crm.sql`)
+2. `docker compose up -d --force-recreate api`
+3. Vercel redeploy (new `/api/crm` rewrites)
 
 ---
 

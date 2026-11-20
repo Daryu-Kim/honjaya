@@ -1068,6 +1068,157 @@ try {
     p5AfterExpiry.body
   );
 
+  // ---------------------------------------------------------------- CRM (P6)
+  // 고객 관리 화면은 crm.view(매니저 이상) 권한이 필요합니다.
+  const crmList = await app.inject({
+    method: "GET",
+    url: "/api/crm/customers?q=01055556666",
+    headers: { cookie: staffCookie },
+  });
+  check("P6 고객 목록 조회 → 200", crmList.statusCode === 200, crmList.body);
+
+  const p6Customer = crmList.json().customers[0] || {};
+  check("P6 고객 목록 → 기존 고객 검색", Boolean(p6Customer.id), crmList.body);
+  equal("P6 고객 목록 → 보유 포인트(만료 반영)", p6Customer.balance, 2770);
+  equal("P6 고객 목록 → 방문 횟수", p6Customer.visitCount, 1);
+  equal("P6 고객 목록 → 누적 결제(환불 차감)", p6Customer.paidTotal, 77000);
+  equal("P6 고객 목록 → 최초 마케팅 미동의", p6Customer.marketingConsent, false);
+
+  const crmStaffList = await app.inject({
+    method: "GET",
+    url: "/api/crm/customers",
+    headers: { cookie: staffOnlyCookie },
+  });
+  check("P6 직원(STAFF) 고객 목록 → 403", crmStaffList.statusCode === 403, crmStaffList.body);
+
+  const crmAnonList = await app.inject({
+    method: "GET",
+    url: "/api/crm/customers",
+  });
+  check("P6 비로그인 고객 목록 → 401", crmAnonList.statusCode === 401, crmAnonList.body);
+
+  const crmProfile = await app.inject({
+    method: "GET",
+    url: `/api/crm/customers/${p6Customer.id}`,
+    headers: { cookie: staffCookie },
+  });
+  check("P6 고객 상세 → 200", crmProfile.statusCode === 200, crmProfile.body);
+  equal("P6 고객 상세 → 방문 이력 2건", crmProfile.json().visits.length, 2);
+  equal("P6 고객 상세 → 최근 방문 금액", crmProfile.json().visits[0]?.amount, 37000);
+  equal("P6 고객 상세 → 최근 방문 환불액", crmProfile.json().visits[0]?.refundedAmount, 10000);
+
+  const crmUpdate = await app.inject({
+    method: "PATCH",
+    url: `/api/crm/customers/${p6Customer.id}`,
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: { name: "스모크단골", memo: "매운 안주 선호" },
+  });
+  check("P6 고객 정보 수정 → 200", crmUpdate.statusCode === 200, crmUpdate.body);
+  equal("P6 고객 정보 수정 → 이름", crmUpdate.json().customer.name, "스모크단골");
+  equal("P6 고객 정보 수정 → 메모", crmUpdate.json().customer.memo, "매운 안주 선호");
+  equal("P6 고객 정보 수정 → 동의는 그대로", crmUpdate.json().customer.marketingConsent, false);
+
+  const crmConsent = await app.inject({
+    method: "PATCH",
+    url: `/api/crm/customers/${p6Customer.id}`,
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: { marketingConsent: true },
+  });
+  check("P6 마케팅 동의 설정 → 200", crmConsent.statusCode === 200, crmConsent.body);
+  equal("P6 마케팅 동의 설정 → 동의", crmConsent.json().customer.marketingConsent, true);
+  check(
+    "P6 마케팅 동의 설정 → 동의 시각 기록",
+    Boolean(crmConsent.json().customer.marketingConsentAt),
+    crmConsent.body
+  );
+
+  const crmConsentList = await app.inject({
+    method: "GET",
+    url: "/api/crm/customers?consent=yes",
+    headers: { cookie: staffCookie },
+  });
+  check(
+    "P6 동의 고객 필터 → 포함",
+    crmConsentList.json().customers.some((row) => row.id === p6Customer.id),
+    crmConsentList.body
+  );
+  check("P6 동의 고객 요약", crmConsentList.json().summary.consented >= 1, crmConsentList.body);
+
+  const crmNoConsentList = await app.inject({
+    method: "GET",
+    url: "/api/crm/customers?consent=no",
+    headers: { cookie: staffCookie },
+  });
+  check(
+    "P6 미동의 고객 필터 → 제외",
+    !crmNoConsentList.json().customers.some((row) => row.id === p6Customer.id),
+    crmNoConsentList.body
+  );
+
+  // 결제하면서 받은 마케팅 동의는 결제 트랜잭션 안에서 저장됩니다.
+  const p6Sheet = await app.inject({
+    method: "POST",
+    url: "/rest/v1/order_sheets?select=*",
+    headers: {
+      prefer: "return=representation",
+      "content-type": "application/json",
+      cookie: staffCookie,
+    },
+    payload: {
+      id: "sheet-p6-consent",
+      sequence_no: 9201,
+      business_date: new Date().toISOString(),
+      table_number: "21",
+      display_name: "No.21",
+      total_amount: 30000,
+      order_count: 1,
+    },
+  });
+  check("P6 동의 결제 주문서 생성 → 201", p6Sheet.statusCode === 201, p6Sheet.body);
+
+  const p6Payment = await app.inject({
+    method: "POST",
+    url: "/api/payments",
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: {
+      orderSheetId: "sheet-p6-consent",
+      originalAmount: 30000,
+      entries: [{ method: "CARD", amount: 30000 }],
+      close: true,
+      customerPhone: "01099990000",
+      customerName: "신규동의",
+      marketingConsent: true,
+    },
+  });
+  check("P6 결제 + 마케팅 동의 → 200", p6Payment.statusCode === 200, p6Payment.body);
+  equal("P6 결제 + 마케팅 동의 → 적립", p6Payment.json().pointsEarned, 300);
+  equal("P6 결제 + 마케팅 동의 → 응답 동의", p6Payment.json().customer?.marketingConsent, true);
+
+  const p6NewCustomerList = await app.inject({
+    method: "GET",
+    url: "/api/crm/customers?q=01099990000",
+    headers: { cookie: staffCookie },
+  });
+  const p6NewCustomer = p6NewCustomerList.json().customers[0] || {};
+  equal("P6 결제 고객 → 방문 횟수", p6NewCustomer.visitCount, 1);
+  equal("P6 결제 고객 → 누적 결제", p6NewCustomer.paidTotal, 30000);
+  equal("P6 결제 고객 → 보유 포인트", p6NewCustomer.balance, 300);
+  equal("P6 결제 고객 → 마케팅 동의 저장", p6NewCustomer.marketingConsent, true);
+
+  const p6PaymentId = p6Payment.json().payments[0]?.id || "";
+  const { rows: p6PaymentRows } = await db.pool.query(
+    `select customer_id from public.payments where id = $1`,
+    [p6PaymentId]
+  );
+  equal("P6 결제 → payments.customer_id 연결", p6PaymentRows[0]?.customer_id, p6NewCustomer.id);
+
+  const { rows: p6AuditRows } = await db.pool.query(
+    `select action, target_type from public.admin_audit_logs
+      where action = 'customer.consent' and target_id = $1`,
+    [p6Customer.id]
+  );
+  check("P6 마케팅 동의 감사 로그", p6AuditRows.length === 1, p6AuditRows);
+
   // ---------------------------------------------------------------- select
   const list = await app.inject({
     method: "GET",

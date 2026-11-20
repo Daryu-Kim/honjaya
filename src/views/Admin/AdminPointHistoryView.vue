@@ -270,6 +270,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from "vue";
+import { useRoute } from "vue-router";
 import {
   formatInputDate,
   getCurrentBusinessDateInput,
@@ -286,6 +287,8 @@ import {
 import { hasPermission } from "@/lib/staffAuth";
 
 const POINT_ADJUST_PERMISSION = "point.adjust";
+
+const route = useRoute();
 
 const canAdjust = computed(() => hasPermission(POINT_ADJUST_PERMISSION));
 
@@ -509,7 +512,19 @@ async function submitAdjust() {
 }
 
 onMounted(() => {
+  // 고객 관리 화면에서 ?phone= 으로 넘어오면 그 고객을 바로 조회합니다.
+  const phoneQuery = String(route.query.phone || "");
+
+  if (phoneQuery) {
+    phoneInput.value = formatPhoneInput(phoneQuery);
+    activePhone.value = normalizePhoneNumber(phoneQuery);
+  }
+
   loadLedger();
+
+  if (activePhone.value) {
+    loadCustomer();
+  }
 });
 </script>
 

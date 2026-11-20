@@ -132,6 +132,12 @@ const menuList = [
     matchStartsWith: "/admin/points",
   },
   {
+    to: "/admin/customers",
+    label: "고객 관리",
+    description: "방문 이력·마케팅 동의",
+    matchStartsWith: "/admin/customers",
+  },
+  {
     to: "/admin/products",
     label: "상품 관리",
     description: "상품 등록 및 수정",

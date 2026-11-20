@@ -216,6 +216,8 @@ export async function applySchema(connectionString, log = console) {
     // points.sql 은 customers/point_ledger 를 만들고 order_sheets 에 points_used 를 추가합니다.
     // employees, payments 가 먼저 있어야 참조가 성립합니다.
     await runSqlFile(client, join(serverRoot, "sql", "points.sql"), log);
+    // crm.sql 은 customers 를 확장하고 payments.customer_id 를 붙입니다(방문 이력 계산용).
+    await runSqlFile(client, join(serverRoot, "sql", "crm.sql"), log);
   } finally {
     await client.end();
   }

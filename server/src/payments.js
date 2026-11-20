@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 
 import { revokeGuestSessionsForSheet } from "./auth/guestSessions.js";
 import { toBusinessDate } from "./businessDay.js";
+import { grantMarketingConsent } from "./crm.js";
 import { pool } from "./db.js";
 import { HttpError } from "./http/errors.js";
 import {
@@ -377,6 +378,7 @@ export async function recordPayment({
   close = true,
   customerPhone = "",
   customerName = "",
+  marketingConsent = false,
   pointsUsed = 0,
   employee = null,
   ip = "",
@@ -474,6 +476,11 @@ export async function recordPayment({
       throw new HttpError(400, "HJ400", "결제할 금액이 없어요.");
     }
 
+    // 손님이 화면에서 마케팅 수신에 동의한 경우에만 켭니다(철회는 관리자 화면에서).
+    if (customer && marketingConsent === true) {
+      await grantMarketingConsent(client, customer.id);
+    }
+
     const { settled } = await readSettledAmount(client, safeId);
     const remainingBefore = totalAmount - settled;
 
@@ -498,8 +505,9 @@ export async function recordPayment({
       await client.query(
         `insert into public.payments
            (id, order_sheet_id, table_number, business_date, amount, method,
-            payer_label, guest_session_id, employee_id, employee_name, memo, occurred_at)
-         values ($1, $2, $3, $4::date, $5, $6, $7, null, $8, $9, $10, $11)`,
+            payer_label, guest_session_id, employee_id, employee_name, memo, occurred_at,
+            customer_id)
+         values ($1, $2, $3, $4::date, $5, $6, $7, null, $8, $9, $10, $11, $12)`,
         [
           paymentId,
           safeId,
@@ -512,6 +520,7 @@ export async function recordPayment({
           employee?.name || "",
           safeMemo,
           occurredAt,
+          customer?.id || null,
         ]
       );
 
@@ -591,7 +600,12 @@ export async function recordPayment({
       pointsEarned,
       pointsBalance: pointsBalanceAfter,
       customer: customer
-        ? { id: customer.id, phone: customer.phone, name: customer.name || "" }
+        ? {
+            id: customer.id,
+            phone: customer.phone,
+            name: customer.name || "",
+            marketingConsent: Boolean(customer.marketing_consent) || marketingConsent === true,
+          }
         : null,
     };
   } catch (error) {

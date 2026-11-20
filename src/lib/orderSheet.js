@@ -263,6 +263,7 @@ export async function completeOrderSheetPayment({
   close = true,
   customerPhone = "",
   customerName = "",
+  marketingConsent = false,
   pointsUsed = 0,
 }) {
   const safeOrderSheetId = String(orderSheetId || "").trim();
@@ -299,6 +300,7 @@ export async function completeOrderSheetPayment({
     close,
     customerPhone,
     customerName,
+    marketingConsent: marketingConsent === true,
     pointsUsed: Number(pointsUsed || 0),
   });
 }

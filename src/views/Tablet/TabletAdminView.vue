@@ -1095,6 +1095,20 @@
             >
               이번 결제로 {{ formatPrice(paymentPointsEarnPreview) }}P 적립 예정
             </p>
+
+            <label
+              v-if="
+                normalizePhoneNumber(paymentModalState.customerPhone).length >=
+                10
+              "
+              class="consent-check"
+            >
+              <input
+                v-model="paymentModalState.marketingConsent"
+                type="checkbox"
+              />
+              <span>마케팅 수신 동의(이벤트·혜택 안내)</span>
+            </label>
           </div>
 
           <div class="modal-section">
@@ -1727,6 +1741,7 @@ const paymentModalState = ref({
   paymentSplits: [],
   customerPhone: "",
   customerName: "",
+  marketingConsent: false,
 });
 
 const paymentCompleteModalState = ref({
@@ -2490,6 +2505,7 @@ function onPaymentPhoneInput(event) {
       expiringSoon: [],
     };
     paymentPointInput.value = 0;
+    paymentModalState.value.marketingConsent = false;
   }
 }
 
@@ -3308,6 +3324,7 @@ function openTablePaymentModal(table) {
     paymentSplits: [createPaymentSplit("CARD", dueAmount)],
     customerPhone: "",
     customerName: "",
+    marketingConsent: false,
   };
 }
 
@@ -3326,6 +3343,7 @@ function closePaymentModal() {
     paymentSplits: [],
     customerPhone: "",
     customerName: "",
+    marketingConsent: false,
   };
 }
 
@@ -3436,6 +3454,7 @@ async function completePayment() {
         close: !isPartial,
         customerPhone,
         customerName: state.customerName,
+        marketingConsent: state.marketingConsent === true,
         pointsUsed,
       });
 
@@ -4575,6 +4594,22 @@ onUnmounted(() => {
 }
 .points-earn-text {
   color: rgba(134, 239, 172, 0.9);
+}
+.consent-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(226, 232, 240, 0.92);
+  cursor: pointer;
+}
+.consent-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: #6366f1;
+  cursor: pointer;
 }
 .payment-edit-row input,
 .payment-edit-row select {
