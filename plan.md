@@ -13,7 +13,7 @@ Write in English. UI strings stay Korean.
 | Points earn | 1% of paid amount, floored to integer |
 | Points expiry | 3 calendar months from earn date, end of day KST |
 | Points redeem | min 1,000 points, in 1,000-point increments, only when payment ≥ ₩30,000 |
-| Points basis | assumed = amount **after** discount and point deduction (UNCONFIRMED) |
+| Points basis | earn = 1% of cash actually collected (after discount and point use); the ₩30,000 redeem minimum uses the amount after discount, before point deduction |
 | Staff | 3 people, 3 roles: `OWNER` / `MANAGER` / `STAFF` |
 | Frontend origin | `https://honjaya.vercel.app` (operational) |
 | API origin (target) | `https://api.honjaya-server.xyz` via Cloudflare Tunnel — **LIVE** (`/health` → db up) |
@@ -67,7 +67,7 @@ Guest phone / staff tablet
 | **P2** | Guest table session cookie + per-guest attribution + order ownership (guest sees only own table sheet; staff any) | **DONE (verified)** |
 | **P3** | Payment ledger (`payments`, `payment_allocations`, `refunds`), split/partial payment, refunds | **DONE (verified)** |
 | **P4** | Kakao login readiness (env flag, `/api/kakao/status`, console checklist) | **DONE** (scaffold + guideline; live login lands in P6) |
-| **P5** | Points ledger (earn / redeem / expire / adjust), FEFO deduction | pending |
+| **P5** | Points ledger (earn / redeem / expire / adjust), FEFO deduction | **DONE (verified: smoke 169/169, lint, build)** |
 | **P6** | CRM & consent (customer profile, marketing consent, visit history) | pending |
 | **P7** | Cloudflare cutover (`api.honjaya-server.xyz` live, Tailscale → backup, `vercel.json` rewrite swapped) | **DONE** (verify Vercel `VUE_APP_SUPABASE_URL` + redeploy) |
 
@@ -383,12 +383,95 @@ privacy-policy / terms URLs Kakao review requires.
 
 ---
 
+## 3-5. P5 — Points ledger (DONE)
+
+Points are **staff-driven**: there is no customer login yet, so the tablet payment screen asks for the guest's phone
+number, looks up (or creates) the customer, then applies earn/redeem inside the same `POST /api/payments`
+transaction. P6 later adds Kakao identity on top, but the ledger does not change.
+
+### Schema — `server/sql/points.sql`
+
+- `customers` — minimal profile keyed by the normalized mobile number (`phone` unique) plus `name`, `memo`.
+  P6 adds `kakao_id`, marketing consent and visit history to this same row.
+- `point_ledger` — one row per movement. `points` is signed (`+` EARN, `−` REDEEM / EXPIRE / ADJUST), `balance_after`
+  is stored for audit, `expires_at` exists only on EARN lots. Balance = `sum(points)`.
+- `point_allocations` — which earn lot a debit consumed (FEFO: soonest expiry first), so expiry runs per lot.
+- `order_sheets.points_used` — points consumed by that sheet, kept separate from `discount_total`.
+
+Applied by `npm run db:apply` (and the `migrate` container) after `payments.sql`.
+
+### Rules
+
+`POINT_RULES` in `server/src/points.js` is the single source of truth and is mirrored to the UI through
+`GET /api/points/rules`.
+
+| Rule | Value |
+| --- | --- |
+| Earn | 1% of the cash actually collected (`floor`), after discount and point deduction |
+| Expiry | same day 3 calendar months later, 23:59:59 KST |
+| Redeem minimum | 1,000P |
+| Redeem step | 1,000P |
+| Redeem payment floor | ₩30,000, measured **after discount, before point deduction** |
+| Refund clawback | `floor(refund × 1%)`, capped by the current balance |
+
+### Backend
+
+- `server/src/points.js` — `getCustomerPoints`, `earnPointsForPayment`, `redeemPointsForPayment`, `adjustPoints`,
+  `clawbackForRefund`, `listPointLedger`, the FEFO allocator and lazy expiry (`materializeExpiry` writes the missing
+  `EXPIRE` rows on read — no cron).
+- `server/src/businessDay.js` — `toBusinessDate` extracted from `payments.js` so point rows inherit the payment's
+  business date (15:00 KST rollover).
+- `server/src/payments.js` — `recordPayment` accepts `customerPhone` / `customerName` / `pointsUsed` and runs
+  discount → redeem → insert payments → earn (basis = `entryTotal`). `refundPayment` claws back earned points inside a
+  `points_clawback` savepoint, so a points problem can never block the refund.
+- `server/src/routes/api/points.js` — `GET /api/points/rules`, `GET|POST /api/points/customer` (`point.use`),
+  `GET /api/points/ledger` (`customer.view`), `POST /api/points/adjust` (`point.adjust`, OWNER only). Every other
+  movement happens inside `POST /api/payments`, so no extra endpoint can move points.
+- Audit: `customer.upsert`, `point.adjust`, and `payment.record` (now carrying `pointsUsed` / `pointsEarned` /
+  `customerPhone`, plus `pointsReclaimed` on refunds).
+
+### Frontend
+
+- `src/lib/points.js` — API wrappers, `maxUsablePoints`, phone formatting/normalizing, entry labels.
+- `src/views/Tablet/TabletAdminView.vue` — the payment modal gains a 포인트 section (phone lookup → balance →
+  사용 포인트 with a 최대 button → earn preview); the 결제 금액 math subtracts used points, and the completion modal
+  shows 사용 / 적립 / 남은 포인트.
+- `src/views/Admin/AdminPointHistoryView.vue` (`/admin/points`, "포인트 관리") — phone/date filters, summary cards
+  (적립 / 사용 / 소멸 / 조정 / 미사용 잔액), customer card with memo, OWNER-only 조정 form, and the ledger table.
+
+### Deploy checklist
+
+1. `docker compose --profile tools build migrate && docker compose run --rm migrate` (applies `points.sql`)
+2. `docker compose up -d --force-recreate api`
+3. Vercel redeploy (new `/api/points` rewrites)
+
+### Verification (local)
+
+- `npm run smoke` (server, embedded Postgres) — **169/169 통과**, including the new `points ledger (P5)` block:
+  rules, permission matrix (STAFF can read/adjust → 403), earn on a 50,000원 card payment, redemption guards
+  (미만 / 단위 / 3만원 미만 / 잔액 초과 / 전화번호 없음), 성공 사용 (3,000P + 37,000원 카드), ledger totals,
+  refund clawback, and lazy expiry writing an `EXPIRE` row.
+- `pnpm lint` — 통과 (3 files auto-fixed).
+- `pnpm build` — 성공 (기존 bundle-size warning 3건만 존재).
+
+### Known nuances
+
+- Expiry only materializes when the customer is read or a balance changes; the liability card filters
+  `expires_at > now()`, so totals stay correct without a cron.
+- A refund claws back earned points but **does not restore points that were spent** on that payment
+  (open question #5).
+- The phone number is the only customer key right now — a typo creates a second customer row instead of merging.
+
+---
+
 ## 4. Open questions
 
-1. **₩30,000 point-redemption threshold**: before or after discount? (currently assumed after)
+1. ~~**₩30,000 point-redemption threshold**: before or after discount?~~ → **resolved in P5**: after discount, before point deduction.
 2. Kakao: does a Kakao channel / app already exist, or fully from scratch? (P4 scaffold is ready either way — see §3-4)
 3. P3: should a refund mark the sheet `REFUNDED` instead of deriving back to `UNPAID`? (current: `status` untouched)
 4. P3: is per-order allocation (`orderIds`) needed, or is FIFO by order creation enough?
+5. P5: when a payment is fully refunded, should the points spent on it be restored? (current: no)
+6. P5: should point expiry be materialized by a daily job instead of lazily on read? (current: lazy)
 
 ---
 
@@ -402,9 +485,10 @@ done     p2-order-ownership     enforce order ownership on /rest/v1 (staff/guest
 done     p3-payment-ledger      payments / payment_allocations / refunds schema + API
 done     p3-split-payment       UI + API for split and partial payment
 done     p4-kakao-readiness     Kakao env flag + /api/kakao/status + console/consent checklist (live login in P6)
-pending  p5-points-ledger       point_ledger + earn/redeem/expire/adjust + FEFO
+done     p5-points-ledger       point_ledger + earn/redeem/expire/adjust + FEFO
+done     p5-customer-min        customers table (phone key) + staff-driven attribution at the tablet payment screen
 pending  p6-crm-consent         customer profile + marketing consent + visit history
-assumed  p5-point-basis         redemption threshold counted AFTER discount (open question #1)
+done     p5-point-basis         redemption threshold counted AFTER discount, BEFORE point deduction (confirmed)
 ```
 
 ---

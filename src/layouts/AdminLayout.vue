@@ -126,6 +126,12 @@ const menuList = [
     matchStartsWith: "/admin/payments",
   },
   {
+    to: "/admin/points",
+    label: "포인트 관리",
+    description: "적립·사용 내역과 조정",
+    matchStartsWith: "/admin/points",
+  },
+  {
     to: "/admin/products",
     label: "상품 관리",
     description: "상품 등록 및 수정",

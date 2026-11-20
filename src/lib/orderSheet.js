@@ -261,6 +261,9 @@ export async function completeOrderSheetPayment({
   paymentSplits,
   memo,
   close = true,
+  customerPhone = "",
+  customerName = "",
+  pointsUsed = 0,
 }) {
   const safeOrderSheetId = String(orderSheetId || "").trim();
   const safeTableNumber = normalizeTableNumber(tableNumber);
@@ -294,6 +297,9 @@ export async function completeOrderSheetPayment({
     entries,
     memo,
     close,
+    customerPhone,
+    customerName,
+    pointsUsed: Number(pointsUsed || 0),
   });
 }
 

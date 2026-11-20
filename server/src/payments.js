@@ -7,8 +7,17 @@
 import { randomUUID } from "node:crypto";
 
 import { revokeGuestSessionsForSheet } from "./auth/guestSessions.js";
+import { toBusinessDate } from "./businessDay.js";
 import { pool } from "./db.js";
 import { HttpError } from "./http/errors.js";
+import {
+  clawbackForRefund,
+  earnPointsForPayment,
+  ensureCustomer,
+  redeemPointsForPayment,
+} from "./points.js";
+
+export { toBusinessDate };
 
 export const PAYMENT_METHODS = [
   "CARD",
@@ -33,21 +42,6 @@ const MAX_ENTRIES = 20;
 const MAX_PAYER_LABEL = 24;
 const MAX_MEMO = 200;
 const MAX_REASON = 200;
-
-const BUSINESS_DAY_START_HOUR = 15;
-
-// 영업일: 15:00(KST) 에 넘어갑니다. src/lib/businessDay.js 와 같은 규칙입니다.
-export function toBusinessDate(date = new Date()) {
-  const kst = new Date(
-    (date instanceof Date ? date.getTime() : Date.now()) + 9 * 60 * 60 * 1000
-  );
-
-  if (kst.getUTCHours() < BUSINESS_DAY_START_HOUR) {
-    kst.setUTCDate(kst.getUTCDate() - 1);
-  }
-
-  return kst.toISOString().slice(0, 10);
-}
 
 function trimText(value, maxLength) {
   return String(value ?? "")
@@ -317,7 +311,7 @@ export async function getSheetLedger(orderSheetId, { client = pool } = {}) {
   const { rows: sheetRows } = await client.query(
     `select id, table_number, display_name, status, payment_status, payment_method,
             total_amount, original_amount, discount_total, discounts, paid_amount,
-            paid_at, closed_at
+            points_used, paid_at, closed_at
        from public.order_sheets
       where id = $1`,
     [safeId]
@@ -359,6 +353,7 @@ export async function getSheetLedger(orderSheetId, { client = pool } = {}) {
     originalAmount: Number(sheet.original_amount ?? totalAmount),
     discountTotal: Number(sheet.discount_total || 0),
     discounts: Array.isArray(sheet.discounts) ? sheet.discounts : [],
+    pointsUsed: Number(sheet.points_used || 0),
     paidAmount: paid,
     refundedAmount: refunded,
     settledAmount: settled,
@@ -380,6 +375,9 @@ export async function recordPayment({
   entries,
   memo = "",
   close = true,
+  customerPhone = "",
+  customerName = "",
+  pointsUsed = 0,
   employee = null,
   ip = "",
   log = null,
@@ -408,12 +406,14 @@ export async function recordPayment({
     }
 
     let totalAmount = Number(sheet.total_amount || 0);
+    let grossAmount = null;
 
     if (originalAmount !== null && originalAmount !== undefined) {
       const base = readNonNegativeInt(originalAmount, "주문 금액을 확인해 주세요.");
       const computed = computeDiscountTotal(base, discounts);
 
-      totalAmount = Math.max(0, base - computed.total);
+      grossAmount = Math.max(0, base - computed.total);
+      totalAmount = grossAmount;
 
       await client.query(
         `update public.order_sheets
@@ -423,8 +423,51 @@ export async function recordPayment({
                 total_amount = $5,
                 updated_at = now()
           where id = $1`,
-        [safeId, base, computed.total, JSON.stringify(computed.discounts), totalAmount]
+        [safeId, base, computed.total, JSON.stringify(computed.discounts), grossAmount]
       );
+    }
+
+    // 포인트는 할인 다음 단계에서 차감합니다(사용/적립 모두 서버가 검증).
+    const requestedPoints = Number(pointsUsed || 0);
+    const customerPhoneText = String(customerPhone || "").trim();
+    let customer = null;
+
+    if (requestedPoints > 0) {
+      if (!customerPhoneText) {
+        throw new HttpError(400, "HJ400", "포인트를 사용하려면 고객 전화번호가 필요해요.");
+      }
+
+      customer = await ensureCustomer(client, {
+        phone: customerPhoneText,
+        name: customerName,
+      });
+
+      const paymentBase = grossAmount ?? totalAmount + Number(sheet.points_used || 0);
+
+      await redeemPointsForPayment(client, {
+        customerId: customer.id,
+        points: requestedPoints,
+        paymentAmount: paymentBase,
+        orderSheetId: safeId,
+        employee,
+        occurredAt,
+      });
+
+      totalAmount = Math.max(0, totalAmount - requestedPoints);
+
+      await client.query(
+        `update public.order_sheets
+            set total_amount = $2,
+                points_used = points_used + $3,
+                updated_at = now()
+          where id = $1`,
+        [safeId, totalAmount, requestedPoints]
+      );
+    } else if (customerPhoneText) {
+      customer = await ensureCustomer(client, {
+        phone: customerPhoneText,
+        name: customerName,
+      });
     }
 
     if (totalAmount <= 0) {
@@ -446,8 +489,11 @@ export async function recordPayment({
       );
     }
 
+    const insertedPaymentIds = [];
+
     for (const entry of normalizedEntries) {
       const paymentId = randomUUID();
+      insertedPaymentIds.push(paymentId);
 
       await client.query(
         `insert into public.payments
@@ -474,6 +520,24 @@ export async function recordPayment({
         orderSheetId: safeId,
         amount: entry.amount,
       });
+    }
+
+    // 적립은 할인·포인트 차감 후 실제로 받은 금액 기준입니다.
+    let pointsEarned = 0;
+    let pointsBalanceAfter = null;
+
+    if (customer) {
+      const earned = await earnPointsForPayment(client, {
+        customerId: customer.id,
+        amount: entryTotal,
+        orderSheetId: safeId,
+        paymentId: insertedPaymentIds[0] || null,
+        employee,
+        occurredAt,
+      });
+
+      pointsEarned = earned.points;
+      pointsBalanceAfter = earned.balanceAfter;
     }
 
     const settledAfter = settled + entryTotal;
@@ -523,6 +587,12 @@ export async function recordPayment({
       closed,
       paymentStatus: state.paymentStatus,
       paymentMethod: state.paymentMethod,
+      pointsUsed: requestedPoints,
+      pointsEarned,
+      pointsBalance: pointsBalanceAfter,
+      customer: customer
+        ? { id: customer.id, phone: customer.phone, name: customer.name || "" }
+        : null,
     };
   } catch (error) {
     await client.query("rollback").catch(() => {});
@@ -584,13 +654,15 @@ export async function refundPayment({
       );
     }
 
+    const refundId = randomUUID();
+
     await client.query(
       `insert into public.refunds
          (id, payment_id, order_sheet_id, business_date, amount, method, reason,
           employee_id, employee_name, occurred_at)
        values ($1, $2, $3, $4::date, $5, $6, $7, $8, $9, $10)`,
       [
-        randomUUID(),
+        refundId,
         safePaymentId,
         payment.order_sheet_id,
         toBusinessDate(occurredAt),
@@ -602,6 +674,28 @@ export async function refundPayment({
         occurredAt,
       ]
     );
+
+    // 환불한 만큼 적립 포인트를 회수합니다(잔액 범위 안에서만).
+    // 포인트 회수 실패가 환불 자체를 막지는 않도록 savepoint 로 분리합니다.
+    let pointsReclaimed = 0;
+
+    await client.query("savepoint points_clawback");
+
+    try {
+      const reclaimed = await clawbackForRefund(client, {
+        orderSheetId: payment.order_sheet_id,
+        refundAmount,
+        refundId,
+        employee,
+        occurredAt,
+      });
+
+      pointsReclaimed = reclaimed ? Math.abs(Number(reclaimed.points || 0)) : 0;
+      await client.query("release savepoint points_clawback");
+    } catch (error) {
+      await client.query("rollback to savepoint points_clawback").catch(() => {});
+      log?.warn?.(`[payments] 포인트 회수 실패: ${error.message}`);
+    }
 
     // 배분 내역도 되돌립니다(최근 것부터).
     let left = refundAmount;
@@ -644,7 +738,7 @@ export async function refundPayment({
 
     const ledger = await getSheetLedger(payment.order_sheet_id);
 
-    return { ...ledger, justRefundedAmount: refundAmount };
+    return { ...ledger, justRefundedAmount: refundAmount, pointsReclaimed };
   } catch (error) {
     await client.query("rollback").catch(() => {});
     throw error;

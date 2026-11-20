@@ -21,6 +21,8 @@ server/
 │  ├─ tables.js           허용 테이블 화이트리스트
 │  ├─ guest.js            손님 입장(테이블 확인 + 열린 주문서 준비)
 │  ├─ payments.js         결제 원장(부분/분할 결제, 환불, 주문서 상태 동기화)
+│  ├─ points.js           포인트 원장(적립/사용/소멸/조정, FEFO 차감) + 고객 최소 테이블
+│  ├─ businessDay.js       영업일 계산(15:00 KST 기준) 공용 헬퍼
 │  ├─ kakao.js            카카오 로그인 준비(P4) — 활성 여부 + authorize URL 조립
 │  ├─ http/
 │  │  ├─ sql.js           필터/정렬/select → SQL (식별자 검증)
@@ -42,6 +44,7 @@ server/
 │     ├─ staffAuth.js     /api/staff/{login,logout,me,password}
 │     ├─ guest.js         /api/guest/{table,session,logout}
 │     ├─ payments.js      /api/payments, /api/payments/sheet/:id, /api/payments/:id/refund
+│     ├─ points.js        /api/points/{rules,customer,ledger,adjust}
 │     ├─ kakao.js         /api/kakao/status (P4 준비용 상태 확인)
 │     └─ admin.js         /api/admin/employees, /api/admin/audit-logs, /api/admin/tables
 ├─ sql/
@@ -49,7 +52,8 @@ server/
 │  ├─ events.sql          변경 알림 트리거(pg_notify)
 │  ├─ staff.sql           직원/세션/감사로그 테이블
 │  ├─ guest.sql           손님 세션(guest_sessions) + orders.guest_* 컬럼
-│  └─ payments.sql        결제 원장(payments/payment_allocations/refunds) + order_sheets.paid_amount
+│  ├─ payments.sql        결제 원장(payments/payment_allocations/refunds) + order_sheets.paid_amount
+│  └─ points.sql          포인트 원장(point_ledger/point_allocations) + customers + order_sheets.points_used
 ├─ scripts/
 │  ├─ apply-schema.mjs    스키마 적용(멱등)
 │  ├─ import-supabase-export.mjs  Supabase CSV 백업 가져오기(멱등)
@@ -229,11 +233,16 @@ psql "$DATABASE_URL" -f supabase_data.sql
 | `PATCH` | `/api/admin/tables/:tableNumber` | 구역/좌석/표시이름/정렬/사용여부/메모 수정 (`settings.manage`) |
 | `GET` | `/api/payments` | 결제 원장 조회(`from`, `to`, `limit`) + 수단별/환불 집계 (`payment.view`) |
 | `GET` | `/api/payments/sheet/:orderSheetId` | 주문서별 결제/환불 내역과 남은 금액 (`payment.view`) |
-| `POST` | `/api/payments` | 결제 기록(`orderSheetId`, `originalAmount`, `discounts`, `entries[]`, `memo`, `close`) (`payment.manage`) |
+| `POST` | `/api/payments` | 결제 기록(`orderSheetId`, `originalAmount`, `discounts`, `entries[]`, `memo`, `close`, `customerPhone`, `customerName`, `pointsUsed`) (`payment.manage`) |
 | `POST` | `/api/payments/:paymentId/refund` | 환불(`amount`, `reason`) — 결제 건별 부분 환불 가능 (`payment.refund`) |
+| `GET` | `/api/points/rules` | 포인트 규칙(적립률/최소 사용/단위/결제 하한/유효기간) (`point.use`) |
+| `GET` | `/api/points/customer` | 전화번호(`phone`) 또는 `customerId` 로 잔액·소멸예정·최근 이력 조회 (`point.use`) |
+| `POST` | `/api/points/customer` | 고객 이름/메모 저장(없으면 생성) — 포인트는 건드리지 않음 (`point.use`) |
+| `GET` | `/api/points/ledger` | 포인트 원장 조회(`from`, `to`, `phone`, `customerId`, `limit`) + 총계 (`customer.view`) |
+| `POST` | `/api/points/adjust` | 포인트 수동 조정(`phone`/`customerId`, `points`, `reason`) (`point.adjust`, 사장 전용) |
 | `GET` | `/api/kakao/status` | 카카오 로그인 준비 상태(`enabled`, `redirectUri`, `authorizeUrl`) — 키가 없으면 모두 비어 있음 (P4) |
 
-> `/api/staff/*` · `/api/admin/*` · `/api/guest/*` · `/api/payments/*` · `/api/kakao/*` 도 전역 `apikey` 검사를 통과해야 합니다(프런트엔드 `src/lib/api.js` 가 자동으로 붙입니다).
+> `/api/staff/*` · `/api/admin/*` · `/api/guest/*` · `/api/payments/*` · `/api/points/*` · `/api/kakao/*` 도 전역 `apikey` 검사를 통과해야 합니다(프런트엔드 `src/lib/api.js` 가 자동으로 붙입니다).
 > 세션 토큰은 DB 에 **sha256 해시로만** 저장되며, 평문은 쿠키에만 존재합니다.
 > `bar_tables`(테이블 마스터)는 `/rest/v1` 로 **읽기만** 가능합니다(쓰기 요청은 403). 수정은 위 `PATCH /api/admin/tables/:tableNumber` 로만 합니다.
 > **손님 범위(P2)**: `/rest/v1` 의 `orders` · `order_sheets` · `active_order_sheets` 는 `hj_guest`(손님) 또는 `hj_staff`(직원)
@@ -244,6 +253,10 @@ psql "$DATABASE_URL" -f supabase_data.sql
 > **카카오 로그인(P4)**: 아직 로그인 기능은 없고 준비만 된 상태입니다. `KAKAO_REST_API_KEY` + `KAKAO_REDIRECT_URI` 가
 > 둘 다 있을 때만 `/api/kakao/status` 가 `enabled:true` 를 돌려주고, 그 전에는 프런트엔드가 카카오 버튼을 숨깁니다.
 > 키/시크릿은 서버에만 두고 번들에 넣지 않습니다.
+> **포인트(P5)**: `customers` · `point_ledger` · `point_allocations` 는 `/rest/v1` 화이트리스트에 없어 404 입니다.
+> 적립·사용은 결제(`POST /api/payments` 의 `customerPhone` / `pointsUsed`) 안에서만 처리되고,
+> 잔액은 `point_ledger.points` 합계, 만료는 조회 시점에 `EXPIRE` 행으로 확정됩니다.
+> 계산 규칙(적립 1% · 1,000P 이상 1,000P 단위 · 결제 3만원 이상 · 유효기간 3개월)은 `src/points.js` 의 `POINT_RULES` 하나로 관리합니다.
 
 지원 필터: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `is`, `like`, `ilike`, `cs`(contains), `cd`, `ov`.
 지원 헤더: `Prefer: return=representation|minimal`, `count=exact|planned|estimated`, `resolution=merge-duplicates|ignore-duplicates`, `Accept: application/vnd.pgrst.object+json`, `Range: 0-9`.

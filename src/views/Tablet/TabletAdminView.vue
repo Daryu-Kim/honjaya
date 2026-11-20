@@ -907,9 +907,17 @@
               <span>할인 합계</span>
               <strong>-{{ formatPrice(paymentDiscountTotal) }}원</strong>
             </div>
+            <div v-if="paymentPointsUsed > 0" class="modal-info-row">
+              <span>포인트 사용</span>
+              <strong>-{{ formatPrice(paymentPointsUsed) }}P</strong>
+            </div>
             <div class="modal-info-row">
               <span>최종 결제 금액</span>
-              <strong>{{ formatPrice(paymentPayableAmount) }}원</strong>
+              <strong
+                >{{
+                  formatPrice(paymentPayableAmount - paymentPointsUsed)
+                }}원</strong
+              >
             </div>
             <div v-if="paymentModalState.paidAmount > 0" class="modal-info-row">
               <span>이미 결제된 금액</span>
@@ -980,6 +988,113 @@
                 </button>
               </div>
             </div>
+          </div>
+
+          <div class="modal-section">
+            <div class="section-title-row">
+              <h4>포인트</h4>
+              <div class="section-action-row">
+                <button
+                  type="button"
+                  class="quick-button"
+                  :disabled="paymentPointState.loading"
+                  @click="lookupPaymentCustomer"
+                >
+                  {{ paymentPointState.loading ? "조회 중..." : "조회" }}
+                </button>
+              </div>
+            </div>
+
+            <div class="payment-edit-row points-phone-row">
+              <input
+                :value="paymentModalState.customerPhone"
+                type="tel"
+                inputmode="numeric"
+                maxlength="13"
+                placeholder="고객 전화번호 (적립·사용)"
+                @input="onPaymentPhoneInput"
+                @keyup.enter="lookupPaymentCustomer"
+              />
+            </div>
+
+            <p v-if="!paymentPointState.loaded" class="modal-empty-text">
+              전화번호를 입력하면 보유 포인트를 조회할 수 있어요. 입력하지
+              않으면 포인트 적립은 되지 않아요.
+            </p>
+            <p
+              v-else-if="paymentPointState.customerId"
+              class="modal-empty-text"
+            >
+              {{ paymentPointState.name || "고객" }} · 보유
+              {{ formatPrice(paymentPointState.balance) }}P
+            </p>
+            <p v-else class="modal-empty-text">
+              처음 방문한 고객이에요. 결제하면 포인트가 적립돼요.
+            </p>
+
+            <p
+              v-if="paymentPointState.expiringSoon.length > 0"
+              class="modal-empty-text points-expiring-text"
+            >
+              곧 소멸:
+              <template
+                v-for="(lot, index) in paymentPointState.expiringSoon"
+                :key="`expiring-${index}`"
+              >
+                <span v-if="index > 0"> · </span>
+                {{ formatPrice(lot.points) }}P ({{
+                  formatPointDate(lot.expiresAt)
+                }})
+              </template>
+            </p>
+
+            <div
+              v-if="paymentPointState.loaded && paymentPointState.balance > 0"
+              class="payment-edit-row points-use-row"
+            >
+              <input
+                v-model.number="paymentPointInput"
+                type="number"
+                min="0"
+                step="1000"
+                placeholder="사용할 포인트"
+                :disabled="Boolean(paymentPointsBlockedReason)"
+              />
+              <button
+                type="button"
+                class="quick-button"
+                :disabled="paymentMaxUsablePoints <= 0"
+                @click="applyMaxPaymentPoints"
+              >
+                최대
+              </button>
+            </div>
+
+            <p v-if="paymentPointsBlockedReason" class="modal-empty-text">
+              {{ paymentPointsBlockedReason }}
+            </p>
+            <p v-else-if="paymentPointsUsed > 0" class="modal-empty-text">
+              {{ formatPrice(paymentPointsUsed) }}P 사용 · 결제 금액에서
+              차감돼요.
+            </p>
+            <p
+              v-else-if="paymentPointState.loaded && paymentMaxUsablePoints > 0"
+              class="modal-empty-text"
+            >
+              최대 {{ formatPrice(paymentMaxUsablePoints) }}P까지 사용할 수
+              있어요.
+            </p>
+
+            <p
+              v-if="
+                paymentPointsEarnPreview > 0 &&
+                normalizePhoneNumber(paymentModalState.customerPhone).length >=
+                  10
+              "
+              class="modal-empty-text points-earn-text"
+            >
+              이번 결제로 {{ formatPrice(paymentPointsEarnPreview) }}P 적립 예정
+            </p>
           </div>
 
           <div class="modal-section">
@@ -1137,6 +1252,39 @@
               <span>이번 결제 금액</span>
               <strong
                 >{{ formatPrice(paymentCompleteModalState.amount) }}원</strong
+              >
+            </div>
+            <div
+              v-if="paymentCompleteModalState.pointsUsed > 0"
+              class="modal-info-row"
+            >
+              <span>사용 포인트</span>
+              <strong
+                >-{{
+                  formatPrice(paymentCompleteModalState.pointsUsed)
+                }}P</strong
+              >
+            </div>
+            <div
+              v-if="paymentCompleteModalState.pointsEarned > 0"
+              class="modal-info-row"
+            >
+              <span>적립 포인트</span>
+              <strong
+                >+{{
+                  formatPrice(paymentCompleteModalState.pointsEarned)
+                }}P</strong
+              >
+            </div>
+            <div
+              v-if="paymentCompleteModalState.pointsBalance !== null"
+              class="modal-info-row"
+            >
+              <span>남은 포인트</span>
+              <strong
+                >{{
+                  formatPrice(paymentCompleteModalState.pointsBalance)
+                }}P</strong
               >
             </div>
             <div
@@ -1531,6 +1679,15 @@ import {
   PAYMENT_METHOD_OPTIONS as paymentMethodOptions,
 } from "@/lib/payments";
 import {
+  DEFAULT_POINT_RULES,
+  fetchCustomerPoints,
+  fetchPointRules,
+  formatPhoneInput,
+  formatPointDate,
+  maxUsablePoints,
+  normalizePhoneNumber,
+} from "@/lib/points";
+import {
   isDemographicOrderSheetTag,
   normalizeOrderSheetTags,
 } from "@/lib/orderSheetTags";
@@ -1568,6 +1725,8 @@ const paymentModalState = ref({
   paidAmount: 0,
   discounts: [],
   paymentSplits: [],
+  customerPhone: "",
+  customerName: "",
 });
 
 const paymentCompleteModalState = ref({
@@ -1581,6 +1740,23 @@ const paymentCompleteModalState = ref({
   isPartial: false,
   remainingAmount: 0,
   paymentSplits: [],
+  pointsUsed: 0,
+  pointsEarned: 0,
+  pointsBalance: null,
+  customerPhone: "",
+});
+
+// 포인트는 직원이 고객 전화번호로 조회해서 적용합니다.
+const paymentPointRules = ref({ ...DEFAULT_POINT_RULES });
+const paymentPointInput = ref(0);
+const paymentPointState = ref({
+  loading: false,
+  loaded: false,
+  customerId: "",
+  balance: 0,
+  name: "",
+  phone: "",
+  expiringSoon: [],
 });
 
 const orderSheetTagPresets = [
@@ -2063,10 +2239,59 @@ const paymentPayableAmount = computed(() => {
 });
 
 // 이미 부분 결제된 금액을 빼고, 이번에 받아야 할 금액입니다.
+const paymentPointBalance = computed(() =>
+  Number(paymentPointState.value.balance || 0)
+);
+
+// 이번 결제에 실제로 적용 가능한 포인트(보유 잔액·결제 금액·1,000P 단위 반영).
+const paymentMaxUsablePoints = computed(() =>
+  maxUsablePoints({
+    balance: paymentPointBalance.value,
+    paymentAmount: paymentPayableAmount.value,
+    rules: paymentPointRules.value,
+  })
+);
+
+const paymentPointsUsed = computed(() => {
+  const requested = Math.floor(Number(paymentPointInput.value || 0));
+
+  if (!Number.isFinite(requested) || requested <= 0) return 0;
+
+  return Math.min(requested, paymentMaxUsablePoints.value);
+});
+
+// 포인트 사용 최소 결제 금액(기본 30,000원)을 넘지 않으면 사용할 수 없습니다.
+const paymentPointsBlockedReason = computed(() => {
+  const rules = paymentPointRules.value;
+
+  if (paymentPointBalance.value <= 0) return "";
+  if (paymentPayableAmount.value < Number(rules.redeemMinPayment || 0)) {
+    return `포인트는 결제 금액 ${formatPrice(
+      rules.redeemMinPayment
+    )}원 이상부터 사용할 수 있어요.`;
+  }
+
+  if (paymentPointBalance.value < Number(rules.minRedeem || 1000)) {
+    return `포인트는 ${formatPrice(
+      rules.minRedeem
+    )}P 이상 모이면 사용할 수 있어요.`;
+  }
+
+  return "";
+});
+
+const paymentPointsEarnPreview = computed(() => {
+  const rate = Number(paymentPointRules.value.earnRate || 0);
+
+  return Math.floor(Math.max(0, paymentSplitTotal.value) * rate);
+});
+
 const paymentDueAmount = computed(() => {
   return Math.max(
     0,
-    paymentPayableAmount.value - Number(paymentModalState.value.paidAmount || 0)
+    paymentPayableAmount.value -
+      paymentPointsUsed.value -
+      Number(paymentModalState.value.paidAmount || 0)
   );
 });
 
@@ -2229,6 +2454,94 @@ function fillPaymentSplitRemaining(split) {
   );
 
   split.amount = Math.max(0, paymentDueAmount.value - otherTotal);
+}
+
+function resetPaymentPointState() {
+  paymentPointInput.value = 0;
+  paymentPointState.value = {
+    loading: false,
+    loaded: false,
+    customerId: "",
+    balance: 0,
+    name: "",
+    phone: "",
+    expiringSoon: [],
+  };
+}
+
+function onPaymentPhoneInput(event) {
+  const formatted = formatPhoneInput(event.target.value);
+
+  paymentModalState.value.customerPhone = formatted;
+
+  if (event.target.value !== formatted) {
+    event.target.value = formatted;
+  }
+
+  // 번호를 새로 입력하면 이전 조회 결과/사용 포인트는 초기화합니다.
+  if (normalizePhoneNumber(formatted) !== paymentPointState.value.phone) {
+    paymentPointState.value = {
+      loading: false,
+      loaded: false,
+      customerId: "",
+      balance: 0,
+      name: "",
+      phone: "",
+      expiringSoon: [],
+    };
+    paymentPointInput.value = 0;
+  }
+}
+
+async function lookupPaymentCustomer() {
+  const phone = normalizePhoneNumber(paymentModalState.value.customerPhone);
+
+  if (phone.length < 10) {
+    alert("고객 전화번호를 정확히 입력해 주세요.");
+    return;
+  }
+
+  paymentPointState.value = { ...paymentPointState.value, loading: true };
+
+  try {
+    const result = await fetchCustomerPoints({ phone, historyLimit: 5 });
+
+    paymentPointState.value = {
+      loading: false,
+      loaded: true,
+      customerId: result?.customer?.id || "",
+      balance: Number(result?.balance || 0),
+      name: result?.customer?.name || "",
+      phone: result?.customer?.phone || phone,
+      expiringSoon: Array.isArray(result?.expiringSoon)
+        ? result.expiringSoon
+        : [],
+    };
+
+    paymentModalState.value.customerName = paymentPointState.value.name;
+    paymentPointInput.value = 0;
+  } catch (error) {
+    console.error("포인트 조회 실패:", error);
+    resetPaymentPointState();
+    alert(error?.message || "포인트를 조회하지 못했어요.");
+  }
+}
+
+function applyMaxPaymentPoints() {
+  paymentPointInput.value = paymentMaxUsablePoints.value;
+}
+
+// 적립률/최소 사용 단위 같은 규칙은 서버 값을 그대로 씁니다.
+async function loadPaymentPointRules() {
+  try {
+    const rules = await fetchPointRules();
+
+    if (rules && typeof rules === "object") {
+      paymentPointRules.value = { ...DEFAULT_POINT_RULES, ...rules };
+    }
+  } catch (error) {
+    console.error("포인트 규칙 조회 실패:", error);
+  }
 }
 
 function getHiddenPreviewCount(table) {
@@ -2981,6 +3294,8 @@ function openTablePaymentModal(table) {
   const paidAmount = Number(table.paidAmount || 0);
   const dueAmount = Math.max(0, amount - paidAmount);
 
+  resetPaymentPointState();
+
   paymentModalState.value = {
     isOpen: true,
     orderSheetId: table.orderSheetId || "",
@@ -2991,10 +3306,14 @@ function openTablePaymentModal(table) {
     paidAmount,
     discounts: [],
     paymentSplits: [createPaymentSplit("CARD", dueAmount)],
+    customerPhone: "",
+    customerName: "",
   };
 }
 
 function closePaymentModal() {
+  resetPaymentPointState();
+
   paymentModalState.value = {
     isOpen: false,
     orderSheetId: "",
@@ -3005,6 +3324,8 @@ function closePaymentModal() {
     paidAmount: 0,
     discounts: [],
     paymentSplits: [],
+    customerPhone: "",
+    customerName: "",
   };
 }
 
@@ -3020,6 +3341,10 @@ function closePaymentCompleteModal() {
     isPartial: false,
     remainingAmount: 0,
     paymentSplits: [],
+    pointsUsed: 0,
+    pointsEarned: 0,
+    pointsBalance: null,
+    customerPhone: "",
   };
 }
 
@@ -3038,7 +3363,9 @@ async function completePayment() {
   );
   const payableAmount = Math.max(0, originalAmount - discountTotal);
   const alreadyPaidAmount = Number(state.paidAmount || 0);
-  const dueAmount = Math.max(0, payableAmount - alreadyPaidAmount);
+  const pointsUsed = paymentPointsUsed.value;
+  const customerPhone = normalizePhoneNumber(state.customerPhone);
+  const dueAmount = Math.max(0, payableAmount - pointsUsed - alreadyPaidAmount);
   const paymentSplits = normalizePaymentSplits(state.paymentSplits);
   const splitTotal = paymentSplits.reduce(
     (acc, split) => acc + Number(split.amount || 0),
@@ -3049,6 +3376,28 @@ async function completePayment() {
   if (payableAmount <= 0) {
     alert("결제 금액이 0원이라 결제를 처리할 수 없어요.");
     return;
+  }
+
+  if (pointsUsed > 0) {
+    const rules = paymentPointRules.value;
+    const step = Number(rules.redeemStep || 1000);
+
+    if (customerPhone.length < 10) {
+      alert("포인트를 사용하려면 고객 전화번호를 입력해 주세요.");
+      return;
+    }
+
+    if (
+      pointsUsed < Number(rules.minRedeem || 1000) ||
+      pointsUsed % step !== 0
+    ) {
+      alert(
+        `포인트는 ${formatPrice(rules.minRedeem)}P 이상 ${formatPrice(
+          step
+        )}P 단위로 사용할 수 있어요.`
+      );
+      return;
+    }
   }
 
   if (paymentSplits.length === 0) {
@@ -3078,14 +3427,16 @@ async function completePayment() {
     try {
       await recalculateOrderSheetTotals(state.orderSheetId);
 
-      await completeOrderSheetPayment({
+      const paymentResult = await completeOrderSheetPayment({
         orderSheetId: state.orderSheetId,
         tableNumber: state.tableNumber,
         originalAmount,
-        totalAmount: payableAmount,
         discounts,
         paymentSplits,
         close: !isPartial,
+        customerPhone,
+        customerName: state.customerName,
+        pointsUsed,
       });
 
       paymentCompleteModalState.value = {
@@ -3099,6 +3450,14 @@ async function completePayment() {
         isPartial,
         remainingAmount: remainingAfterPayment,
         paymentSplits,
+        pointsUsed: Number(paymentResult?.pointsUsed || 0),
+        pointsEarned: Number(paymentResult?.pointsEarned || 0),
+        pointsBalance:
+          paymentResult?.pointsBalance === undefined ||
+          paymentResult?.pointsBalance === null
+            ? null
+            : Number(paymentResult.pointsBalance),
+        customerPhone: paymentResult?.customer?.phone || customerPhone,
       };
 
       playNotificationSound("paymentComplete", { silent: true });
@@ -3301,6 +3660,7 @@ onMounted(() => {
   subscribeOrders();
   subscribeCategories();
   subscribeProducts();
+  loadPaymentPointRules();
 });
 
 onUnmounted(() => {
@@ -4203,6 +4563,18 @@ onUnmounted(() => {
 }
 .payment-edit-row.split-row {
   grid-template-columns: 108px minmax(0, 0.9fr) minmax(0, 1fr) auto auto;
+}
+.payment-edit-row.points-phone-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+.payment-edit-row.points-use-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.points-expiring-text {
+  color: rgba(253, 224, 71, 0.9);
+}
+.points-earn-text {
+  color: rgba(134, 239, 172, 0.9);
 }
 .payment-edit-row input,
 .payment-edit-row select {

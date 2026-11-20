@@ -8,6 +8,7 @@ import { registerAdminRoutes } from "./routes/api/admin.js";
 import { registerGuestRoutes } from "./routes/api/guest.js";
 import { registerKakaoRoutes } from "./routes/api/kakao.js";
 import { registerPaymentRoutes } from "./routes/api/payments.js";
+import { registerPointRoutes } from "./routes/api/points.js";
 import { registerStaffAuthRoutes } from "./routes/api/staffAuth.js";
 import { registerEventRoutes } from "./routes/events.js";
 import { registerRestRoutes } from "./routes/rest.js";
@@ -185,6 +186,7 @@ export async function buildApp(options = {}) {
       "/api/staff/login",
       "/api/admin/employees",
       "/api/payments",
+      "/api/points",
       "/api/kakao/status",
       "/health",
     ],
@@ -197,6 +199,7 @@ export async function buildApp(options = {}) {
   registerStaffAuthRoutes(app);
   registerAdminRoutes(app);
   registerPaymentRoutes(app);
+  registerPointRoutes(app);
   registerKakaoRoutes(app);
 
   return app;

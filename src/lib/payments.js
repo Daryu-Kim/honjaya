@@ -44,6 +44,7 @@ export function fetchPaymentLedger({ from = "", to = "", limit = 200 } = {}) {
 }
 
 // entries: [{ method, amount, payerLabel }]
+// customerPhone/pointsUsed 를 넘기면 서버가 포인트 사용·적립까지 함께 처리합니다.
 export function recordSheetPayment({
   orderSheetId,
   originalAmount,
@@ -51,6 +52,9 @@ export function recordSheetPayment({
   entries = [],
   memo = "",
   close = true,
+  customerPhone = "",
+  customerName = "",
+  pointsUsed = 0,
 }) {
   return apiPost("/api/payments", {
     orderSheetId,
@@ -59,6 +63,9 @@ export function recordSheetPayment({
     entries,
     memo,
     close,
+    customerPhone,
+    customerName,
+    pointsUsed,
   });
 }
 

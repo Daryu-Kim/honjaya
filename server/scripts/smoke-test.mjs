@@ -684,6 +684,390 @@ try {
     kakaoStatus.body
   );
 
+  // ---------------------------------------------------------------- points ledger (P5)
+  // 규칙: 적립 1%(원 단위 버림) · 사용은 1,000P 이상 1,000P 단위 · 결제 3만원 이상 · 유효기간 3개월
+  const pointRules = await app.inject({
+    method: "GET",
+    url: "/api/points/rules",
+    headers: { cookie: staffCookie },
+  });
+  check("P5 포인트 규칙 조회 → 200", pointRules.statusCode === 200, pointRules.body);
+  equal("P5 포인트 규칙 → 적립률 1%", pointRules.json().earnRate, 0.01);
+  equal("P5 포인트 규칙 → 최소 사용 1,000P", pointRules.json().minRedeem, 1000);
+  equal("P5 포인트 규칙 → 1,000P 단위", pointRules.json().redeemStep, 1000);
+  equal("P5 포인트 규칙 → 결제 3만원 이상", pointRules.json().redeemMinPayment, 30000);
+  equal("P5 포인트 규칙 → 유효기간 3개월", pointRules.json().expiryMonths, 3);
+
+  const anonPoints = await app.inject({
+    method: "GET",
+    url: "/api/points/customer?phone=01055556666",
+  });
+  check("P5 비로그인 포인트 조회 → 401", anonPoints.statusCode === 401, anonPoints.body);
+
+  const guestPoints = await app.inject({
+    method: "GET",
+    url: "/api/points/customer?phone=01055556666",
+    headers: { cookie: guestCookie },
+  });
+  check("P5 손님 포인트 조회 → 401", guestPoints.statusCode === 401, guestPoints.body);
+
+  const noPhoneLookup = await app.inject({
+    method: "GET",
+    url: "/api/points/customer",
+    headers: { cookie: staffCookie },
+  });
+  check("P5 전화번호 없이 조회 → 400", noPhoneLookup.statusCode === 400, noPhoneLookup.body);
+
+  const unknownPhoneLookup = await app.inject({
+    method: "GET",
+    url: "/api/points/customer?phone=01099998888",
+    headers: { cookie: staffCookie },
+  });
+  check(
+    "P5 없는 고객 조회 → 빈 잔액",
+    unknownPhoneLookup.statusCode === 200 &&
+      unknownPhoneLookup.json().customer === null &&
+      unknownPhoneLookup.json().balance === 0,
+    unknownPhoneLookup.body
+  );
+
+  const p5EarnSheet = await app.inject({
+    method: "POST",
+    url: "/rest/v1/order_sheets?select=*",
+    headers: {
+      prefer: "return=representation",
+      "content-type": "application/json",
+      cookie: staffCookie,
+    },
+    payload: {
+      id: "sheet-p5-earn",
+      sequence_no: 9101,
+      business_date: new Date().toISOString(),
+      table_number: "9",
+      display_name: "No.9",
+      total_amount: 50000,
+      order_count: 1,
+    },
+  });
+  check("P5 주문서 생성 → 201", p5EarnSheet.statusCode === 201, p5EarnSheet.body);
+
+  const p5EarnPayment = await app.inject({
+    method: "POST",
+    url: "/api/payments",
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: {
+      orderSheetId: "sheet-p5-earn",
+      originalAmount: 50000,
+      entries: [{ method: "CARD", amount: 50000 }],
+      close: true,
+      customerPhone: "010-5555-6666",
+      customerName: "포인트손님",
+    },
+  });
+  check("P5 적립 결제 → 200", p5EarnPayment.statusCode === 200, p5EarnPayment.body);
+  equal("P5 적립 결제 → 1% 적립", p5EarnPayment.json().pointsEarned, 500);
+  equal("P5 적립 결제 → 잔액 500P", p5EarnPayment.json().pointsBalance, 500);
+  equal(
+    "P5 적립 결제 → 전화번호 정규화",
+    p5EarnPayment.json().customer?.phone,
+    "01055556666"
+  );
+
+  const p5CustomerLookup = await app.inject({
+    method: "GET",
+    url: "/api/points/customer?phone=01055556666",
+    headers: { cookie: staffCookie },
+  });
+  check("P5 고객 포인트 조회 → 200", p5CustomerLookup.statusCode === 200, p5CustomerLookup.body);
+  equal("P5 고객 포인트 조회 → 잔액", p5CustomerLookup.json().balance, 500);
+  equal("P5 고객 포인트 조회 → 이름 저장", p5CustomerLookup.json().customer?.name, "포인트손님");
+  equal("P5 고객 포인트 조회 → 최근 이력", p5CustomerLookup.json().history[0]?.entryType, "EARN");
+  check(
+    "P5 고객 포인트 조회 → 만료일 3개월 뒤",
+    Boolean(p5CustomerLookup.json().history[0]?.expiresAt),
+    p5CustomerLookup.body
+  );
+
+  // 권한: 조회는 STAFF 가능, 조정/전체 원장은 불가
+  await db.pool.query(
+    `insert into public.employees (id, login_id, password_hash, name, role, is_active)
+     values ('smoke-staff', 'smoke-staff', $1, '스모크직원', 'STAFF', true)`,
+    [await hashPassword(staffPassword)]
+  );
+
+  const staffOnlyLogin = await app.inject({
+    method: "POST",
+    url: "/api/staff/login",
+    headers: { "content-type": "application/json" },
+    payload: { loginId: "smoke-staff", password: staffPassword },
+  });
+  const staffOnlyCookie = toCookieHeader(staffOnlyLogin);
+  check("P5 직원(STAFF) 로그인 → 200", staffOnlyLogin.statusCode === 200, staffOnlyLogin.body);
+
+  const staffPointLookup = await app.inject({
+    method: "GET",
+    url: "/api/points/customer?phone=01055556666",
+    headers: { cookie: staffOnlyCookie },
+  });
+  check("P5 직원(STAFF) 포인트 조회 → 200", staffPointLookup.statusCode === 200, staffPointLookup.body);
+
+  const staffLedgerList = await app.inject({
+    method: "GET",
+    url: "/api/points/ledger?phone=01055556666",
+    headers: { cookie: staffOnlyCookie },
+  });
+  check("P5 직원(STAFF) 전체 원장 조회 → 403", staffLedgerList.statusCode === 403, staffLedgerList.body);
+
+  const staffAdjust = await app.inject({
+    method: "POST",
+    url: "/api/points/adjust",
+    headers: { "content-type": "application/json", cookie: staffOnlyCookie },
+    payload: { phone: "01055556666", points: 1000, reason: "권한 테스트" },
+  });
+  check("P5 직원(STAFF) 포인트 조정 → 403", staffAdjust.statusCode === 403, staffAdjust.body);
+
+  const ownerAdjust = await app.inject({
+    method: "POST",
+    url: "/api/points/adjust",
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: { phone: "01055556666", points: 5000, reason: "테스트 지급" },
+  });
+  check("P5 사장 포인트 조정 → 200", ownerAdjust.statusCode === 200, ownerAdjust.body);
+  equal("P5 사장 포인트 조정 → 잔액 5,500P", ownerAdjust.json().balance, 5500);
+
+  const adjustWithoutReason = await app.inject({
+    method: "POST",
+    url: "/api/points/adjust",
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: { phone: "01055556666", points: 1000, reason: "" },
+  });
+  check("P5 조정 사유 없음 → 400", adjustWithoutReason.statusCode === 400, adjustWithoutReason.body);
+
+  const p5RedeemSheet = await app.inject({
+    method: "POST",
+    url: "/rest/v1/order_sheets?select=*",
+    headers: {
+      prefer: "return=representation",
+      "content-type": "application/json",
+      cookie: staffCookie,
+    },
+    payload: {
+      id: "sheet-p5-redeem",
+      sequence_no: 9102,
+      business_date: new Date().toISOString(),
+      table_number: "12",
+      display_name: "No.12",
+      total_amount: 40000,
+      order_count: 1,
+    },
+  });
+  check("P5 사용 주문서 생성 → 201", p5RedeemSheet.statusCode === 201, p5RedeemSheet.body);
+
+  const p5SmallSheet = await app.inject({
+    method: "POST",
+    url: "/rest/v1/order_sheets?select=*",
+    headers: {
+      prefer: "return=representation",
+      "content-type": "application/json",
+      cookie: staffCookie,
+    },
+    payload: {
+      id: "sheet-p5-small",
+      sequence_no: 9103,
+      business_date: new Date().toISOString(),
+      table_number: "13",
+      display_name: "No.13",
+      total_amount: 25000,
+      order_count: 1,
+    },
+  });
+  check("P5 소액 주문서 생성 → 201", p5SmallSheet.statusCode === 201, p5SmallSheet.body);
+
+  const belowMinRedeem = await app.inject({
+    method: "POST",
+    url: "/api/payments",
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: {
+      orderSheetId: "sheet-p5-redeem",
+      originalAmount: 40000,
+      entries: [{ method: "CARD", amount: 39500 }],
+      close: true,
+      customerPhone: "01055556666",
+      pointsUsed: 500,
+    },
+  });
+  check("P5 1,000P 미만 사용 → 400", belowMinRedeem.statusCode === 400, belowMinRedeem.body);
+
+  const notStepRedeem = await app.inject({
+    method: "POST",
+    url: "/api/payments",
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: {
+      orderSheetId: "sheet-p5-redeem",
+      originalAmount: 40000,
+      entries: [{ method: "CARD", amount: 38500 }],
+      close: true,
+      customerPhone: "01055556666",
+      pointsUsed: 1500,
+    },
+  });
+  check("P5 1,000P 단위 아님 → 400", notStepRedeem.statusCode === 400, notStepRedeem.body);
+
+  const smallPaymentRedeem = await app.inject({
+    method: "POST",
+    url: "/api/payments",
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: {
+      orderSheetId: "sheet-p5-small",
+      originalAmount: 25000,
+      entries: [{ method: "CARD", amount: 22000 }],
+      close: true,
+      customerPhone: "01055556666",
+      pointsUsed: 3000,
+    },
+  });
+  check("P5 3만원 미만 결제 + 포인트 사용 → 400", smallPaymentRedeem.statusCode === 400, smallPaymentRedeem.body);
+
+  const overBalanceRedeem = await app.inject({
+    method: "POST",
+    url: "/api/payments",
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: {
+      orderSheetId: "sheet-p5-redeem",
+      originalAmount: 40000,
+      entries: [{ method: "CARD", amount: 31000 }],
+      close: true,
+      customerPhone: "01055556666",
+      pointsUsed: 9000,
+    },
+  });
+  check("P5 보유 포인트 초과 사용 → 400", overBalanceRedeem.statusCode === 400, overBalanceRedeem.body);
+
+  const noPhoneRedeem = await app.inject({
+    method: "POST",
+    url: "/api/payments",
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: {
+      orderSheetId: "sheet-p5-redeem",
+      originalAmount: 40000,
+      entries: [{ method: "CARD", amount: 37000 }],
+      close: true,
+      pointsUsed: 3000,
+    },
+  });
+  check("P5 전화번호 없이 포인트 사용 → 400", noPhoneRedeem.statusCode === 400, noPhoneRedeem.body);
+
+  const p5RedeemPayment = await app.inject({
+    method: "POST",
+    url: "/api/payments",
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: {
+      orderSheetId: "sheet-p5-redeem",
+      originalAmount: 40000,
+      entries: [{ method: "CARD", amount: 37000 }],
+      close: true,
+      customerPhone: "01055556666",
+      pointsUsed: 3000,
+    },
+  });
+  check("P5 포인트 사용 결제 → 200", p5RedeemPayment.statusCode === 200, p5RedeemPayment.body);
+  equal("P5 포인트 사용 결제 → 사용 포인트", p5RedeemPayment.json().pointsUsed, 3000);
+  equal("P5 포인트 사용 결제 → 차감 후 결제 금액", p5RedeemPayment.json().totalAmount, 37000);
+  equal("P5 포인트 사용 결제 → 실결제액 기준 적립", p5RedeemPayment.json().pointsEarned, 370);
+  equal("P5 포인트 사용 결제 → 잔액 2,870P", p5RedeemPayment.json().pointsBalance, 2870);
+  equal("P5 포인트 사용 결제 → 결제완료", p5RedeemPayment.json().paymentStatus, "COMPLETED");
+
+  const p5RedeemSheetRow = await app.inject({
+    method: "GET",
+    url: "/rest/v1/order_sheets?select=*&id=eq.sheet-p5-redeem",
+    headers: { cookie: staffCookie },
+  });
+  const p5RedeemRow = p5RedeemSheetRow.json()[0] || {};
+  equal("P5 포인트 사용 → 주문서 points_used", p5RedeemRow.points_used, 3000);
+  equal("P5 포인트 사용 → 주문서 total_amount", p5RedeemRow.total_amount, 37000);
+  equal("P5 포인트 사용 → 주문서 paid_amount", p5RedeemRow.paid_amount, 37000);
+
+  const p5CustomerAfterRedeem = await app.inject({
+    method: "GET",
+    url: "/api/points/customer?phone=01055556666",
+    headers: { cookie: staffCookie },
+  });
+  equal("P5 사용 후 잔액", p5CustomerAfterRedeem.json().balance, 2870);
+  check(
+    "P5 사용 이력 기록(REDEEM −3,000P)",
+    p5CustomerAfterRedeem
+      .json()
+      .history.some((entry) => entry.entryType === "REDEEM" && entry.points === -3000),
+    p5CustomerAfterRedeem.body
+  );
+
+  const p5Ledger = await app.inject({
+    method: "GET",
+    url: "/api/points/ledger?phone=01055556666",
+    headers: { cookie: staffCookie },
+  });
+  check("P5 포인트 원장 조회 → 200", p5Ledger.statusCode === 200, p5Ledger.body);
+  equal("P5 포인트 원장 → 총 적립", p5Ledger.json().totals.earned, 870);
+  equal("P5 포인트 원장 → 총 사용", p5Ledger.json().totals.redeemed, 3000);
+  equal("P5 포인트 원장 → 총 조정", p5Ledger.json().totals.adjusted, 5000);
+  equal("P5 포인트 원장 → 미사용 잔액(부채)", p5Ledger.json().totals.liability, 2870);
+
+  // 환불 시 적립 포인트 회수(환불액의 1%, 잔액 범위 안)
+  const p5PaymentId = p5RedeemPayment.json().payments[0]?.id || "";
+  const p5Refund = await app.inject({
+    method: "POST",
+    url: `/api/payments/${p5PaymentId}/refund`,
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: { amount: 10000, reason: "포인트 회수 테스트" },
+  });
+  check("P5 환불 → 200", p5Refund.statusCode === 200, p5Refund.body);
+  equal("P5 환불 → 적립 포인트 회수", p5Refund.json().pointsReclaimed, 100);
+
+  const p5CustomerAfterRefund = await app.inject({
+    method: "GET",
+    url: "/api/points/customer?phone=01055556666",
+    headers: { cookie: staffCookie },
+  });
+  equal("P5 환불 후 잔액", p5CustomerAfterRefund.json().balance, 2770);
+  check(
+    "P5 환불 회수 이력(ADJUST −100P)",
+    p5CustomerAfterRefund
+      .json()
+      .history.some((entry) => entry.entryType === "ADJUST" && entry.points === -100),
+    p5CustomerAfterRefund.body
+  );
+
+  // 만료: 조회 시점에 EXPIRE 행으로 확정(별도 크론 없음)
+  const p5CustomerId = p5CustomerAfterRefund.json().customer?.id || "";
+
+  await db.pool.query(
+    `insert into public.point_ledger
+       (id, customer_id, entry_type, points, balance_after, reason, expires_at, occurred_at)
+     values ('ledger-p5-expired', $1, 'EARN', 400, 0, '만료 테스트',
+             now() - interval '1 day', now() - interval '4 months')`,
+    [p5CustomerId]
+  );
+
+  const p5AfterExpiry = await app.inject({
+    method: "GET",
+    url: "/api/points/customer?phone=01055556666",
+    headers: { cookie: staffCookie },
+  });
+  check("P5 만료 처리 → 200", p5AfterExpiry.statusCode === 200, p5AfterExpiry.body);
+  equal("P5 만료 처리 → 만료분 반영된 잔액", p5AfterExpiry.json().balance, 2770);
+  check(
+    "P5 만료 처리 → EXPIRE 행 기록",
+    p5AfterExpiry
+      .json()
+      .history.some((entry) => entry.entryType === "EXPIRE" && entry.points === -400),
+    p5AfterExpiry.body
+  );
+  check(
+    "P5 만료된 포인트는 소멸 예정에서 제외",
+    !p5AfterExpiry.json().expiringSoon.some((row) => row.points === 400),
+    p5AfterExpiry.body
+  );
+
   // ---------------------------------------------------------------- select
   const list = await app.inject({
     method: "GET",

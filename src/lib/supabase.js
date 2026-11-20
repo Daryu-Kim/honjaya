@@ -114,6 +114,7 @@ const FIELD_MAPS = {
     originalAmount: "original_amount",
     discountTotal: "discount_total",
     paidAmount: "paid_amount",
+    pointsUsed: "points_used",
     paymentSplits: "payment_splits",
     internalTags: "internal_tags",
     createdAt: "created_at",

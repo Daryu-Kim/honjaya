@@ -666,7 +666,7 @@ docker compose up -d --build
 
 `.env` 를 바꿨다면 `docker compose up -d` 로 컨테이너를 **재생성**해야 반영됩니다(`restart` 로는 환경변수가 갱신되지 않습니다).
 
-### DB 스키마까지 바뀐 경우 (payments / guest / tables 등)
+### DB 스키마까지 바뀐 경우 (payments / points / guest / tables 등)
 
 `server/sql/*.sql` 이 추가·수정된 커밋을 받았다면 API 만 재시작해서는 테이블이 생기지 않습니다.
 `migrate` 서비스는 `tools` 프로필에 들어 있어서 **`--profile tools` 를 붙여야** 실행됩니다.
@@ -690,6 +690,9 @@ docker compose exec db psql -U postgres -d honjaya -c "\dt"
 > `docker compose run --rm db psql ...` 은 **DB 서버가 없는 일회용 컨테이너**를 띄우므로 소켓 오류가 납니다.
 > psql 은 반드시 `docker compose exec db psql ...` 로 실행하세요.
 > 마이그레이션 전에 `/opt/honjaya/server/deploy/backup-db.sh`(11단계)로 한 번 백업해 두면 안전합니다.
+> P5 부터는 `server/sql/points.sql`(customers / point_ledger / point_allocations + `order_sheets.points_used`)도
+> 같은 `migrate` 실행에 포함됩니다. 적용 여부는
+> `docker compose exec db psql -U postgres -d honjaya -c "select count(*) from point_ledger;"` 로 확인하세요.
 
 ### 자동 배포 (선택)
 

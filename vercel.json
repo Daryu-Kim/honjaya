@@ -26,6 +26,14 @@
       "destination": "https://api.honjaya-server.xyz/api/payments/$1"
     },
     {
+      "source": "/api/points",
+      "destination": "https://api.honjaya-server.xyz/api/points"
+    },
+    {
+      "source": "/api/points/(.*)",
+      "destination": "https://api.honjaya-server.xyz/api/points/$1"
+    },
+    {
       "source": "/api/kakao/(.*)",
       "destination": "https://api.honjaya-server.xyz/api/kakao/$1"
     }

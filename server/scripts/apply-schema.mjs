@@ -213,6 +213,9 @@ export async function applySchema(connectionString, log = console) {
     // payments.sql 은 order_sheets 에 paid_amount 를 추가하고 기존 결제를 이관합니다.
     // staff.sql(employees) 이후여야 employee_id 참조가 성립합니다.
     await runSqlFile(client, join(serverRoot, "sql", "payments.sql"), log);
+    // points.sql 은 customers/point_ledger 를 만들고 order_sheets 에 points_used 를 추가합니다.
+    // employees, payments 가 먼저 있어야 참조가 성립합니다.
+    await runSqlFile(client, join(serverRoot, "sql", "points.sql"), log);
   } finally {
     await client.end();
   }
