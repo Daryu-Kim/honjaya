@@ -57,7 +57,16 @@
         </div>
 
         <div class="topbar-right">
+          <div v-if="currentEmployee" class="staff-chip">
+            <strong>{{
+              currentEmployee.name || currentEmployee.loginId
+            }}</strong>
+            <span>{{ currentRoleLabel }}</span>
+          </div>
           <div class="date-chip">{{ currentDateText }}</div>
+          <button type="button" class="logout-button" @click="handleLogout">
+            로그아웃
+          </button>
         </div>
       </header>
 
@@ -72,9 +81,30 @@
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
+import { staffAuthState, staffLogout } from "@/lib/staffAuth.js";
+
 const router = useRouter();
 const route = useRoute();
 const isMobileMenuOpen = ref(false);
+
+const currentEmployee = computed(() => staffAuthState.employee);
+
+const ROLE_LABELS = {
+  OWNER: "사장",
+  MANAGER: "매니저",
+  STAFF: "직원",
+};
+
+const currentRoleLabel = computed(() => {
+  const role = currentEmployee.value?.role || "";
+
+  return ROLE_LABELS[role] || role;
+});
+
+async function handleLogout() {
+  await staffLogout();
+  await router.replace("/staff/login");
+}
 
 const menuList = [
   {
@@ -296,6 +326,12 @@ watch(
   }
 }
 
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .date-chip {
   min-width: 160px;
   height: 42px;
@@ -307,6 +343,43 @@ watch(
   justify-content: center;
   font-size: 13px;
   font-weight: 800;
+}
+
+.staff-chip {
+  height: 42px;
+  padding: 0 14px;
+  border-radius: 12px;
+  background: rgba(212, 175, 55, 0.14);
+  border: 1px solid rgba(212, 175, 55, 0.32);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+
+  strong {
+    font-weight: 800;
+  }
+
+  span {
+    color: rgba(255, 255, 255, 0.6);
+  }
+}
+
+.logout-button {
+  height: 42px;
+  padding: 0 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+  }
 }
 
 .admin-content {
@@ -406,6 +479,7 @@ watch(
   .topbar-right {
     grid-column: 1 / -1;
     width: 100%;
+    flex-wrap: wrap;
   }
 
   .date-chip {

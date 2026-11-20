@@ -4,6 +4,8 @@ import Fastify from "fastify";
 
 import { config } from "./config.js";
 import { HttpError, PG_MESSAGES, PG_STATUS } from "./http/errors.js";
+import { registerAdminRoutes } from "./routes/api/admin.js";
+import { registerStaffAuthRoutes } from "./routes/api/staffAuth.js";
 import { registerEventRoutes } from "./routes/events.js";
 import { registerRestRoutes } from "./routes/rest.js";
 import { registerRpcRoutes } from "./routes/rpc.js";
@@ -94,6 +96,8 @@ export async function buildApp(options = {}) {
 
   await app.register(cors, {
     origin: config.corsOrigins.includes("*") ? true : config.corsOrigins,
+    // 직원 로그인 쿠키(/api/staff, /api/admin)를 프런트 오리진에서도 쓸 수 있게 합니다.
+    credentials: true,
     methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     // supabase-js 2.116+ 는 db.schema 기본값(public)을 Accept-Profile / Content-Profile
     // 헤더로 항상 보냅니다. upsert 는 X-Upsert 를 씁니다. 목록에 없으면 브라우저
@@ -170,12 +174,21 @@ export async function buildApp(options = {}) {
   app.get("/", async () => ({
     name: "honjaya-server",
     version: "0.1.0",
-    endpoints: ["/rest/v1/:table", "/api/events", "/api/rpc/reserve-sequence", "/health"],
+    endpoints: [
+      "/rest/v1/:table",
+      "/api/events",
+      "/api/rpc/reserve-sequence",
+      "/api/staff/login",
+      "/api/admin/employees",
+      "/health",
+    ],
   }));
 
   registerRestRoutes(app);
   registerRpcRoutes(app);
   registerEventRoutes(app, app.log);
+  registerStaffAuthRoutes(app);
+  registerAdminRoutes(app);
 
   return app;
 }

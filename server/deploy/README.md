@@ -8,14 +8,16 @@
    손님 폰 / 태블릿
         │
         │ HTTPS
-        ├──────────────────▶ Vercel (프런트엔드 정적 파일)
+        ├──────────────────▶ Vercel (프런트엔드) https://honjaya.vercel.app
         │                          │
-        │                          │  HTTPS + apikey 헤더
+        │                          │  /api/staff/*, /api/admin/* 는 vercel.json rewrite
+        │                          │  (그 외 /rest/v1, SSE 는 절대 주소로 직접 호출)
         │                          ▼
-        │                 ┌────────────────────────┐
-        └────────────────▶│ Tailscale Funnel       │
-                          │ https://<기기>.<tailnet>.ts.net │
-                          └───────────┬────────────┘
+        │                 ┌──────────────────────────────┐
+        └────────────────▶│ Cloudflare Tunnel (목표)      │
+                          │ https://honjaya-server.xyz   │
+                          │ (백업: Tailscale Funnel)      │
+                          └───────────┬──────────────────┘
                                       │ http://localhost:3000
                           ┌───────────▼────────────┐
                           │ 노트북 (Ubuntu 24.04)   │
@@ -24,11 +26,12 @@
                           └────────────────────────┘
 ```
 
-- 프런트엔드는 `VUE_APP_SUPABASE_URL=https://<기기>.<tailnet>.ts.net` 으로 빌드되어 API 를 직접 호출합니다. 그래서 **CORS 허용**이 필요합니다(5단계).
-- 노트북의 3000 포트는 `127.0.0.1` 에만 열립니다. 인터넷에는 **Tailscale Funnel 로만** 노출되므로 공유기 포트 개방이 필요 없습니다.
+- 프런트엔드는 `VUE_APP_SUPABASE_URL` 로 API 를 직접 호출합니다. 그래서 **CORS 허용**이 필요합니다(5단계).
+- 직원 로그인 쿠키는 [10-1](#10-1-직원-로그인-쿠키-중요) 의 rewrite 덕분에 **1st-party** 로 유지됩니다.
+- 노트북의 3000 포트는 `127.0.0.1` 에만 열립니다. 인터넷에는 **터널로만** 노출되므로 공유기 포트 개방이 필요 없습니다.
 - API 응답은 `@fastify/compress` 로 **gzip 압축**되어 나갑니다. 폴링 구조라 같은 JSON 이 반복 전송되는데, 압축만으로 전송량이 6~10배 줄어듭니다(실측: `orders` 791KB → 93KB, `order_sheets` 347KB → 32KB).
 
-> 아래 문서에서 `https://<기기>.<tailnet>.ts.net` 은 **예시 주소**입니다. 실제 값은 9단계에서 `tailscale funnel status` 로 확인한 주소를 쓰세요.
+> 아래 문서에서 `https://<기기>.<tailnet>.ts.net` 은 **예시 주소(백업 경로)** 입니다. 실제 값은 9단계에서 `tailscale funnel status` 로 확인한 주소를 쓰세요.
 > Vercel 프런트엔드 주소는 확정입니다 → **`https://honjaya.vercel.app`** (5단계 `CORS_ORIGINS` 에 이 값을 넣습니다).
 
 ---
@@ -40,8 +43,9 @@
 | 노트북 | i5-5300U / 16GB (SSD 교체 권장) |
 | OS | Ubuntu Server 24.04 LTS (설치 USB 필요) |
 | 네트워크 | 공유기 LAN 케이블 연결 권장(Wi-Fi 보다 안정적) |
-| 도메인 | **필요 없음** — 9단계의 Tailscale Funnel(`*.ts.net` 무료 주소)을 씁니다 |
+| 도메인 | `honjaya-server.xyz` (Cloudflare 구매) — Cloudflare Tunnel 로 연결. Tailscale Funnel 은 백업 |
 | 백업 | Supabase CSV 백업 폴더 |
+
 
 ---
 
@@ -259,6 +263,20 @@ ANON_KEY=바꿔주세요-임의의긴문자열
 CORS_ORIGINS=https://honjaya.vercel.app
 ```
 
+직원 로그인(`/admin`, `/tablet`)에 쓰는 쿠키 설정도 함께 넣어 두세요. 기본값으로 충분하지만, 명시해 두면 나중에 헷갈리지 않습니다.
+
+```dotenv
+# 직원 세션 유지 시간 (로그인 유지 체크 해제 시 / 체크 시)
+STAFF_SESSION_HOURS=12
+STAFF_REMEMBER_DAYS=30
+
+# auto = https 요청일 때만 Secure 쿠키 (로컬 http 개발에서는 자동으로 꺼짐)
+COOKIE_SECURE=auto
+
+# 비워두면 요청 호스트 전용 쿠키 (권장)
+STAFF_COOKIE_DOMAIN=
+```
+
 > `docker compose` 가 같은 폴더의 `.env` 를 자동으로 읽어 `${POSTGRES_PASSWORD}` 등을 채웁니다.
 > `ANON_KEY` 값은 6단계 Vercel 환경변수에 **똑같이** 넣어야 합니다.
 >
@@ -337,6 +355,32 @@ docker compose run --rm import node scripts/import-supabase-export.mjs --dir /cs
 > `pgdata/` 폴더가 이미 있는 상태에서 `POSTGRES_PASSWORD` 를 바꾸면 DB 에 접속할 수 없습니다.
 > 비밀번호를 바꾸려면 백업 후 `pgdata/` 를 지우고 7단계를 다시 실행하세요.
 
+### 7-1. 직원(사장) 계정 만들기
+
+`/admin`, `/tablet` 은 직원 로그인 없이는 열리지 않습니다. 최초 1회 사장 계정을 만들어야 합니다.
+
+```bash
+cd /opt/honjaya/server
+
+# 계정이 없을 때만 생성하고, 무작위 비밀번호를 화면에 한 번만 출력합니다.
+docker compose run --rm api node scripts/seed-staff.mjs
+
+# 비밀번호를 직접 정하고 싶으면 .env 에 STAFF_OWNER_PASSWORD 를 넣고 실행하세요.
+# 비밀번호를 잊었을 때는 아래처럼 재발급합니다.
+docker compose run --rm api node scripts/seed-staff.mjs --reset-password
+```
+
+출력된 아이디/비밀번호를 안전한 곳에 보관하세요. **다시 표시되지 않습니다.**
+
+나머지 직원(매니저·알바)은 사장으로 로그인한 뒤 화면에서 추가하거나,
+`POST /api/admin/employees` 로 만들 수 있습니다.
+
+| 권한 | 할 수 있는 일 |
+| --- | --- |
+| `OWNER` (사장) | 전부 + 상품 가격 수정, 직원 관리, 포인트 수동 조정, 설정 |
+| `MANAGER` (매니저) | 주문·결제·환불, 매출/고객/CRM 조회, 감사 로그 조회 |
+| `STAFF` (알바) | 주문 접수/상태 변경, 테이블 관리, 결제, 상품 판매중지 토글 |
+
 ---
 
 ## 8. 로컬 동작 확인
@@ -353,10 +397,26 @@ curl -s -H "apikey: $ANON" "http://localhost:3000/rest/v1/categories?select=id,n
 
 ---
 
-## 9. 외부 공개 (Tailscale Funnel)
+## 9. 외부 공개 (Tailscale Funnel → Cloudflare Tunnel)
+
+> **현재 위치**: 운영 도메인은 `honjaya-server.xyz` (**Cloudflare Tunnel**) 로 갈 예정이고,
+> Tailscale Funnel 은 **백업 경로**로 남겨 둡니다. Cloudflare 연동이 끝나면
+> Vercel 의 `VUE_APP_SUPABASE_URL` 과 `vercel.json` 의 rewrite 주소만 `https://honjaya-server.xyz` 로 바꾸면 됩니다
+> (서버 코드는 수정할 필요 없습니다).
+>
+> | 구분 | 주소 | 상태 |
+> | --- | --- | --- |
+> | 고객/직원이 접속하는 화면 | `https://honjaya.vercel.app` | 운영 중 |
+> | 서버 API (목표) | `https://honjaya-server.xyz` | Cloudflare Tunnel 준비 중 |
+> | 서버 API (백업) | `https://<기기이름>.<tailnet이름>.ts.net` | 아래 9-1 ~ 9-3 |
+>
+> Cloudflare Tunnel 로 넘어갈 때는 `cloudflared tunnel` 로 `honjaya-server.xyz` → `http://localhost:3000` 을 연결하고,
+> Cloudflare 대시보드에서 프록시(주황 구름)를 켠 뒤 Vercel 환경변수를 교체하면 됩니다.
+> 서버 쪽 추가 설정은 없습니다(`trustProxy` 가 이미 켜져 있어 `X-Forwarded-Proto` 로 https 를 인식합니다).
 
 공유기 포트를 열지 않고 HTTPS 주소를 붙이는 방법입니다. **프런트엔드가 HTTPS 라서 API 도 HTTPS 여야** 합니다(HTTP 를 부르면 브라우저가 차단).
 Tailscale Funnel 은 도메인 구입 없이 `https://<기기이름>.<tailnet이름>.ts.net` 이라는 **고정 주소**를 무료로 줍니다.
+
 
 ### 9-1. 설치
 
@@ -400,7 +460,7 @@ curl https://<기기이름>.<tailnet이름>.ts.net/health
 - 끄기: `sudo tailscale funnel reset`
 
 > Funnel 은 현재 **beta** 이고 대역폭은 Tailscale 이 내부적으로 조절합니다(수치 비공개, 조정 불가). 이 앱은 gzip 적용 후 월 1GB 미만이라 문제되지 않지만, 대용량 파일을 이 경로로 서빙하지는 마세요.
-> Funnel 은 `*.ts.net` 이름과 443/8443/10000 포트만 지원합니다. **보유 도메인을 붙일 수는 없습니다** — 필요해지면 그때 Cloudflare Tunnel 로 옮기면 됩니다(코드/환경변수만 주소 교체).
+> Funnel 은 `*.ts.net` 이름과 443/8443/10000 포트만 지원합니다. **보유 도메인을 붙일 수는 없습니다** — 그래서 운영은 `honjaya-server.xyz` + Cloudflare Tunnel 로 가고, Funnel 은 백업 전용으로 둡니다.
 > Funnel 은 공개 인터넷에 열리므로 `/rest/v1/*` 보호는 전적으로 `ANON_KEY`(`apikey` 헤더) 검사에 의존합니다. 키를 바꾸면 Vercel 환경변수도 같이 바꿔야 합니다.
 
 ---
@@ -417,6 +477,9 @@ Vercel 대시보드 → 프로젝트 → **Settings → Environment Variables**:
 | `VUE_APP_SUPABASE_URL` | `https://<기기이름>.<tailnet이름>.ts.net` (9-3 에서 확인한 주소, 끝에 `/` 없이) | Production (필요 시 Preview 포함) |
 | `VUE_APP_SUPABASE_PUBLISHABLE_KEY` | `server/.env` 의 `ANON_KEY` 와 **똑같은 값** | Production (필요 시 Preview 포함) |
 
+> `VUE_APP_API_BASE_URL` 은 **비워 두세요**. 비우면 같은 오리진(→ `vercel.json` rewrite)으로 직원/관리자 API 를 부르므로 쿠키가 1st-party 로 유지됩니다.
+> 로컬에서 `pnpm run serve` 로 띄울 때는 `.env.local` 에 `VUE_APP_API_PROXY_TARGET=http://localhost:3000` 만 넣으면 `vue.config.js` 프록시가 같은 역할을 합니다.
+
 저장 후 **Deployments → 최신 배포 → Redeploy** (환경변수는 재빌드해야 반영됩니다).
 
 > 현재 운영 프런트엔드 오리진은 `https://honjaya.vercel.app` 이므로 5단계 `CORS_ORIGINS` 도 이 값으로 두면 됩니다.
@@ -424,6 +487,30 @@ Vercel 대시보드 → 프로젝트 → **Settings → Environment Variables**:
 > Vercel 프리뷰 배포(`xxx-git-branch-....vercel.app`)에서도 테스트하려면 해당 오리진을 추가하거나, 임시로 `CORS_ORIGINS=*` 로 두고 `docker compose up -d` 로 재생성합니다.
 
 > 참고: `VUE_APP_SUPABASE_URL=/` 처럼 상대 경로를 넣으면 "접속한 오리진"을 쓰게 되는데, Vercel 에서는 그 오리진이 Vercel 자신이라 API 를 찾지 못합니다. Vercel 배포에서는 **반드시 절대 주소**를 넣으세요.
+
+### 10-1. 직원 로그인 쿠키 (중요)
+
+직원 로그인은 **쿠키**로 유지됩니다. 브라우저가 `honjaya.vercel.app` 에서 `honjaya-server.xyz` 를 직접 부르면
+`SameSite=Lax` 쿠키가 전송되지 않아 로그인이 계속 풀립니다(Safari/iOS 는 더 엄격합니다).
+그래서 저장소 루트의 `vercel.json` 이 아래 두 경로만 서버로 **되돌려 보냅니다(rewrite)**.
+
+```json
+{ "source": "/api/staff/(.*)", "destination": "https://<서버주소>/api/staff/$1" }
+{ "source": "/api/admin/(.*)", "destination": "https://<서버주소>/api/admin/$1" }
+```
+
+> **지금은 백업 경로(`https://bar.taild838e4.ts.net`)를 가리키고 있습니다.**
+> `honjaya-server.xyz` 는 아직 Cloudflare Tunnel 이 붙지 않아서, 먼저 그 주소로 바꾸면 직원 로그인이 100% 실패합니다.
+> Cloudflare 연동이 끝나면 위 두 줄의 주소만 `https://honjaya-server.xyz` 로 바꾸고 Vercel 을 재배포하세요. (코드 수정 없음)
+
+- 브라우저 입장에서는 같은 오리진 호출이므로 **1st-party 쿠키**가 됩니다. `SameSite=None` 이 필요 없습니다.
+- `/rest/v1/*` 와 SSE(`/api/events`)는 **일부러 제외**했습니다. 이 둘은 `VUE_APP_SUPABASE_URL` 절대 주소를 그대로 씁니다.
+  SSE 는 rewrite 를 거치면 스트리밍이 끊길 수 있어 절대 주소를 유지해야 합니다.
+- 서버 도메인이 바뀌면 `vercel.json` 의 두 줄도 같이 바꾸고 재배포하세요. (P7 Cloudflare 전환 시점)
+
+> Vercel 프리뷰 배포도 `vercel.json` 을 그대로 쓰므로 rewrite 는 동작합니다.
+> 다만 서버의 `CORS_ORIGINS` 에 그 프리뷰 오리진을 추가해야 API 호출이 통과합니다.
+> (same-origin rewrite 는 CORS 검사를 하지 않지만, `/rest/v1` 직접 호출은 검사합니다.)
 
 ---
 

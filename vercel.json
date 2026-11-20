@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/api/staff/(.*)",
+      "destination": "https://bar.taild838e4.ts.net/api/staff/$1"
+    },
+    {
+      "source": "/api/admin/(.*)",
+      "destination": "https://bar.taild838e4.ts.net/api/admin/$1"
+    }
+  ]
+}

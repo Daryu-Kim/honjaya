@@ -10,6 +10,9 @@
         <div class="header-summary">
           <span>{{ currentDateText }}</span>
         </div>
+        <button type="button" class="header-logout" @click="handleStaffLogout">
+          로그아웃
+        </button>
       </div>
     </header>
 
@@ -1416,6 +1419,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import { getBusinessDayStart } from "@/lib/businessDay";
 import {
   fetchList,
@@ -1444,6 +1448,14 @@ import {
   runLegacyTableNumberCleanup,
   scanLegacyTableNumbers,
 } from "@/lib/tableNumberCleanup";
+import { staffLogout } from "@/lib/staffAuth.js";
+
+const router = useRouter();
+
+async function handleStaffLogout() {
+  await staffLogout();
+  await router.replace("/staff/login");
+}
 
 const activeTab = ref("tables");
 
@@ -3110,6 +3122,27 @@ onUnmounted(() => {
   justify-content: center;
   font-size: 14px;
   font-weight: 800;
+}
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.header-logout {
+  height: 48px;
+  padding: 0 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+  }
 }
 .tab-section {
   margin-bottom: 18px;

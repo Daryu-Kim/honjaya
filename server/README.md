@@ -27,11 +27,23 @@ server/
 │  │  ├─ rest.js          /rest/v1/:table (PostgREST 호환 CRUD)
 │  │  ├─ rpc.js           /health, /api/rpc/reserve-sequence
 │  │  └─ events.js        /api/events (SSE 실시간)
-├─ sql/events.sql         변경 알림 트리거(pg_notify)
+│  ├─ auth/
+│  │  ├─ password.js      scrypt 해시/검증
+│  │  ├─ sessions.js      직원 세션 + 쿠키 + 권한 가드
+│  │  ├─ permissions.js   OWNER/MANAGER/STAFF 권한표
+│  │  ├─ rateLimit.js     로그인 시도 제한
+│  │  └─ audit.js         감사 로그 기록
+│  └─ routes/api/
+│     ├─ staffAuth.js     /api/staff/{login,logout,me,password}
+│     └─ admin.js         /api/admin/employees, /api/admin/audit-logs
+├─ sql/
+│  ├─ events.sql          변경 알림 트리거(pg_notify)
+│  └─ staff.sql           직원/세션/감사로그 테이블
 ├─ scripts/
 │  ├─ apply-schema.mjs    스키마 적용(멱등)
 │  ├─ import-supabase-export.mjs  Supabase CSV 백업 가져오기(멱등)
-│  └─ smoke-test.mjs      임베디드 Postgres로 36개 자동 검증
+│  ├─ seed-staff.mjs      사장 계정 생성/비밀번호 재발급
+│  └─ smoke-test.mjs      임베디드 Postgres로 자동 검증
 ├─ deploy/
 │  ├─ README.md           노트북 배포 전체 절차 (프런트엔드=Vercel)
 │  └─ backup-db.sh        pg_dump 백업 + 보관 기간 정리
@@ -48,6 +60,7 @@ cd server
 npm install
 copy .env.example .env      # macOS/Linux: cp .env.example .env
 npm run db:apply            # 스키마 생성 (최초 1회, 여러 번 실행해도 안전)
+npm run staff:seed          # 사장 계정 생성 (최초 1회) — 아이디/비밀번호 1회 출력
 npm start                   # http://localhost:3000
 ```
 
@@ -82,6 +95,12 @@ VUE_APP_SUPABASE_PUBLISHABLE_KEY=<server/.env 의 ANON_KEY 값>
 | `SERVICE_KEY` | (빈 값) | 관리자용 키(같이 허용됨) |
 | `CORS_ORIGINS` | `*` | 쉼표 구분. 배포 시 실제 도메인만 넣는 것을 권장 (예: `https://honjaya.vercel.app`) |
 | `LOG_LEVEL` | `info` | Fastify 로그 레벨 |
+| `STAFF_SESSION_HOURS` | `12` | 직원 로그인 유지 시간(시간). "로그인 유지" 체크 시 아래 값 사용 |
+| `STAFF_REMEMBER_DAYS` | `30` | "로그인 유지" 체크 시 세션 유지 일수 |
+| `STAFF_COOKIE_NAME` | `honjaya_staff` | 직원 세션 쿠키 이름 |
+| `STAFF_COOKIE_DOMAIN` | (빈 값) | 비우면 호스트 전용 쿠키. 서브도메인 공유가 필요할 때만 지정 |
+| `COOKIE_SECURE` | `auto` | `auto` = https 요청에서만 `Secure` 부여. `always`/`never` 로 고정 가능 |
+| `STAFF_OWNER_PASSWORD` | (빈 값) | `staff:seed` 실행 시 사용할 초기 비밀번호. 비우면 무작위 생성 |
 
 ---
 
@@ -178,6 +197,18 @@ psql "$DATABASE_URL" -f supabase_data.sql
 | `DELETE` | `/rest/v1/:table` | 삭제 |
 | `POST` | `/api/rpc/reserve-sequence` | 주문서 번호 원자적 발급 |
 | `GET` | `/api/events?tables=a,b` | SSE 실시간 변경 알림 |
+| `POST` | `/api/staff/login` | 직원 로그인 (`loginId`, `password`, `remember`) → HttpOnly 쿠키 발급 |
+| `POST` | `/api/staff/logout` | 로그아웃(세션 폐기 + 쿠키 삭제) |
+| `GET` | `/api/staff/me` | 내 정보 + 권한 목록 |
+| `POST` | `/api/staff/password` | 본인 비밀번호 변경(다른 세션은 모두 로그아웃) |
+| `GET` | `/api/admin/employees` | 직원 목록 (`employee.manage`) |
+| `POST` | `/api/admin/employees` | 직원 추가 (`employee.manage`) |
+| `PATCH` | `/api/admin/employees/:id` | 이름/권한/활성 상태 수정 (`employee.manage`) |
+| `POST` | `/api/admin/employees/:id/password` | 비밀번호 재발급 (`employee.manage`) |
+| `GET` | `/api/admin/audit-logs` | 감사 로그 조회 (`audit.view`) |
+
+> `/api/staff/*` · `/api/admin/*` 도 전역 `apikey` 검사를 통과해야 합니다(프런트엔드 `src/lib/api.js` 가 자동으로 붙입니다).
+> 세션 토큰은 DB 에 **sha256 해시로만** 저장되며, 평문은 쿠키에만 존재합니다.
 
 지원 필터: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `is`, `like`, `ilike`, `cs`(contains), `cd`, `ov`.
 지원 헤더: `Prefer: return=representation|minimal`, `count=exact|planned|estimated`, `resolution=merge-duplicates|ignore-duplicates`, `Accept: application/vnd.pgrst.object+json`, `Range: 0-9`.

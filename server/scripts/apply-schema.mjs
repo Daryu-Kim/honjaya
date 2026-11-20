@@ -205,6 +205,7 @@ export async function applySchema(connectionString, log = console) {
     }
 
     await runSqlFile(client, join(serverRoot, "sql", "events.sql"), log);
+    await runSqlFile(client, join(serverRoot, "sql", "staff.sql"), log);
   } finally {
     await client.end();
   }

@@ -12,6 +12,7 @@
     "dev": "node --watch src/index.js",
     "db:apply": "node scripts/apply-schema.mjs",
     "db:import": "node scripts/import-supabase-export.mjs",
+    "staff:seed": "node scripts/seed-staff.mjs",
     "dev:db": "node scripts/dev-db.mjs",
     "smoke": "node scripts/smoke-test.mjs"
   },

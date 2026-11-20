@@ -59,4 +59,12 @@ export const config = {
   serviceKey: String(process.env.SERVICE_KEY || "").trim(),
   corsOrigins: list(process.env.CORS_ORIGINS, ["*"]),
   logLevel: process.env.LOG_LEVEL || "info",
+  // 직원 로그인 세션(쿠키). 기본 12시간, "로그인 유지" 선택 시 30일입니다.
+  staffCookieName: process.env.STAFF_COOKIE_NAME || "hj_staff",
+  staffSessionHours: Number(process.env.STAFF_SESSION_HOURS || 12),
+  staffRememberDays: Number(process.env.STAFF_REMEMBER_DAYS || 30),
+  // 비워두면 요청 Host 에만 붙는 호스트 전용 쿠키가 됩니다(가장 안전).
+  staffCookieDomain: String(process.env.STAFF_COOKIE_DOMAIN || "").trim(),
+  // auto(기본): https 요청일 때만 Secure. 로컬 http 개발에서는 자동으로 꺼집니다.
+  cookieSecure: String(process.env.COOKIE_SECURE || "auto").trim().toLowerCase(),
 };

@@ -13,8 +13,10 @@ import TabletAdminView from "@/views/Tablet/TabletAdminView.vue";
 import AdminDashboardView from "@/views/Admin/AdminDashboardView.vue";
 import AdminSalesView from "@/views/Admin/AdminSalesView.vue";
 import AdminPaymentHistoryView from "@/views/Admin/AdminPaymentHistoryView.vue";
+import StaffLoginView from "@/views/Staff/StaffLoginView.vue";
 import AdminLayout from "@/layouts/AdminLayout.vue";
 import { startGlobalBusy } from "@/lib/globalBusy";
+import { loadStaffSession } from "@/lib/staffAuth";
 
 const routes = [
   {
@@ -58,8 +60,14 @@ const routes = [
     component: UserOrderCompleteView,
   },
   {
+    path: "/staff/login",
+    name: "staff-login",
+    component: StaffLoginView,
+  },
+  {
     path: "/admin",
     component: AdminLayout,
+    meta: { requiresStaff: true },
     children: [
       {
         path: "",
@@ -111,12 +119,34 @@ const routes = [
     path: "/tablet",
     name: "tablet-admin",
     component: TabletAdminView,
+    meta: { requiresStaff: true },
   },
 ];
 
 const router = createRouter({
   history: createWebHistory(process.env.BASE_URL),
   routes,
+});
+
+// 직원 전용 화면(/admin, /tablet)은 세션 쿠키를 확인한 뒤에만 통과시킵니다.
+// 화면을 그린 뒤에 막으면 데이터가 잠깐 노출되므로 라우터 단계에서 먼저 검사합니다.
+router.beforeEach(async (to) => {
+  const requiresStaff = to.matched.some((record) => record.meta?.requiresStaff);
+
+  if (!requiresStaff) {
+    return true;
+  }
+
+  const employee = await loadStaffSession();
+
+  if (employee) {
+    return true;
+  }
+
+  return {
+    path: "/staff/login",
+    query: to.fullPath && to.fullPath !== "/" ? { redirect: to.fullPath } : {},
+  };
 });
 
 let releaseRouteBusy = null;
