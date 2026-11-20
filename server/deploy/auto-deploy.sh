@@ -3,6 +3,15 @@
 # systemd timer(honjaya-deploy.timer)가 주기적으로 호출합니다.
 set -uo pipefail
 
+# 자기 자신을 /tmp 사본으로 실행합니다. git 이 이 파일을 교체할 때
+# 실행 중인 스크립트를 덮어쓰면 Text file busy 가 나기 때문입니다.
+if [ -z "${HONJAYA_SELF:-}" ]; then
+  SELF_COPY="$(mktemp /tmp/honjaya-deploy.XXXXXX.sh)"
+  cp "$0" "$SELF_COPY"
+  HONJAYA_SELF=1 exec bash "$SELF_COPY" "$@"
+fi
+trap 'rm -f -- "$0"' EXIT
+
 REPO_DIR="${REPO_DIR:-/opt/honjaya}"
 BRANCH="${BRANCH:-master}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:3000/health}"
@@ -30,7 +39,21 @@ else
   log "변경 감지: ${LOCAL_REV:0:7} -> ${REMOTE_REV:0:7}"
 fi
 git fetch --prune --quiet origin "$BRANCH" || die "git fetch 실패"
-git merge --ff-only --quiet "origin/$BRANCH" || die "fast-forward 불가 (로컬 커밋 존재?) - 수동 확인 필요"
+
+# 새 커밋에 들어있는 파일과 이름이 같은 untracked 파일이 있으면 merge 가 막힙니다.
+# 내용이 완전히 같을 때만 지우고, 다르면 손대지 않고 중단합니다.
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  git cat-file -e "origin/$BRANCH:$f" 2>/dev/null || continue
+  if [ "$(git hash-object -- "$f" 2>/dev/null)" = "$(git rev-parse "origin/$BRANCH:$f")" ]; then
+    rm -f -- "$f"
+    log "동일 내용의 untracked 파일 정리: $f"
+  else
+    die "untracked 파일이 새 커밋과 충돌: $f (내용이 달라 자동 처리하지 않음)"
+  fi
+done < <(git ls-files --others --exclude-standard)
+
+git merge --ff-only --quiet "origin/$BRANCH" || die "fast-forward 불가 (로컬 커밋 또는 파일 충돌?) - 수동 확인 필요"
 log "소스 갱신 완료: $(git log --oneline -1)"
 
 cd "$REPO_DIR/server" || die "server 디렉터리 없음"
