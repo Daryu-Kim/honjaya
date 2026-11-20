@@ -498,15 +498,19 @@ Scope decision: build the CRM base **without Kakao login** (user choice). Kakao 
 - `AdminPointHistoryView` accepts `?phone=` so the CRM detail page can deep-link.
 - Tablet payment modal: 마케팅 수신 동의 checkbox (전화번호 입력 시) → `marketingConsent` 전송.
 
-### Verification (local)
-
-_Not run yet (Rule 15 — awaiting user approval)._
-
 ### Deploy checklist
 
 1. `docker compose --profile tools build migrate && docker compose run --rm migrate` (applies `crm.sql`)
-2. `docker compose up -d --force-recreate api`
+2. `docker compose up -d --build api` — **`--build` 필수** (`--force-recreate` 만으로는 코드가 반영되지 않음)
 3. Vercel redeploy (new `/api/crm` rewrites)
+
+### Verification (local & live)
+
+- `npm run smoke` — **201/201 통과** (P6 블록 36개 추가: 목록/권한(STAFF 403, 비로그인 401)/상세 방문 이력/
+  정보 수정/동의 설정·필터·요약/결제 시 동의 저장/`payments.customer_id` 연결/`customer.consent` 감사 로그).
+- `pnpm lint` — 통과 (3 files auto-fixed). `pnpm build` — 성공.
+- 라이브: `crm.sql` 6개 적용 → `GET /api/crm/customers` 200(사장 쿠키) / 401(미로그인),
+  `https://honjaya.vercel.app/api/crm/customers` rewrite 동작 확인.
 
 ---
 

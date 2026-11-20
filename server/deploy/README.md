@@ -681,7 +681,7 @@ git pull
 cd server
 docker compose --profile tools build migrate   # 이미지에 새 SQL 을 구워 넣기
 docker compose run --rm migrate                # apply-schema.mjs 실행 (여러 번 돌려도 안전)
-docker compose up -d --force-recreate api      # 새 스키마를 쓰는 API 재생성
+docker compose up -d --build api                # 코드+새 스키마를 쓰는 API 재빌드/재생성
 ```
 
 확인:
@@ -693,6 +693,8 @@ docker compose exec db psql -U postgres -d honjaya -c "\dt"
 
 > `docker compose run --rm db psql ...` 은 **DB 서버가 없는 일회용 컨테이너**를 띄우므로 소켓 오류가 납니다.
 > psql 은 반드시 `docker compose exec db psql ...` 로 실행하세요.
+> `docker compose up -d --force-recreate api` 는 **이미지가 그대로**라 코드 변경이 반영되지 않습니다.
+> 코드가 바뀐 커밋이면 반드시 `--build` 를 붙이세요(`--force-recreate` 는 `.env` 값만 바뀐 경우에 사용).
 > 마이그레이션 전에 `/opt/honjaya/server/deploy/backup-db.sh`(11단계)로 한 번 백업해 두면 안전합니다.
 > P5 부터는 `server/sql/points.sql`(customers / point_ledger / point_allocations + `order_sheets.points_used`)도
 > 같은 `migrate` 실행에 포함됩니다. 적용 여부는
