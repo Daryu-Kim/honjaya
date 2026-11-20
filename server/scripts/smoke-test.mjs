@@ -370,6 +370,40 @@ try {
   });
   equal("DELETE(representation) → 삭제된 id 반환", delRepresentation.json(), [{ id: "prod-2" }]);
 
+  // postgrest-js 는 본문이 없는 DELETE 에도 content-type: application/json 을 붙입니다.
+  // 이때 400(FST_ERR_CTP_EMPTY_JSON_BODY) 이 나면 브라우저에서 삭제가 전부 실패합니다.
+  await app.inject({
+    method: "POST",
+    url: "/rest/v1/products",
+    headers: { "content-type": "application/json" },
+    payload: { id: "prod-4", product_name: "빈 본문 삭제", base_price: 1000 },
+  });
+  const delEmptyJsonBody = await app.inject({
+    method: "DELETE",
+    url: "/rest/v1/products?id=eq.prod-4",
+    headers: { "content-type": "application/json" },
+  });
+  check(
+    "DELETE(빈 본문 + content-type json) → 204",
+    delEmptyJsonBody.statusCode === 204,
+    delEmptyJsonBody.body
+  );
+
+  const insertEmptyBody = await app.inject({
+    method: "POST",
+    url: "/rest/v1/products",
+    headers: { "content-type": "application/json" },
+  });
+  check("POST(빈 본문) → 400", insertEmptyBody.statusCode === 400, insertEmptyBody.body);
+
+  const invalidJson = await app.inject({
+    method: "POST",
+    url: "/rest/v1/products",
+    headers: { "content-type": "application/json" },
+    payload: "{not json",
+  });
+  check("POST(깨진 JSON) → 400", invalidJson.statusCode === 400, invalidJson.body);
+
   // ---------------------------------------------------------------- errors
   const unknownTable = await app.inject({ method: "GET", url: "/rest/v1/not_a_table?select=*" });
   check("없는 테이블 → 404", unknownTable.statusCode === 404, String(unknownTable.statusCode));

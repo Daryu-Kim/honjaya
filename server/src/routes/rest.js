@@ -138,7 +138,8 @@ async function handleInsert(request, reply) {
   const table = request.params.table;
   const { cols } = await resolveTable(table);
   const prefer = parsePrefer(request.headers.prefer);
-  const body = Array.isArray(request.body) ? request.body : [request.body];
+  const rows = Array.isArray(request.body) ? request.body : [request.body];
+  const body = rows.filter((row) => row !== undefined && row !== null);
 
   if (body.length === 0) {
     throw badRequest("저장할 값이 없어요");

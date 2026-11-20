@@ -65,6 +65,30 @@ export async function buildApp(options = {}) {
     trustProxy: true,
   });
 
+  // postgrest-js 는 본문이 없는 DELETE 에도 content-type: application/json 을 붙입니다.
+  // Fastify 기본 JSON 파서는 빈 본문을 400(FST_ERR_CTP_EMPTY_JSON_BODY)으로 거부하므로
+  // 빈 본문은 통과시키는 파서로 교체합니다. (실제 PostgREST 도 허용합니다.)
+  app.removeContentTypeParser("application/json");
+  app.addContentTypeParser(
+    "application/json",
+    { parseAs: "string" },
+    (request, body, done) => {
+      if (typeof body !== "string" || !body.trim()) {
+        done(null, undefined);
+        return;
+      }
+
+      try {
+        done(null, JSON.parse(body));
+      } catch {
+        done(
+          new HttpError(400, "PGRST102", "요청 본문이 올바른 JSON 이 아니에요"),
+          undefined
+        );
+      }
+    }
+  );
+
   // 폴링 구조라 같은 JSON 을 계속 내려줍니다. 압축만 켜도 전송량이 6~10배 줄어듭니다.
   await app.register(compress, { threshold: 1024 });
 
