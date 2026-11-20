@@ -24,6 +24,10 @@
     {
       "source": "/api/payments/(.*)",
       "destination": "https://api.honjaya-server.xyz/api/payments/$1"
+    },
+    {
+      "source": "/api/kakao/(.*)",
+      "destination": "https://api.honjaya-server.xyz/api/kakao/$1"
     }
   ]
 }

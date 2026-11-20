@@ -21,6 +21,7 @@ server/
 │  ├─ tables.js           허용 테이블 화이트리스트
 │  ├─ guest.js            손님 입장(테이블 확인 + 열린 주문서 준비)
 │  ├─ payments.js         결제 원장(부분/분할 결제, 환불, 주문서 상태 동기화)
+│  ├─ kakao.js            카카오 로그인 준비(P4) — 활성 여부 + authorize URL 조립
 │  ├─ http/
 │  │  ├─ sql.js           필터/정렬/select → SQL (식별자 검증)
 │  │  ├─ prefer.js        Prefer 헤더 파싱
@@ -41,6 +42,7 @@ server/
 │     ├─ staffAuth.js     /api/staff/{login,logout,me,password}
 │     ├─ guest.js         /api/guest/{table,session,logout}
 │     ├─ payments.js      /api/payments, /api/payments/sheet/:id, /api/payments/:id/refund
+│     ├─ kakao.js         /api/kakao/status (P4 준비용 상태 확인)
 │     └─ admin.js         /api/admin/employees, /api/admin/audit-logs, /api/admin/tables
 ├─ sql/
 │  ├─ tables.sql          테이블 마스터(bar_tables) + 1~30번 시드
@@ -229,8 +231,9 @@ psql "$DATABASE_URL" -f supabase_data.sql
 | `GET` | `/api/payments/sheet/:orderSheetId` | 주문서별 결제/환불 내역과 남은 금액 (`payment.view`) |
 | `POST` | `/api/payments` | 결제 기록(`orderSheetId`, `originalAmount`, `discounts`, `entries[]`, `memo`, `close`) (`payment.manage`) |
 | `POST` | `/api/payments/:paymentId/refund` | 환불(`amount`, `reason`) — 결제 건별 부분 환불 가능 (`payment.refund`) |
+| `GET` | `/api/kakao/status` | 카카오 로그인 준비 상태(`enabled`, `redirectUri`, `authorizeUrl`) — 키가 없으면 모두 비어 있음 (P4) |
 
-> `/api/staff/*` · `/api/admin/*` · `/api/guest/*` · `/api/payments/*` 도 전역 `apikey` 검사를 통과해야 합니다(프런트엔드 `src/lib/api.js` 가 자동으로 붙입니다).
+> `/api/staff/*` · `/api/admin/*` · `/api/guest/*` · `/api/payments/*` · `/api/kakao/*` 도 전역 `apikey` 검사를 통과해야 합니다(프런트엔드 `src/lib/api.js` 가 자동으로 붙입니다).
 > 세션 토큰은 DB 에 **sha256 해시로만** 저장되며, 평문은 쿠키에만 존재합니다.
 > `bar_tables`(테이블 마스터)는 `/rest/v1` 로 **읽기만** 가능합니다(쓰기 요청은 403). 수정은 위 `PATCH /api/admin/tables/:tableNumber` 로만 합니다.
 > **손님 범위(P2)**: `/rest/v1` 의 `orders` · `order_sheets` · `active_order_sheets` 는 `hj_guest`(손님) 또는 `hj_staff`(직원)
@@ -238,6 +241,9 @@ psql "$DATABASE_URL" -f supabase_data.sql
 > `orders` 는 생성만 가능하며 `status` 는 항상 `REQUESTED` 로 고정됩니다.
 > **결제 원장(P3)**: `payments` · `payment_allocations` · `refunds` 는 `/rest/v1` 화이트리스트에 없어 조회/수정이 404 입니다.
 > 모든 결제/환불은 위 `/api/payments` 로만 기록하며, 금액·할인·상태(`payment_status`, `paid_amount`)는 서버가 계산해 덮어씁니다.
+> **카카오 로그인(P4)**: 아직 로그인 기능은 없고 준비만 된 상태입니다. `KAKAO_REST_API_KEY` + `KAKAO_REDIRECT_URI` 가
+> 둘 다 있을 때만 `/api/kakao/status` 가 `enabled:true` 를 돌려주고, 그 전에는 프런트엔드가 카카오 버튼을 숨깁니다.
+> 키/시크릿은 서버에만 두고 번들에 넣지 않습니다.
 
 지원 필터: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `is`, `like`, `ilike`, `cs`(contains), `cd`, `ov`.
 지원 헤더: `Prefer: return=representation|minimal`, `count=exact|planned|estimated`, `resolution=merge-duplicates|ignore-duplicates`, `Accept: application/vnd.pgrst.object+json`, `Range: 0-9`.

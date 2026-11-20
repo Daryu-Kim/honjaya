@@ -285,6 +285,26 @@ STAFF_COOKIE_DOMAIN=
 > (`.env` 는 git 에 올라가지 않으므로 `git clone` 으로는 안 옮겨집니다 — `scp`/USB 로 직접 복사해야 합니다.)
 > 단, 그 파일에는 `POSTGRES_PASSWORD` 줄이 없으니 **`POSTGRES_PASSWORD=원하는비밀번호` 한 줄을 직접 추가**하세요.
 
+### 5-1. 카카오 로그인 (P4 — 준비만, 선택)
+
+지금은 비워 두어도 됩니다. 값을 넣으면 `/api/kakao/status` 가 `enabled:true` 를 돌려주고, 비어 있으면
+프런트엔드가 카카오 로그인 버튼을 숨깁니다. 실제 로그인 연결은 P6(고객/CRM)에서 붙입니다.
+
+```dotenv
+# 카카오 developers > 내 애플리케이션 > 앱 키 > REST API 키 (JavaScript 키 아님)
+KAKAO_REST_API_KEY=
+
+# 카카오 developers > 보안 > Client Secret (코드 발급을 "사용함" 으로 켰을 때만)
+KAKAO_CLIENT_SECRET=
+
+# 카카오 로그인 > Redirect URI 에 등록한 값과 글자 단위로 같아야 합니다
+KAKAO_REDIRECT_URI=https://honjaya.vercel.app/kakao/callback
+```
+
+> `KAKAO_REST_API_KEY` 와 `KAKAO_REDIRECT_URI` 가 **둘 다** 있어야 켜집니다.
+> 콘솔에서 등록할 Web 플랫폼 도메인은 `https://honjaya.vercel.app` (+ 개발용 `http://localhost:8080`) 입니다.
+> 동의항목은 닉네임(필수) + 프로필 사진(선택)만 쓰세요. 이메일은 비즈 앱 심사가 필요합니다.
+
 ---
 
 ## 6. 컨테이너 기동
@@ -645,6 +665,31 @@ docker compose up -d --build
 ```
 
 `.env` 를 바꿨다면 `docker compose up -d` 로 컨테이너를 **재생성**해야 반영됩니다(`restart` 로는 환경변수가 갱신되지 않습니다).
+
+### DB 스키마까지 바뀐 경우 (payments / guest / tables 등)
+
+`server/sql/*.sql` 이 추가·수정된 커밋을 받았다면 API 만 재시작해서는 테이블이 생기지 않습니다.
+`migrate` 서비스는 `tools` 프로필에 들어 있어서 **`--profile tools` 를 붙여야** 실행됩니다.
+
+```bash
+cd /opt/honjaya
+git pull
+cd server
+docker compose --profile tools build migrate   # 이미지에 새 SQL 을 구워 넣기
+docker compose run --rm migrate                # apply-schema.mjs 실행 (여러 번 돌려도 안전)
+docker compose up -d --force-recreate api      # 새 스키마를 쓰는 API 재생성
+```
+
+확인:
+
+```bash
+curl -s http://127.0.0.1:3000/health
+docker compose exec db psql -U postgres -d honjaya -c "\dt"
+```
+
+> `docker compose run --rm db psql ...` 은 **DB 서버가 없는 일회용 컨테이너**를 띄우므로 소켓 오류가 납니다.
+> psql 은 반드시 `docker compose exec db psql ...` 로 실행하세요.
+> 마이그레이션 전에 `/opt/honjaya/server/deploy/backup-db.sh`(11단계)로 한 번 백업해 두면 안전합니다.
 
 ### 자동 배포 (선택)
 

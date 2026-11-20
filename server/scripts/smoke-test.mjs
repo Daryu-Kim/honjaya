@@ -665,6 +665,25 @@ try {
   });
   check("P3 손님 결제 기록 → 401", guestRecordPayment.statusCode === 401, guestRecordPayment.body);
 
+  // ---------------------------------------------------------------- kakao readiness (P4)
+  const kakaoStatus = await app.inject({
+    method: "GET",
+    url: "/api/kakao/status",
+    headers: { cookie: guestCookie },
+  });
+  check("P4 카카오 상태 → 200", kakaoStatus.statusCode === 200, kakaoStatus.body);
+
+  const kakaoBody = kakaoStatus.json();
+  check(
+    "P4 카카오 상태 → 키 없으면 꺼진 상태(로그인 버튼 숨김)",
+    kakaoBody.enabled === false
+      ? kakaoBody.authorizeUrl === "" && kakaoBody.redirectUri === ""
+      : String(kakaoBody.authorizeUrl).startsWith(
+          "https://kauth.kakao.com/oauth/authorize?"
+        ),
+    kakaoStatus.body
+  );
+
   // ---------------------------------------------------------------- select
   const list = await app.inject({
     method: "GET",

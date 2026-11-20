@@ -66,7 +66,7 @@ Guest phone / staff tablet
 | **P1** | Table master (`bar_tables`, 30 tables: 1–10 bar / 11–30 large), admin table settings page, tablet layout driven by the master | **DONE (verified)** |
 | **P2** | Guest table session cookie + per-guest attribution + order ownership (guest sees only own table sheet; staff any) | **DONE (verified)** |
 | **P3** | Payment ledger (`payments`, `payment_allocations`, `refunds`), split/partial payment, refunds | **DONE (verified)** |
-| **P4** | Kakao login readiness (channel, app, consent, callback) | pending |
+| **P4** | Kakao login readiness (env flag, `/api/kakao/status`, console checklist) | **DONE** (scaffold + guideline; live login lands in P6) |
 | **P5** | Points ledger (earn / redeem / expire / adjust), FEFO deduction | pending |
 | **P6** | CRM & consent (customer profile, marketing consent, visit history) | pending |
 | **P7** | Cloudflare cutover (`api.honjaya-server.xyz` live, Tailscale → backup, `vercel.json` rewrite swapped) | **DONE** (verify Vercel `VUE_APP_SUPABASE_URL` + redeploy) |
@@ -317,10 +317,76 @@ The ledger tables are **not** in `server/src/tables.js`, so `/rest/v1/payments` 
 
 ---
 
+## 3-4. P4 — Kakao login readiness (DONE — scaffold + guideline)
+
+Kakao login is **not wired into the guest flow yet**; P4 only makes the platform ready so that P6 (CRM) can flip it on
+without touching the deploy pipeline. Guests keep using the `hj_guest` table-session cookie.
+
+### What was added
+
+| File | Change |
+| --- | --- |
+| `server/src/config.js` | `kakaoRestApiKey`, `kakaoClientSecret`, `kakaoRedirectUri` from `KAKAO_*` env |
+| `server/src/kakao.js` | `isKakaoLoginEnabled()`, `kakaoRedirectUri()`, `buildKakaoAuthorizeUrl()` (REST API key stays server-side) |
+| `server/src/routes/api/kakao.js` | `GET /api/kakao/status` → `{ enabled, redirectUri, authorizeUrl }` (all empty when keys are missing) |
+| `server/src/app.js` | route registration + endpoint list |
+| `vercel.json`, `vue.config.js` | `/api/kakao/(.*)` rewrite + dev proxy |
+| `server/scripts/smoke-test.mjs` | 2 checks: status 200, and "keys missing → disabled + blank URLs" |
+
+Feature flag contract: `enabled === false` ⇒ the frontend must **hide** the Kakao login button. Nothing else changes,
+so deploying P4 without any Kakao keys is a no-op for customers.
+
+### Kakao Developers checklist (do this in the console, no code change needed)
+
+1. https://developers.kakao.com → 내 애플리케이션 → **애플리케이션 추가하기** (앱 이름 `혼자야`, 사업자 정보는 개인으로 시작 가능).
+2. **앱 설정 → 플랫폼 → Web 플랫폼 등록**: `https://honjaya.vercel.app`, `http://localhost:8080`.
+3. **제품 설정 → 카카오 로그인 → 활성화 설정 ON**.
+4. **카카오 로그인 → Redirect URI 등록**. The URI must match `KAKAO_REDIRECT_URI` byte-for-byte.
+   - `https://honjaya.vercel.app/kakao/callback` — recommended (frontend page; keeps the code exchange on our API).
+   - `https://api.honjaya-server.xyz/api/kakao/callback` — only if the server handles the callback directly.
+   - `http://localhost:8080/kakao/callback` — local dev.
+5. **카카오 로그인 → 동의항목**: 닉네임 `profile_nickname` (required), 프로필 사진 `profile_image` (optional).
+   `account_email` needs a business app + review, so **do not request it** for the first release.
+6. **보안 → Client Secret**: set to `사용함`, then put the value into `KAKAO_CLIENT_SECRET` (server only, never in the bundle).
+7. (optional, P6) **카카오톡 채널** 연결 + 채널 추가 유도 → CRM marketing consent.
+
+### Env (server/.env → documented in `server/deploy/README.md` §5)
+
+```
+KAKAO_REST_API_KEY=...        # 앱 설정 → 앱 키 → REST API 키
+KAKAO_CLIENT_SECRET=...       # 보안 → Client Secret (사용함일 때만)
+KAKAO_REDIRECT_URI=https://honjaya.vercel.app/kakao/callback
+```
+
+`KAKAO_REST_API_KEY` and `KAKAO_REDIRECT_URI` are both required, otherwise `enabled` stays `false`.
+
+### Deploy checklist
+
+1. Add the three `KAKAO_*` vars to `server/.env` (only when you actually want to test).
+2. `docker compose up -d --force-recreate api` (no DB change in P4).
+3. Vercel redeploy (new `/api/kakao/(.*)` rewrite).
+4. `curl -s https://api.honjaya-server.xyz/api/kakao/status` → expect `enabled:false` until the keys are set.
+
+### Verification (local)
+
+- `npm run smoke` → **111/111** (P4 added 2 checks: status 200, disabled-state contract).
+- `pnpm lint` → clean.
+- `pnpm build` → OK (only the pre-existing bundle-size warning).
+- `node --check` on `src/kakao.js`, `routes/api/kakao.js`, `config.js`, `app.js` → OK; module import resolves.
+
+### What P6 must still build
+
+`customers` table (`kakao_id` unique, nickname, profile image, marketing consent), `POST /api/kakao/callback`
+(`code` → `https://kauth.kakao.com/oauth/token` → `/v2/user/me` → upsert customer), `state` CSRF validation, a
+customer session cookie separate from `hj_guest` (which stays as the table/session attribution layer), and the
+privacy-policy / terms URLs Kakao review requires.
+
+---
+
 ## 4. Open questions
 
 1. **₩30,000 point-redemption threshold**: before or after discount? (currently assumed after)
-2. Kakao: does a Kakao channel / app already exist, or fully from scratch?
+2. Kakao: does a Kakao channel / app already exist, or fully from scratch? (P4 scaffold is ready either way — see §3-4)
 3. P3: should a refund mark the sheet `REFUNDED` instead of deriving back to `UNPAID`? (current: `status` untouched)
 4. P3: is per-order allocation (`orderIds`) needed, or is FIFO by order creation enough?
 
@@ -335,7 +401,7 @@ done     p2-guest-session       guest table session cookie (guest_sessions) + /a
 done     p2-order-ownership     enforce order ownership on /rest/v1 (staff/guest/anon scope) + per-guest attribution
 done     p3-payment-ledger      payments / payment_allocations / refunds schema + API
 done     p3-split-payment       UI + API for split and partial payment
-pending  p4-kakao-readiness     Kakao channel/app/consent checklist + callback route
+done     p4-kakao-readiness     Kakao env flag + /api/kakao/status + console/consent checklist (live login in P6)
 pending  p5-points-ledger       point_ledger + earn/redeem/expire/adjust + FEFO
 pending  p6-crm-consent         customer profile + marketing consent + visit history
 assumed  p5-point-basis         redemption threshold counted AFTER discount (open question #1)

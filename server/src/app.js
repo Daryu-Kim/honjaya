@@ -6,6 +6,7 @@ import { config } from "./config.js";
 import { HttpError, PG_MESSAGES, PG_STATUS } from "./http/errors.js";
 import { registerAdminRoutes } from "./routes/api/admin.js";
 import { registerGuestRoutes } from "./routes/api/guest.js";
+import { registerKakaoRoutes } from "./routes/api/kakao.js";
 import { registerPaymentRoutes } from "./routes/api/payments.js";
 import { registerStaffAuthRoutes } from "./routes/api/staffAuth.js";
 import { registerEventRoutes } from "./routes/events.js";
@@ -184,6 +185,7 @@ export async function buildApp(options = {}) {
       "/api/staff/login",
       "/api/admin/employees",
       "/api/payments",
+      "/api/kakao/status",
       "/health",
     ],
   }));
@@ -195,6 +197,7 @@ export async function buildApp(options = {}) {
   registerStaffAuthRoutes(app);
   registerAdminRoutes(app);
   registerPaymentRoutes(app);
+  registerKakaoRoutes(app);
 
   return app;
 }
