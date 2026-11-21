@@ -16,52 +16,103 @@
         <h1>{{ entryTitle }}</h1>
         <p class="description">{{ entryDescription }}</p>
 
-        <div class="info-box">
-          <div class="info-row">
-            <span>테이블</span>
-            <strong>{{ tableText }}</strong>
+        <template v-if="!hasTableInfo">
+          <div v-if="isLoadingTableMaster" class="picker-state">
+            자리 목록을 불러오는 중이에요.
           </div>
-          <div class="info-row">
-            <span>표시명</span>
-            <strong>{{ displayNameText }}</strong>
-          </div>
-        </div>
 
-        <div class="nickname-box">
-          <label class="nickname-label" for="table-nickname-input">
-            주문자 닉네임
-          </label>
-          <input
-            id="table-nickname-input"
-            v-model="tableNickname"
-            type="text"
-            class="nickname-input"
-            placeholder="예: 홍길동"
-            autocomplete="off"
-          />
-          <p class="nickname-helper">
-            누가 주문했는지 표시되는 이름이에요. 한글 8자, 영문·숫자 16자까지
-            입력할 수 있어요.
-          </p>
-          <p class="nickname-notice">
-            비속어나 불쾌감을 주는 닉네임은 안내 없이 강제로 변경될 수 있어요.
-          </p>
-          <p v-if="nicknameErrorMessage" class="nickname-error">
-            {{ nicknameErrorMessage }}
-          </p>
-        </div>
+          <div v-else-if="tableMasterError" class="picker-state picker-error">
+            <p>{{ tableMasterError }}</p>
+            <button type="button" class="retry-button" @click="loadTableMaster">
+              다시 시도
+            </button>
+          </div>
+
+          <div v-else-if="!tableZoneGroups.length" class="picker-state">
+            사용할 수 있는 자리가 없어요. 직원에게 문의해주세요.
+          </div>
+
+          <div v-else class="table-picker">
+            <div
+              v-for="group in tableZoneGroups"
+              :key="group.zone"
+              class="zone-group"
+            >
+              <p class="zone-title">{{ group.label }}</p>
+              <div class="zone-grid">
+                <button
+                  v-for="table in group.tables"
+                  :key="table.number"
+                  type="button"
+                  class="table-tile"
+                  :aria-label="`${table.ariaLabel}로 입장`"
+                  @click="selectTable(table)"
+                >
+                  <span class="tile-number">{{ table.shortLabel }}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <template v-else>
+          <div class="info-box">
+            <div class="info-row">
+              <span>테이블</span>
+              <strong>{{ tableText }}</strong>
+            </div>
+            <div class="info-row">
+              <span>표시명</span>
+              <strong>{{ displayNameText }}</strong>
+            </div>
+          </div>
+
+          <div class="nickname-box">
+            <label class="nickname-label" for="table-nickname-input">
+              주문자 닉네임
+            </label>
+            <input
+              id="table-nickname-input"
+              v-model="tableNickname"
+              type="text"
+              class="nickname-input"
+              placeholder="예: 홍길동"
+              autocomplete="off"
+            />
+            <p class="nickname-helper">
+              누가 주문했는지 표시되는 이름이에요. 한글 8자, 영문·숫자 16자까지
+              입력할 수 있어요.
+            </p>
+            <p class="nickname-notice">
+              비속어나 불쾌감을 주는 닉네임은 안내 없이 강제로 변경될 수 있어요.
+            </p>
+            <p v-if="nicknameErrorMessage" class="nickname-error">
+              {{ nicknameErrorMessage }}
+            </p>
+          </div>
+        </template>
 
         <div v-if="entryErrorMessage" class="error-box">
           {{ entryErrorMessage }}
         </div>
 
         <button
+          v-if="hasTableInfo"
           type="button"
           class="start-button"
           :disabled="!canStart || isPreparingEntry"
           @click="handleStart"
         >
           {{ startButtonText }}
+        </button>
+
+        <button
+          v-if="hasTableInfo"
+          type="button"
+          class="reset-table-button"
+          @click="resetTableSelection"
+        >
+          다른 자리 선택
         </button>
       </section>
     </div>
@@ -77,6 +128,7 @@ import {
   getTableNicknameErrorMessage,
   normalizeTableNumber,
 } from "@/lib/orderSheet";
+import { fetchTableMaster, tableLabelOf, zoneLabel } from "@/lib/tableMaster";
 
 const router = useRouter();
 const route = useRoute();
@@ -88,13 +140,19 @@ const tableNickname = ref("");
 const isPreparingEntry = ref(false);
 const entryErrorMessage = ref("");
 
+const tableMaster = ref([]);
+const isLoadingTableMaster = ref(false);
+const tableMasterError = ref("");
+
 const nicknameErrorMessage = computed(() => {
   return getTableNicknameErrorMessage(tableNickname.value);
 });
 
 const tableText = computed(() => {
-  return tableNumber.value
-    ? `${tableNumber.value}번 테이블`
+  const number = Number(tableNumber.value);
+
+  return Number.isFinite(number) && number > 0
+    ? `${number}번 테이블`
     : "테이블 정보 없음";
 });
 
@@ -110,21 +168,43 @@ const hasTableInfo = computed(() => {
   return Boolean(tableNumber.value) && Boolean(displayName.value);
 });
 
+const tableZoneGroups = computed(() => {
+  const groups = new Map();
+
+  for (const table of tableMaster.value) {
+    const number = normalizeTableNumber(table.tableNumber);
+
+    if (!number) continue;
+
+    const zone =
+      String(table.zone || "").toUpperCase() === "BAR" ? "BAR" : "LARGE";
+
+    if (!groups.has(zone)) {
+      groups.set(zone, { zone, label: zoneLabel(zone), tables: [] });
+    }
+
+    groups.get(zone).tables.push({
+      number,
+      shortLabel: number,
+      ariaLabel: tableLabelOf(table),
+    });
+  }
+
+  return [...groups.values()];
+});
+
 const entryTitle = computed(() => {
-  return hasTableInfo.value ? "테이블 입장" : "테이블 오더 카드가 필요해요";
+  return hasTableInfo.value ? "테이블 입장" : "몇 번 자리에 앉으셨나요?";
 });
 
 const entryDescription = computed(() => {
   return hasTableInfo.value
     ? "테이블 정보를 확인한 뒤 시작해주세요."
-    : "만료된 주문서이거나 테이블 정보가 없어요. 자리의 테이블 오더 카드를 다시 접촉해주세요.";
+    : "자리 번호를 선택하면 바로 주문을 시작할 수 있어요.";
 });
 
 const startButtonText = computed(() => {
-  if (isPreparingEntry.value) return "입장 준비 중...";
-  if (!hasTableInfo.value) return "테이블 오더 카드를 다시 접촉해주세요";
-
-  return "시작하기";
+  return isPreparingEntry.value ? "입장 준비 중..." : "시작하기";
 });
 
 function detectMobile() {
@@ -165,6 +245,53 @@ async function prefillEntryInfo() {
   }
 }
 
+async function loadTableMaster() {
+  if (isLoadingTableMaster.value) return;
+
+  isLoadingTableMaster.value = true;
+  tableMasterError.value = "";
+
+  try {
+    const rows = await fetchTableMaster();
+
+    tableMaster.value = rows.filter((table) => table.isActive !== false);
+  } catch (error) {
+    console.error("테이블 목록 조회 실패:", error);
+    tableMasterError.value =
+      "자리 목록을 불러오지 못했어요. 잠시 후 다시 시도해주세요.";
+  } finally {
+    isLoadingTableMaster.value = false;
+  }
+}
+
+async function selectTable(table) {
+  if (!table?.number || isPreparingEntry.value) return;
+
+  tableNumber.value = table.number;
+  displayName.value = `No.${table.number}`;
+  tableNickname.value = "";
+  entryErrorMessage.value = "";
+
+  await prefillEntryInfo();
+}
+
+function resetTableSelection() {
+  tableNumber.value = "";
+  displayName.value = "";
+  tableNickname.value = "";
+  entryErrorMessage.value = "";
+
+  if (route.query.table) {
+    const restQuery = { ...route.query };
+    delete restQuery.table;
+    router.replace({ path: route.path, query: restQuery });
+  }
+
+  if (!tableMaster.value.length) {
+    loadTableMaster();
+  }
+}
+
 async function handleStart() {
   if (!canStart.value || isPreparingEntry.value) return;
 
@@ -192,12 +319,13 @@ async function handleStart() {
 onMounted(() => {
   detectMobile();
   initializeEntryInfo();
-  prefillEntryInfo();
 
-  if (!tableNumber.value) {
-    entryErrorMessage.value =
-      "주문서가 만료되었거나 테이블 번호를 확인할 수 없어요. 테이블 오더 카드를 다시 접촉해주세요.";
+  if (tableNumber.value) {
+    prefillEntryInfo();
+    return;
   }
+
+  loadTableMaster();
 });
 </script>
 
@@ -415,5 +543,104 @@ onMounted(() => {
     opacity: 0.45;
     cursor: not-allowed;
   }
+}
+
+.reset-table-button {
+  width: 100%;
+  height: 44px;
+  margin-top: 10px;
+  border: none;
+  border-radius: 14px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+
+  &:active {
+    background: rgba(255, 255, 255, 0.08);
+  }
+}
+
+.table-picker {
+  display: grid;
+  gap: 18px;
+  margin-bottom: 8px;
+}
+
+.zone-group {
+  display: grid;
+}
+
+.zone-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.zone-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+  gap: 8px;
+}
+
+.table-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 52px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+
+  &:active {
+    background: rgba(255, 255, 255, 0.18);
+    transform: scale(0.96);
+  }
+
+  &:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.5);
+    outline-offset: 2px;
+  }
+}
+
+.picker-state {
+  margin-bottom: 8px;
+  padding: 24px 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.06);
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.72);
+
+  p {
+    margin: 0;
+  }
+}
+
+.picker-error {
+  background: rgba(252, 165, 165, 0.12);
+  color: #fecaca;
+}
+
+.retry-button {
+  margin-top: 12px;
+  height: 38px;
+  padding: 0 16px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
 }
 </style>

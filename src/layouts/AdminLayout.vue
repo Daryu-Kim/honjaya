@@ -23,7 +23,7 @@
 
       <nav class="sidebar-nav">
         <button
-          v-for="menu in menuList"
+          v-for="menu in visibleMenuList"
           :key="menu.to"
           type="button"
           class="nav-button"
@@ -81,7 +81,7 @@
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import { staffAuthState, staffLogout } from "@/lib/staffAuth.js";
+import { staffAuthState, hasPermission, staffLogout } from "@/lib/staffAuth.js";
 
 const router = useRouter();
 const route = useRoute();
@@ -118,62 +118,86 @@ const menuList = [
     label: "매출 통계",
     description: "기간별 매출 분석",
     matchStartsWith: "/admin/sales",
+    permission: "sales.view",
   },
   {
     to: "/admin/payments",
     label: "결제 내역",
     description: "주문서별 결제 조회",
     matchStartsWith: "/admin/payments",
+    permission: "payment.view",
   },
   {
     to: "/admin/points",
     label: "포인트 관리",
     description: "적립·사용 내역과 조정",
     matchStartsWith: "/admin/points",
+    permission: "customer.view",
   },
   {
     to: "/admin/customers",
     label: "고객 관리",
     description: "방문 이력·마케팅 동의",
     matchStartsWith: "/admin/customers",
+    permission: "crm.view",
   },
   {
     to: "/admin/marketing",
     label: "마케팅",
     description: "문자·알림톡 발송",
     matchStartsWith: "/admin/marketing",
+    permission: "marketing.view",
   },
   {
     to: "/admin/products",
     label: "상품 관리",
     description: "상품 등록 및 수정",
     matchStartsWith: "/admin/products",
+    permission: "menu.toggle",
   },
   {
     to: "/admin/recipes",
     label: "레시피 관리",
     description: "상품별 레시피 등록/수정/삭제",
     matchStartsWith: "/admin/recipes",
+    permission: "menu.toggle",
   },
   {
     to: "/admin/categories",
     label: "카테고리 관리",
     description: "분류 구조 관리",
     matchStartsWith: "/admin/categories",
+    permission: "menu.toggle",
   },
   {
     to: "/admin/tables",
     label: "테이블 관리",
     description: "테이블·좌석 설정",
     matchStartsWith: "/admin/tables",
+    permission: "table.view",
+  },
+  {
+    to: "/admin/employees",
+    label: "직원 관리",
+    description: "계정·권한 직접 설정",
+    matchStartsWith: "/admin/employees",
+    permission: "employee.manage",
   },
   {
     to: "/tablet",
     label: "태블릿 운영판",
     description: "매장 현장용 화면",
     matchStartsWith: "/tablet",
+    permission: "order.view",
   },
 ];
+
+// 권한이 없는 메뉴는 아예 보여주지 않습니다. (직원별 권한 설정과 같은 기준)
+const visibleMenuList = computed(() => {
+  return menuList.filter((menu) => {
+    return !menu.permission || hasPermission(menu.permission);
+  });
+});
 
 function goMenu(path) {
   closeMobileMenu();
@@ -233,6 +257,7 @@ watch(
   grid-template-columns: 280px 1fr;
   background: #0b1220;
   color: #fff;
+  color-scheme: dark;
 }
 
 .admin-sidebar {

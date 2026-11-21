@@ -45,10 +45,12 @@ export function fetchPaymentLedger({ from = "", to = "", limit = 200 } = {}) {
 
 // entries: [{ method, amount, payerLabel }]
 // customerPhone/pointsUsed 를 넘기면 서버가 포인트 사용·적립까지 함께 처리합니다.
+// couponIds 는 고객이 보유한 재방문 쿠폰 id 목록이며, 할인 금액은 서버가 계산합니다.
 export function recordSheetPayment({
   orderSheetId,
   originalAmount,
   discounts = [],
+  couponIds = [],
   entries = [],
   memo = "",
   close = true,
@@ -61,6 +63,7 @@ export function recordSheetPayment({
     orderSheetId,
     originalAmount,
     discounts,
+    couponIds,
     entries,
     memo,
     close,
@@ -69,6 +72,17 @@ export function recordSheetPayment({
     marketingConsent,
     pointsUsed,
   });
+}
+
+export function fetchUsableCoupons({ phone = "", baseAmount = 0 } = {}) {
+  const params = new URLSearchParams();
+
+  if (phone) params.set("phone", phone);
+  if (baseAmount) params.set("baseAmount", String(baseAmount));
+
+  const query = params.toString();
+
+  return apiGet(`/api/payments/coupons${query ? `?${query}` : ""}`);
 }
 
 export function refundSheetPayment({ paymentId, amount, reason = "" }) {

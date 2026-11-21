@@ -907,6 +907,10 @@
               <span>할인 합계</span>
               <strong>-{{ formatPrice(paymentDiscountTotal) }}원</strong>
             </div>
+            <div v-if="paymentCouponDiscountTotal > 0" class="modal-info-row">
+              <span>쿠폰 할인</span>
+              <strong>-{{ formatPrice(paymentCouponDiscountTotal) }}원</strong>
+            </div>
             <div v-if="paymentPointsUsed > 0" class="modal-info-row">
               <span>포인트 사용</span>
               <strong>-{{ formatPrice(paymentPointsUsed) }}P</strong>
@@ -988,6 +992,51 @@
                 </button>
               </div>
             </div>
+          </div>
+
+          <div class="modal-section">
+            <div class="section-title-row">
+              <h4>재방문 쿠폰</h4>
+            </div>
+
+            <p v-if="!paymentCouponState.loaded" class="modal-empty-text">
+              전화번호를 조회하면 보유 쿠폰을 확인할 수 있어요.
+            </p>
+            <p
+              v-else-if="paymentCouponState.coupons.length === 0"
+              class="modal-empty-text"
+            >
+              사용할 수 있는 쿠폰이 없어요.
+            </p>
+
+            <div v-else class="payment-edit-list">
+              <label
+                v-for="coupon in paymentCouponState.coupons"
+                :key="coupon.id"
+                class="coupon-row"
+                :class="{ selected: paymentCouponIds.includes(coupon.id) }"
+              >
+                <input
+                  type="checkbox"
+                  :checked="paymentCouponIds.includes(coupon.id)"
+                  :disabled="!isPaymentCouponSelectable(coupon)"
+                  @change="togglePaymentCoupon(coupon.id)"
+                />
+                <span class="coupon-title">{{ coupon.title }}</span>
+                <span class="coupon-meta">
+                  {{ formatCouponDiscount(coupon) }}
+                  <template v-if="Number(coupon.minAmount || 0) > 0">
+                    · {{ formatPrice(coupon.minAmount) }}원 이상
+                  </template>
+                  · {{ formatCouponDate(coupon.expiresAt) }}까지
+                </span>
+              </label>
+            </div>
+
+            <p v-if="paymentCouponDiscountTotal > 0" class="modal-empty-text">
+              쿠폰 {{ paymentSelectedCoupons.length }}장 ·
+              {{ formatPrice(paymentCouponDiscountTotal) }}원 할인
+            </p>
           </div>
 
           <div class="modal-section">
@@ -1259,6 +1308,17 @@
               <strong
                 >-{{
                   formatPrice(paymentCompleteModalState.discountTotal)
+                }}원</strong
+              >
+            </div>
+            <div
+              v-if="paymentCompleteModalState.couponDiscountTotal > 0"
+              class="modal-info-row"
+            >
+              <span>쿠폰 할인</span>
+              <strong
+                >-{{
+                  formatPrice(paymentCompleteModalState.couponDiscountTotal)
                 }}원</strong
               >
             </div>
@@ -1689,6 +1749,7 @@ import {
 } from "@/lib/orderSheet";
 import { recalculateOrderSheetTotals } from "@/lib/orderSheetTotals";
 import {
+  fetchUsableCoupons,
   getPaymentMethodLabel,
   PAYMENT_METHOD_OPTIONS as paymentMethodOptions,
 } from "@/lib/payments";
@@ -1759,6 +1820,8 @@ const paymentCompleteModalState = ref({
   pointsEarned: 0,
   pointsBalance: null,
   customerPhone: "",
+  couponDiscountTotal: 0,
+  couponTitles: [],
 });
 
 // 포인트는 직원이 고객 전화번호로 조회해서 적용합니다.
@@ -1773,6 +1836,14 @@ const paymentPointState = ref({
   phone: "",
   expiringSoon: [],
 });
+
+// 재방문 쿠폰 — 전화번호 조회 시 사용 가능한 쿠폰을 함께 받아 옵니다.
+const paymentCouponState = ref({
+  loading: false,
+  loaded: false,
+  coupons: [],
+});
+const paymentCouponIds = ref([]);
 
 const orderSheetTagPresets = [
   "블로그체험단",
@@ -2247,11 +2318,81 @@ const paymentDiscountTotal = computed(() => {
 });
 
 const paymentPayableAmount = computed(() => {
-  return Math.max(
-    0,
-    Number(paymentModalState.value.amount || 0) - paymentDiscountTotal.value
-  );
+  const originalAmount = Number(paymentModalState.value.amount || 0);
+  const totalDiscount =
+    paymentDiscountTotal.value + paymentCouponDiscountTotal.value;
+
+  return Math.max(0, originalAmount - Math.min(originalAmount, totalDiscount));
 });
+
+// 선택한 쿠폰의 할인 금액 합계. 서버와 동일한 규칙으로 미리 계산해 보여 줍니다.
+const paymentCouponDiscountTotal = computed(() =>
+  paymentSelectedCoupons.value.reduce(
+    (acc, coupon) =>
+      acc +
+      couponDiscountFor(coupon, Number(paymentModalState.value.amount || 0)),
+    0
+  )
+);
+
+const paymentSelectedCoupons = computed(() =>
+  paymentCouponState.value.coupons.filter((coupon) =>
+    paymentCouponIds.value.includes(coupon.id)
+  )
+);
+
+// 서버(coupons.js)와 같은 계산: 정액은 그대로, 정률은 기준 금액의 %(내림).
+function couponDiscountFor(coupon, baseAmount) {
+  const base = Math.max(0, Number(baseAmount || 0));
+  const value = Math.max(0, Number(coupon?.discountValue || 0));
+
+  if (base <= 0 || value <= 0) return 0;
+
+  return coupon?.discountType === "PERCENT"
+    ? Math.min(base, Math.floor((base * Math.min(value, 100)) / 100))
+    : Math.min(base, value);
+}
+
+// 쿠폰은 쿠폰별 최소 결제 금액 조건이 있어 금액에 못 미치면 선택할 수 없습니다.
+function isPaymentCouponSelectable(coupon) {
+  const minAmount = Number(coupon?.minAmount || 0);
+
+  return (
+    Number(paymentModalState.value.amount || 0) >= minAmount &&
+    couponDiscountFor(coupon, paymentModalState.value.amount) > 0
+  );
+}
+
+function togglePaymentCoupon(couponId) {
+  const id = String(couponId || "");
+
+  if (!id) return;
+
+  paymentCouponIds.value = paymentCouponIds.value.includes(id)
+    ? paymentCouponIds.value.filter((value) => value !== id)
+    : [...paymentCouponIds.value, id];
+}
+
+function formatCouponDiscount(coupon) {
+  const value = Number(coupon?.discountValue || 0);
+
+  return coupon?.discountType === "PERCENT"
+    ? `${value}% 할인`
+    : `${formatPrice(value)}원 할인`;
+}
+
+function formatCouponDate(value) {
+  if (!value) return "-";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "-";
+
+  return date.toLocaleDateString("ko-KR", {
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
 
 // 이미 부분 결제된 금액을 빼고, 이번에 받아야 할 금액입니다.
 const paymentPointBalance = computed(() =>
@@ -2484,6 +2625,15 @@ function resetPaymentPointState() {
   };
 }
 
+function resetPaymentCouponState() {
+  paymentCouponIds.value = [];
+  paymentCouponState.value = {
+    loading: false,
+    loaded: false,
+    coupons: [],
+  };
+}
+
 function onPaymentPhoneInput(event) {
   const formatted = formatPhoneInput(event.target.value);
 
@@ -2493,7 +2643,7 @@ function onPaymentPhoneInput(event) {
     event.target.value = formatted;
   }
 
-  // 번호를 새로 입력하면 이전 조회 결과/사용 포인트는 초기화합니다.
+  // 번호를 새로 입력하면 이전 조회 결과/사용 포인트·쿠폰은 초기화합니다.
   if (normalizePhoneNumber(formatted) !== paymentPointState.value.phone) {
     paymentPointState.value = {
       loading: false,
@@ -2506,6 +2656,7 @@ function onPaymentPhoneInput(event) {
     };
     paymentPointInput.value = 0;
     paymentModalState.value.marketingConsent = false;
+    resetPaymentCouponState();
   }
 }
 
@@ -2518,9 +2669,14 @@ async function lookupPaymentCustomer() {
   }
 
   paymentPointState.value = { ...paymentPointState.value, loading: true };
+  paymentCouponState.value = { ...paymentCouponState.value, loading: true };
 
   try {
-    const result = await fetchCustomerPoints({ phone, historyLimit: 5 });
+    const baseAmount = Number(paymentModalState.value.amount || 0);
+    const [result, couponResult] = await Promise.all([
+      fetchCustomerPoints({ phone, historyLimit: 5 }),
+      fetchUsableCoupons({ phone, baseAmount }).catch(() => ({ coupons: [] })),
+    ]);
 
     paymentPointState.value = {
       loading: false,
@@ -2534,11 +2690,19 @@ async function lookupPaymentCustomer() {
         : [],
     };
 
+    paymentCouponState.value = {
+      loading: false,
+      loaded: true,
+      coupons: Array.isArray(couponResult?.coupons) ? couponResult.coupons : [],
+    };
+    paymentCouponIds.value = [];
+
     paymentModalState.value.customerName = paymentPointState.value.name;
     paymentPointInput.value = 0;
   } catch (error) {
     console.error("포인트 조회 실패:", error);
     resetPaymentPointState();
+    resetPaymentCouponState();
     alert(error?.message || "포인트를 조회하지 못했어요.");
   }
 }
@@ -3330,6 +3494,7 @@ function openTablePaymentModal(table) {
 
 function closePaymentModal() {
   resetPaymentPointState();
+  resetPaymentCouponState();
 
   paymentModalState.value = {
     isOpen: false,
@@ -3363,6 +3528,8 @@ function closePaymentCompleteModal() {
     pointsEarned: 0,
     pointsBalance: null,
     customerPhone: "",
+    couponDiscountTotal: 0,
+    couponTitles: [],
   };
 }
 
@@ -3370,80 +3537,102 @@ async function completePayment() {
   const state = paymentModalState.value;
   if (!state.orderSheetId) return;
 
-  const originalAmount = Number(state.amount || 0);
-  const discounts = normalizePaymentDiscounts(state.discounts, originalAmount);
-  const discountTotal = Math.min(
-    originalAmount,
-    discounts.reduce(
-      (acc, discount) => acc + Number(discount.discountAmount || 0),
-      0
-    )
-  );
-  const payableAmount = Math.max(0, originalAmount - discountTotal);
-  const alreadyPaidAmount = Number(state.paidAmount || 0);
-  const pointsUsed = paymentPointsUsed.value;
-  const customerPhone = normalizePhoneNumber(state.customerPhone);
-  const dueAmount = Math.max(0, payableAmount - pointsUsed - alreadyPaidAmount);
-  const paymentSplits = normalizePaymentSplits(state.paymentSplits);
-  const splitTotal = paymentSplits.reduce(
-    (acc, split) => acc + Number(split.amount || 0),
-    0
-  );
-  const paymentMethod = getRepresentativePaymentMethod(paymentSplits);
-
-  if (payableAmount <= 0) {
-    alert("결제 금액이 0원이라 결제를 처리할 수 없어요.");
-    return;
-  }
-
-  if (pointsUsed > 0) {
-    const rules = paymentPointRules.value;
-    const step = Number(rules.redeemStep || 1000);
-
-    if (customerPhone.length < 10) {
-      alert("포인트를 사용하려면 고객 전화번호를 입력해 주세요.");
-      return;
-    }
-
-    if (
-      pointsUsed < Number(rules.minRedeem || 1000) ||
-      pointsUsed % step !== 0
-    ) {
-      alert(
-        `포인트는 ${formatPrice(rules.minRedeem)}P 이상 ${formatPrice(
-          step
-        )}P 단위로 사용할 수 있어요.`
-      );
-      return;
-    }
-  }
-
-  if (paymentSplits.length === 0) {
-    alert("결제 수단별 금액을 1개 이상 입력해주세요.");
-    return;
-  }
-
-  if (splitTotal > dueAmount) {
-    alert(`결제 입력 합계가 남은 금액(${formatPrice(dueAmount)}원)보다 커요.`);
-    return;
-  }
-
-  const isPartial = splitTotal < dueAmount;
-  const remainingAfterPayment = dueAmount - splitTotal;
-
-  if (isPartial) {
-    const confirmed = window.confirm(
-      `일부만 결제할까요?\n이번 결제 ${formatPrice(
-        splitTotal
-      )}원 / 남은 금액 ${formatPrice(remainingAfterPayment)}원`
-    );
-
-    if (!confirmed) return;
-  }
-
   await runGlobalBusy(async () => {
     try {
-      await recalculateOrderSheetTotals(state.orderSheetId);
+      // 결제 직전에 주문 합계를 다시 계산해, 그 사이 들어온 주문까지 반영합니다.
+      const freshTotals = await recalculateOrderSheetTotals(state.orderSheetId);
+      const originalAmount = Math.max(
+        0,
+        Number(freshTotals?.totalAmount ?? state.amount ?? 0)
+      );
+      const discounts = normalizePaymentDiscounts(
+        state.discounts,
+        originalAmount
+      );
+      const discountAmount = Math.min(
+        originalAmount,
+        discounts.reduce(
+          (acc, discount) => acc + Number(discount.discountAmount || 0),
+          0
+        )
+      );
+      const couponIds = paymentCouponIds.value.filter((id) =>
+        paymentCouponState.value.coupons.some((coupon) => coupon.id === id)
+      );
+      const couponDiscountAmount = paymentSelectedCoupons.value.reduce(
+        (acc, coupon) => acc + couponDiscountFor(coupon, originalAmount),
+        0
+      );
+      const payableAmount = Math.max(
+        0,
+        originalAmount -
+          Math.min(originalAmount, discountAmount + couponDiscountAmount)
+      );
+      const alreadyPaidAmount = Number(state.paidAmount || 0);
+      const pointsUsed = paymentPointsUsed.value;
+      const customerPhone = normalizePhoneNumber(state.customerPhone);
+      const dueAmount = Math.max(
+        0,
+        payableAmount - pointsUsed - alreadyPaidAmount
+      );
+      const paymentSplits = normalizePaymentSplits(state.paymentSplits);
+      const splitTotal = paymentSplits.reduce(
+        (acc, split) => acc + Number(split.amount || 0),
+        0
+      );
+      const paymentMethod = getRepresentativePaymentMethod(paymentSplits);
+
+      if (payableAmount <= 0) {
+        alert("결제 금액이 0원이라 결제를 처리할 수 없어요.");
+        return;
+      }
+
+      if (pointsUsed > 0) {
+        const rules = paymentPointRules.value;
+        const step = Number(rules.redeemStep || 1000);
+
+        if (customerPhone.length < 10) {
+          alert("포인트를 사용하려면 고객 전화번호를 입력해 주세요.");
+          return;
+        }
+
+        if (
+          pointsUsed < Number(rules.minRedeem || 1000) ||
+          pointsUsed % step !== 0
+        ) {
+          alert(
+            `포인트는 ${formatPrice(rules.minRedeem)}P 이상 ${formatPrice(
+              step
+            )}P 단위로 사용할 수 있어요.`
+          );
+          return;
+        }
+      }
+
+      if (paymentSplits.length === 0) {
+        alert("결제 수단별 금액을 1개 이상 입력해주세요.");
+        return;
+      }
+
+      if (splitTotal > dueAmount) {
+        alert(
+          `결제 입력 합계가 남은 금액(${formatPrice(dueAmount)}원)보다 커요.`
+        );
+        return;
+      }
+
+      const isPartial = splitTotal < dueAmount;
+      const remainingAfterPayment = dueAmount - splitTotal;
+
+      if (isPartial) {
+        const confirmed = window.confirm(
+          `일부만 결제할까요?\n이번 결제 ${formatPrice(
+            splitTotal
+          )}원 / 남은 금액 ${formatPrice(remainingAfterPayment)}원`
+        );
+
+        if (!confirmed) return;
+      }
 
       const paymentResult = await completeOrderSheetPayment({
         orderSheetId: state.orderSheetId,
@@ -3451,6 +3640,7 @@ async function completePayment() {
         originalAmount,
         discounts,
         paymentSplits,
+        couponIds,
         close: !isPartial,
         customerPhone,
         customerName: state.customerName,
@@ -3464,7 +3654,11 @@ async function completePayment() {
         paymentMethod,
         amount: splitTotal,
         originalAmount,
-        discountTotal,
+        discountTotal: discountAmount,
+        couponDiscountTotal: couponDiscountAmount,
+        couponTitles: paymentSelectedCoupons.value.map(
+          (coupon) => coupon.title
+        ),
         alreadyPaidAmount,
         isPartial,
         remainingAmount: remainingAfterPayment,
@@ -3543,6 +3737,7 @@ async function finalizeTableCleanup(table) {
     try {
       await finalizeOrderSheetCleanup({
         orderSheetId: table.orderSheetId,
+        tableNumber: table.tableNumber,
       });
 
       closeTableModal();
@@ -4594,6 +4789,39 @@ onUnmounted(() => {
 }
 .points-earn-text {
   color: rgba(134, 239, 172, 0.9);
+}
+.coupon-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 4px 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+}
+.coupon-row.selected {
+  background: rgba(99, 102, 241, 0.28);
+  outline: 1px solid rgba(129, 140, 248, 0.7);
+}
+.coupon-row input {
+  grid-row: span 2;
+  width: 18px;
+  height: 18px;
+  accent-color: #6366f1;
+  cursor: pointer;
+}
+.coupon-row input:disabled {
+  cursor: not-allowed;
+}
+.coupon-row .coupon-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+}
+.coupon-row .coupon-meta {
+  font-size: 12px;
+  color: rgba(203, 213, 225, 0.85);
 }
 .consent-check {
   display: flex;

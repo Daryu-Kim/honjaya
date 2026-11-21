@@ -17,11 +17,12 @@ import AdminPaymentHistoryView from "@/views/Admin/AdminPaymentHistoryView.vue";
 import AdminPointHistoryView from "@/views/Admin/AdminPointHistoryView.vue";
 import AdminCustomerView from "@/views/Admin/AdminCustomerView.vue";
 import AdminMarketingView from "@/views/Admin/AdminMarketingView.vue";
+import AdminEmployeeView from "@/views/Admin/AdminEmployeeView.vue";
 import UnsubscribeView from "@/views/User/UnsubscribeView.vue";
 import StaffLoginView from "@/views/Staff/StaffLoginView.vue";
 import AdminLayout from "@/layouts/AdminLayout.vue";
 import { startGlobalBusy } from "@/lib/globalBusy";
-import { loadStaffSession } from "@/lib/staffAuth";
+import { hasPermission, loadStaffSession } from "@/lib/staffAuth";
 
 const routes = [
   {
@@ -144,6 +145,13 @@ const routes = [
         name: "admin-tables",
         component: AdminTableView,
       },
+      {
+        // 사장 전용. 메뉴에서도 employee.manage 권한이 없으면 숨깁니다.
+        path: "employees",
+        name: "admin-employees",
+        component: AdminEmployeeView,
+        meta: { permission: "employee.manage" },
+      },
     ],
   },
   {
@@ -171,6 +179,16 @@ router.beforeEach(async (to) => {
   const employee = await loadStaffSession();
 
   if (employee) {
+    // 화면 단위 권한(meta.permission)이 있으면 라우터에서 먼저 막습니다.
+    const requiredPermission = to.matched
+      .map((record) => record.meta?.permission)
+      .filter(Boolean)
+      .pop();
+
+    if (requiredPermission && !hasPermission(requiredPermission)) {
+      return { path: "/admin/dashboard" };
+    }
+
     return true;
   }
 

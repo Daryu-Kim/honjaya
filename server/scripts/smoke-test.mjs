@@ -1428,6 +1428,405 @@ try {
   );
   equal("P7 명단 CSV → 헤더 + 1명", mktCsv.body.trim().split("\n").length, 2);
 
+  // ---------------------------------------------------------------- coupons (P8)
+  // 재방문 쿠폰은 사장(marketing.manage)만 발급/취소하고, 사용은 결제 화면에서 합니다.
+  const p8Issue = await app.inject({
+    method: "POST",
+    url: `/api/crm/customers/${p6NewCustomer.id}/coupons`,
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: {
+      title: "재방문 3,000원 할인",
+      discountType: "AMOUNT",
+      discountValue: 3000,
+      minAmount: 0,
+      expiresInDays: 30,
+    },
+  });
+  check("P8 쿠폰 발급 → 200", p8Issue.statusCode === 200, p8Issue.body);
+  equal("P8 쿠폰 발급 → 이름", p8Issue.json().coupon?.title, "재방문 3,000원 할인");
+  equal("P8 쿠폰 발급 → 상태", p8Issue.json().coupon?.status, "ACTIVE");
+
+  const p8CouponId = p8Issue.json().coupon?.id || "";
+
+  const p8IssueStaff = await app.inject({
+    method: "POST",
+    url: `/api/crm/customers/${p6NewCustomer.id}/coupons`,
+    headers: { "content-type": "application/json", cookie: staffOnlyCookie },
+    payload: { title: "권한 테스트", discountType: "AMOUNT", discountValue: 1000 },
+  });
+  check("P8 직원(STAFF) 쿠폰 발급 → 403", p8IssueStaff.statusCode === 403, p8IssueStaff.body);
+
+  const p8BadPercent = await app.inject({
+    method: "POST",
+    url: `/api/crm/customers/${p6NewCustomer.id}/coupons`,
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: { title: "말도 안 되는 할인", discountType: "PERCENT", discountValue: 150 },
+  });
+  check("P8 정률 100% 초과 → 400", p8BadPercent.statusCode === 400, p8BadPercent.body);
+
+  const p8List = await app.inject({
+    method: "GET",
+    url: `/api/crm/customers/${p6NewCustomer.id}/coupons`,
+    headers: { cookie: staffCookie },
+  });
+  check("P8 쿠폰 목록 → 200", p8List.statusCode === 200, p8List.body);
+  equal("P8 쿠폰 목록 → 1건", p8List.json().coupons.length, 1);
+
+  const p8Lookup = await app.inject({
+    method: "GET",
+    url: "/api/payments/coupons?phone=01099990000&baseAmount=30000",
+    headers: { cookie: staffCookie },
+  });
+  check("P8 결제 쿠폰 조회 → 200", p8Lookup.statusCode === 200, p8Lookup.body);
+  equal("P8 결제 쿠폰 조회 → 할인 금액", p8Lookup.json().coupons[0]?.discountAmount, 3000);
+
+  const p8Sheet = await app.inject({
+    method: "POST",
+    url: "/rest/v1/order_sheets?select=*",
+    headers: {
+      prefer: "return=representation",
+      "content-type": "application/json",
+      cookie: staffCookie,
+    },
+    payload: {
+      id: "sheet-p8-coupon",
+      sequence_no: 9301,
+      business_date: new Date().toISOString(),
+      table_number: "22",
+      display_name: "No.22",
+      total_amount: 30000,
+      order_count: 1,
+    },
+  });
+  check("P8 쿠폰 결제 주문서 생성 → 201", p8Sheet.statusCode === 201, p8Sheet.body);
+
+  const p8NoPhone = await app.inject({
+    method: "POST",
+    url: "/api/payments",
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: {
+      orderSheetId: "sheet-p8-coupon",
+      originalAmount: 30000,
+      couponIds: [p8CouponId],
+      entries: [{ method: "CARD", amount: 27000 }],
+      close: true,
+    },
+  });
+  check("P8 전화번호 없이 쿠폰 사용 → 400", p8NoPhone.statusCode === 400, p8NoPhone.body);
+
+  const p8Payment = await app.inject({
+    method: "POST",
+    url: "/api/payments",
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: {
+      orderSheetId: "sheet-p8-coupon",
+      originalAmount: 30000,
+      couponIds: [p8CouponId],
+      entries: [{ method: "CARD", amount: 27000 }],
+      close: true,
+      customerPhone: "01099990000",
+    },
+  });
+  check("P8 쿠폰 결제 → 200", p8Payment.statusCode === 200, p8Payment.body);
+  equal("P8 쿠폰 결제 → 응답 쿠폰 수", p8Payment.json().coupons?.length, 1);
+  equal("P8 쿠폰 결제 → 쿠폰 할인 금액", p8Payment.json().coupons?.[0]?.amount, 3000);
+
+  const { rows: p8SheetRows } = await db.pool.query(
+    `select original_amount, discount_total, total_amount, discounts
+       from public.order_sheets where id = 'sheet-p8-coupon'`
+  );
+  equal("P8 쿠폰 결제 → 주문 금액", p8SheetRows[0]?.original_amount, 30000);
+  equal("P8 쿠폰 결제 → 할인 합계", p8SheetRows[0]?.discount_total, 3000);
+  equal("P8 쿠폰 결제 → 최종 금액", p8SheetRows[0]?.total_amount, 27000);
+  check(
+    "P8 쿠폰 결제 → discounts 에 쿠폰 기록",
+    Array.isArray(p8SheetRows[0]?.discounts) && p8SheetRows[0].discounts.length === 1,
+    p8SheetRows[0]?.discounts
+  );
+
+  const { rows: p8CouponRows } = await db.pool.query(
+    `select used_at, used_order_sheet_id, used_payment_id from public.coupons where id = $1`,
+    [p8CouponId]
+  );
+  check("P8 쿠폰 사용 처리", Boolean(p8CouponRows[0]?.used_at), p8CouponRows[0]);
+  equal("P8 쿠폰 → 주문서 연결", p8CouponRows[0]?.used_order_sheet_id, "sheet-p8-coupon");
+  check("P8 쿠폰 → 결제 연결", Boolean(p8CouponRows[0]?.used_payment_id), p8CouponRows[0]);
+
+  const p8ReuseSheet = await app.inject({
+    method: "POST",
+    url: "/rest/v1/order_sheets?select=*",
+    headers: {
+      prefer: "return=representation",
+      "content-type": "application/json",
+      cookie: staffCookie,
+    },
+    payload: {
+      id: "sheet-p8-reuse",
+      sequence_no: 9302,
+      business_date: new Date().toISOString(),
+      table_number: "23",
+      display_name: "No.23",
+      total_amount: 30000,
+      order_count: 1,
+    },
+  });
+  check("P8 재사용 확인용 주문서 생성 → 201", p8ReuseSheet.statusCode === 201, p8ReuseSheet.body);
+
+  const p8Reuse = await app.inject({
+    method: "POST",
+    url: "/api/payments",
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: {
+      orderSheetId: "sheet-p8-reuse",
+      originalAmount: 30000,
+      couponIds: [p8CouponId],
+      entries: [{ method: "CARD", amount: 27000 }],
+      close: true,
+      customerPhone: "01099990000",
+    },
+  });
+  check("P8 사용한 쿠폰 재사용 → 409", p8Reuse.statusCode === 409, p8Reuse.body);
+
+  const p8VoidIssue = await app.inject({
+    method: "POST",
+    url: `/api/crm/customers/${p6NewCustomer.id}/coupons`,
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: { title: "취소 테스트", discountType: "PERCENT", discountValue: 10 },
+  });
+  const p8VoidId = p8VoidIssue.json().coupon?.id || "";
+
+  const p8Void = await app.inject({
+    method: "POST",
+    url: `/api/crm/coupons/${p8VoidId}/void`,
+    headers: { "content-type": "application/json", cookie: staffCookie },
+  });
+  check("P8 쿠폰 취소 → 200", p8Void.statusCode === 200, p8Void.body);
+  equal("P8 쿠폰 취소 → 상태", p8Void.json().coupon?.status, "VOID");
+
+  const p8LookupAfterVoid = await app.inject({
+    method: "GET",
+    url: "/api/payments/coupons?phone=01099990000&baseAmount=30000",
+    headers: { cookie: staffCookie },
+  });
+  equal("P8 취소/사용한 쿠폰은 결제 조회에서 제외", p8LookupAfterVoid.json().coupons.length, 0);
+
+  const p8AnonLookup = await app.inject({
+    method: "GET",
+    url: "/api/payments/coupons?phone=01099990000",
+  });
+  check("P8 비로그인 쿠폰 조회 → 401", p8AnonLookup.statusCode === 401, p8AnonLookup.body);
+
+  // ---------------------------------------------------------------- employees (P9)
+  const p9Catalog = await app.inject({
+    method: "GET",
+    url: "/api/admin/permissions",
+    headers: { cookie: staffCookie },
+  });
+  check("P9 권한 목록 → 200", p9Catalog.statusCode === 200, p9Catalog.body);
+  check(
+    "P9 권한 목록 → 그룹/권한 포함",
+    Array.isArray(p9Catalog.json().groups) &&
+      p9Catalog.json().groups.length > 0 &&
+      p9Catalog.json().roles.length === 3,
+    p9Catalog.body
+  );
+
+  const p9AnonCatalog = await app.inject({
+    method: "GET",
+    url: "/api/admin/permissions",
+  });
+  check("P9 비로그인 권한 목록 → 401", p9AnonCatalog.statusCode === 401, p9AnonCatalog.body);
+
+  // 사장이 직원을 만들면서 결제 조회 권한만 직접 부여합니다.
+  // 알 수 없는 권한 문자열은 서버가 조용히 버립니다.
+  const p9Create = await app.inject({
+    method: "POST",
+    url: "/api/admin/employees",
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: {
+      loginId: "smoke-staff-p9",
+      name: "스모크직원",
+      password: "smoke-staff-password",
+      role: "STAFF",
+      permissions: ["payment.view", "bogus.permission"],
+    },
+  });
+  check("P9 직원 생성 → 200", p9Create.statusCode === 200, p9Create.body);
+  equal(
+    "P9 직원 생성 → 직접 설정 권한만 저장",
+    p9Create.json().employee?.permissions,
+    ["payment.view"]
+  );
+  equal(
+    "P9 직원 생성 → 직접 설정 표시",
+    p9Create.json().employee?.permissionOverrides,
+    ["payment.view"]
+  );
+
+  const p9List = await app.inject({
+    method: "GET",
+    url: "/api/admin/employees",
+    headers: { cookie: staffCookie },
+  });
+  check(
+    "P9 직원 목록 → 새 직원 포함",
+    p9List.json().employees.some((row) => row.loginId === "smoke-staff-p9"),
+    p9List.body
+  );
+
+  const p9StaffLogin = await app.inject({
+    method: "POST",
+    url: "/api/staff/login",
+    headers: { "content-type": "application/json" },
+    payload: { loginId: "smoke-staff-p9", password: "smoke-staff-password" },
+  });
+  check("P9 부여된 권한으로 로그인 → 200", p9StaffLogin.statusCode === 200, p9StaffLogin.body);
+  const p9StaffCookie = toCookieHeader(p9StaffLogin);
+
+  const p9Me = await app.inject({
+    method: "GET",
+    url: "/api/staff/me",
+    headers: { cookie: p9StaffCookie },
+  });
+  equal("P9 세션 권한 = 직접 설정값", p9Me.json().employee?.permissions, ["payment.view"]);
+
+  const p9Allowed = await app.inject({
+    method: "GET",
+    url: "/api/payments/coupons?phone=01011112222",
+    headers: { cookie: p9StaffCookie },
+  });
+  check("P9 부여된 권한의 API → 200", p9Allowed.statusCode === 200, p9Allowed.body);
+
+  const p9DeniedEmployee = await app.inject({
+    method: "GET",
+    url: "/api/admin/employees",
+    headers: { cookie: p9StaffCookie },
+  });
+  check("P9 권한 없는 직원 관리 → 403", p9DeniedEmployee.statusCode === 403, p9DeniedEmployee.body);
+
+  const p9DeniedMarketing = await app.inject({
+    method: "GET",
+    url: "/api/marketing/settings",
+    headers: { cookie: p9StaffCookie },
+  });
+  check("P9 권한 없는 마케팅 → 403", p9DeniedMarketing.statusCode === 403, p9DeniedMarketing.body);
+
+  const p9StaffId = p9Create.json().employee.id;
+
+  const p9Patch = await app.inject({
+    method: "PATCH",
+    url: `/api/admin/employees/${p9StaffId}`,
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: { permissions: ["payment.view", "sales.view"] },
+  });
+  check("P9 권한 수정 → 200", p9Patch.statusCode === 200, p9Patch.body);
+  equal(
+    "P9 권한 수정 → 반영",
+    p9Patch.json().employee?.permissionOverrides,
+    ["payment.view", "sales.view"]
+  );
+
+  const p9StaleSession = await app.inject({
+    method: "GET",
+    url: "/api/staff/me",
+    headers: { cookie: p9StaffCookie },
+  });
+  check("P9 권한 변경 → 기존 세션 무효화", p9StaleSession.statusCode === 401, p9StaleSession.body);
+
+  const p9StaffLogin2 = await app.inject({
+    method: "POST",
+    url: "/api/staff/login",
+    headers: { "content-type": "application/json" },
+    payload: { loginId: "smoke-staff-p9", password: "smoke-staff-password" },
+  });
+  const p9StaffCookie2 = toCookieHeader(p9StaffLogin2);
+  const p9DeniedMarketing2 = await app.inject({
+    method: "GET",
+    url: "/api/marketing/settings",
+    headers: { cookie: p9StaffCookie2 },
+  });
+  check("P9 재로그인 후에도 없는 권한은 403", p9DeniedMarketing2.statusCode === 403, p9DeniedMarketing2.body);
+
+  const p9Reset = await app.inject({
+    method: "PATCH",
+    url: `/api/admin/employees/${p9StaffId}`,
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: { permissions: null },
+  });
+  equal("P9 역할 기본값으로 되돌리기", p9Reset.json().employee?.permissionOverrides, null);
+  check(
+    "P9 역할 기본값 권한 수 복원",
+    (p9Reset.json().employee?.permissions || []).length > 1,
+    p9Reset.body
+  );
+
+  const p9OwnerPatch = await app.inject({
+    method: "PATCH",
+    url: "/api/admin/employees/smoke-owner",
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: { permissions: ["order.view"] },
+  });
+  check(
+    "P9 사장 계정 권한은 직접 설정 불가",
+    p9OwnerPatch.statusCode === 200 &&
+      p9OwnerPatch.json().employee?.permissionOverrides === null &&
+      p9OwnerPatch.json().employee?.permissions?.includes("employee.manage"),
+    p9OwnerPatch.body
+  );
+
+  // 직원 관리 권한을 위임받은 매니저라도 사장 계정은 건드릴 수 없어야 합니다.
+  const p9ManagerCreate = await app.inject({
+    method: "POST",
+    url: "/api/admin/employees",
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: {
+      loginId: "smoke-manager-p9",
+      name: "스모크매니저",
+      password: "smoke-manager-password",
+      role: "MANAGER",
+      permissions: ["employee.manage"],
+    },
+  });
+  check("P9 매니저 생성 + 직원 관리 위임 → 200", p9ManagerCreate.statusCode === 200, p9ManagerCreate.body);
+
+  const p9ManagerLogin = await app.inject({
+    method: "POST",
+    url: "/api/staff/login",
+    headers: { "content-type": "application/json" },
+    payload: { loginId: "smoke-manager-p9", password: "smoke-manager-password" },
+  });
+  const p9ManagerCookie = toCookieHeader(p9ManagerLogin);
+
+  const p9ManagerOwnerPatch = await app.inject({
+    method: "PATCH",
+    url: "/api/admin/employees/smoke-owner",
+    headers: { "content-type": "application/json", cookie: p9ManagerCookie },
+    payload: { isActive: false },
+  });
+  check(
+    "P9 매니저는 사장 계정 변경 불가 → 403",
+    p9ManagerOwnerPatch.statusCode === 403,
+    p9ManagerOwnerPatch.body
+  );
+
+  const p9ManagerCreateStaff = await app.inject({
+    method: "POST",
+    url: "/api/admin/employees",
+    headers: { "content-type": "application/json", cookie: p9ManagerCookie },
+    payload: {
+      loginId: "smoke-staff2",
+      name: "스모크직원2",
+      password: "smoke-staff2-password",
+      role: "STAFF",
+    },
+  });
+  equal("P9 위임받은 매니저는 직원 생성 가능 → 기본 권한", p9ManagerCreateStaff.statusCode, 200);
+  equal(
+    "P9 기본 권한으로 만든 직원은 직접 설정 없음",
+    p9ManagerCreateStaff.json().employee?.permissionOverrides,
+    null
+  );
+
   // ---------------------------------------------------------------- select
   const list = await app.inject({
     method: "GET",

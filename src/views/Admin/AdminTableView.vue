@@ -551,7 +551,8 @@ onUnmounted(() => {
   }
 
   select option {
-    color: #0f172a;
+    color: #ffffff;
+    background: #111827;
   }
 
   .field-hint {

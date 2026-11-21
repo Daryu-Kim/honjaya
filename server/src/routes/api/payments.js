@@ -2,6 +2,7 @@
 import { writeAuditLog } from "../../auth/audit.js";
 import { PERMISSIONS } from "../../auth/permissions.js";
 import { createStaffGuard } from "../../auth/sessions.js";
+import { listUsableCouponsByPhone } from "../../coupons.js";
 import { getSheetLedger, listPayments, recordPayment, refundPayment } from "../../payments.js";
 
 function readBody(request) {
@@ -33,6 +34,18 @@ export function registerPaymentRoutes(app) {
     async (request) => getSheetLedger(request.params.orderSheetId)
   );
 
+  // 결제 화면에서 손님 전화번호로 사용 가능한 재방문 쿠폰을 조회합니다.
+  app.get("/api/payments/coupons", { preHandler: requireView }, async (request) => {
+    const query = request.query || {};
+
+    return {
+      coupons: await listUsableCouponsByPhone({
+        phone: query.phone || "",
+        baseAmount: query.baseAmount || 0,
+      }),
+    };
+  });
+
   app.post("/api/payments", { preHandler: requireManage }, async (request) => {
     const body = readBody(request);
     const employee = request.staff?.employee || null;
@@ -41,6 +54,7 @@ export function registerPaymentRoutes(app) {
       orderSheetId: body.orderSheetId,
       originalAmount: body.originalAmount ?? null,
       discounts: body.discounts ?? null,
+      couponIds: body.couponIds ?? null,
       entries: body.entries,
       memo: body.memo,
       close: body.close,

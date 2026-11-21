@@ -50,7 +50,7 @@ export function registerStaffAuthRoutes(app) {
     }
 
     const result = await pool.query(
-      `select id, login_id, name, role, is_active, password_hash, last_login_at
+      `select id, login_id, name, role, permissions, is_active, password_hash, last_login_at
          from public.employees
         where lower(login_id) = lower($1)
         limit 1`,

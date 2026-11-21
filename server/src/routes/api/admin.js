@@ -2,7 +2,14 @@ import { randomUUID } from "node:crypto";
 
 import { writeAuditLog } from "../../auth/audit.js";
 import { hashPassword, validatePasswordStrength } from "../../auth/password.js";
-import { PERMISSIONS, ROLE_LABELS, isValidRole } from "../../auth/permissions.js";
+import {
+  PERMISSIONS,
+  ROLE_LABELS,
+  isValidRole,
+  normalizePermissions,
+  permissionCatalog,
+  permissionsForEmployee,
+} from "../../auth/permissions.js";
 import { createStaffGuard, revokeSessionsForEmployee } from "../../auth/sessions.js";
 import { pool } from "../../db.js";
 import { HttpError } from "../../http/errors.js";
@@ -26,7 +33,31 @@ function mapEmployeeRow(row) {
     lastLoginAt: row.last_login_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    permissions: permissionsForEmployee(row),
+    permissionOverrides: Array.isArray(row.permissions)
+      ? [...row.permissions]
+      : null,
   };
+}
+
+// 요청 본문의 permissions 값을 해석합니다.
+//   * undefined → 변경 없음
+//   * null → 역할 기본값으로 되돌림
+//   * 배열 → 그 직원만의 명시적 권한 목록
+function readPermissionsInput(body) {
+  if (body.permissions === undefined) {
+    return { provided: false, value: null };
+  }
+
+  if (body.permissions === null) {
+    return { provided: true, value: null };
+  }
+
+  if (!Array.isArray(body.permissions)) {
+    throw new HttpError(400, "HJ400", "권한 목록 형식이 올바르지 않아요.");
+  }
+
+  return { provided: true, value: normalizePermissions(body.permissions) };
 }
 
 function mapTableRow(row) {
@@ -61,9 +92,13 @@ export function registerAdminRoutes(app) {
   const requireEmployeeManage = createStaffGuard(PERMISSIONS.EMPLOYEE_MANAGE);
   const requireAuditView = createStaffGuard(PERMISSIONS.AUDIT_VIEW);
 
+  app.get("/api/admin/permissions", { preHandler: requireEmployeeManage }, async () => {
+    return permissionCatalog();
+  });
+
   app.get("/api/admin/employees", { preHandler: requireEmployeeManage }, async () => {
     const result = await pool.query(
-      `select id, login_id, name, role, is_active, last_login_at, created_at, updated_at
+      `select id, login_id, name, role, permissions, is_active, last_login_at, created_at, updated_at
          from public.employees
         order by
           case role when 'OWNER' then 0 when 'MANAGER' then 1 else 2 end,
@@ -101,6 +136,12 @@ export function registerAdminRoutes(app) {
       throw new HttpError(403, "HJ403", "사장 계정은 사장만 만들 수 있어요.");
     }
 
+    const permissionsInput = readPermissionsInput(body);
+
+    // 사장은 항상 전체 권한을 쓰므로 개별 설정을 저장하지 않습니다.
+    const storedPermissions =
+      role === "OWNER" ? null : permissionsInput.value;
+
     const strengthError = validatePasswordStrength(password);
 
     if (strengthError) {
@@ -120,10 +161,10 @@ export function registerAdminRoutes(app) {
     const passwordHash = await hashPassword(password);
 
     const inserted = await pool.query(
-      `insert into public.employees (id, login_id, password_hash, name, role)
-       values ($1, $2, $3, $4, $5)
-       returning id, login_id, name, role, is_active, last_login_at, created_at, updated_at`,
-      [id, loginId, passwordHash, name, role]
+      `insert into public.employees (id, login_id, password_hash, name, role, permissions)
+       values ($1, $2, $3, $4, $5, $6)
+       returning id, login_id, name, role, permissions, is_active, last_login_at, created_at, updated_at`,
+      [id, loginId, passwordHash, name, role, storedPermissions]
     );
 
     await writeAuditLog({
@@ -131,7 +172,7 @@ export function registerAdminRoutes(app) {
       action: "EMPLOYEE_CREATE",
       targetType: "employee",
       targetId: id,
-      detail: { loginId, name, role },
+      detail: { loginId, name, role, permissions: storedPermissions },
       ip: request.ip,
       log: request.log,
     });
@@ -146,7 +187,10 @@ export function registerAdminRoutes(app) {
     const values = [];
 
     const current = await pool.query(
-      `select id, login_id, name, role, is_active from public.employees where id = $1 limit 1`,
+      `select id, login_id, name, role, permissions, is_active
+         from public.employees
+        where id = $1
+        limit 1`,
       [id]
     );
 
@@ -155,6 +199,11 @@ export function registerAdminRoutes(app) {
     }
 
     const employee = current.rows[0];
+
+    // 사장 계정은 사장만 건드릴 수 있습니다. (매니저의 사장 계정 잠금/권한 회수 방지)
+    if (employee.role === "OWNER" && request.staff.employee.role !== "OWNER") {
+      throw new HttpError(403, "HJ403", "사장 계정은 사장만 변경할 수 있어요.");
+    }
 
     if (body.name !== undefined) {
       const name = String(body.name).trim();
@@ -186,6 +235,19 @@ export function registerAdminRoutes(app) {
       updates.push(`role = $${values.length}`);
     }
 
+    const permissionsInput = readPermissionsInput(body);
+    const nextRole =
+      body.role !== undefined ? String(body.role).trim().toUpperCase() : employee.role;
+
+    if (permissionsInput.provided) {
+      // 사장은 항상 전체 권한이라 개별 설정을 저장하지 않습니다.
+      const storedPermissions =
+        nextRole === "OWNER" ? null : permissionsInput.value;
+
+      values.push(storedPermissions);
+      updates.push(`permissions = $${values.length}`);
+    }
+
     if (body.isActive !== undefined) {
       const isActive = Boolean(body.isActive);
 
@@ -211,12 +273,16 @@ export function registerAdminRoutes(app) {
       `update public.employees
           set ${updates.join(", ")}, updated_at = now()
         where id = $${values.length}
-        returning id, login_id, name, role, is_active, last_login_at, created_at, updated_at`,
+        returning id, login_id, name, role, permissions, is_active, last_login_at, created_at, updated_at`,
       values
     );
 
     // 권한을 뺏거나 계정을 잠그면 기존 세션을 즉시 끊습니다.
-    if (body.role !== undefined || body.isActive === false) {
+    if (
+      body.role !== undefined ||
+      body.isActive === false ||
+      permissionsInput.provided
+    ) {
       await revokeSessionsForEmployee(id, { keepSessionId: request.staff.sessionId });
     }
 
@@ -252,7 +318,7 @@ export function registerAdminRoutes(app) {
         `update public.employees
             set password_hash = $2, updated_at = now()
           where id = $1
-          returning id, login_id, name, role, is_active, last_login_at, created_at, updated_at`,
+          returning id, login_id, name, role, permissions, is_active, last_login_at, created_at, updated_at`,
         [id, passwordHash]
       );
 

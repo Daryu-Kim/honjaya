@@ -14,7 +14,7 @@ Write in English. UI strings stay Korean.
 | Points expiry | 3 calendar months from earn date, end of day KST |
 | Points redeem | min 1,000 points, in 1,000-point increments, only when payment ≥ ₩30,000 |
 | Points basis | earn = 1% of cash actually collected (after discount and point use); the ₩30,000 redeem minimum uses the amount after discount, before point deduction |
-| Staff | 3 people, 3 roles: `OWNER` / `MANAGER` / `STAFF` |
+| Staff | 3 people, 3 roles: `OWNER` / `MANAGER` / `STAFF`; the role supplies defaults and the owner can override permissions per employee (`employees.permissions`) |
 | Frontend origin | `https://honjaya.vercel.app` (operational) |
 | API origin (target) | `https://api.honjaya-server.xyz` via Cloudflare Tunnel — **LIVE** (`/health` → db up) |
 | API origin (backup) | Tailscale Funnel `https://<device>.<tailnet>.ts.net` |
@@ -24,6 +24,8 @@ Write in English. UI strings stay Korean.
 | Customer identity | **Phone number only** — no Kakao login, no member signup. `customers` is created at the tablet payment screen |
 | Marketing channel | 문자(SMS/LMS) + 카카오 알림톡 through a provider. Default `MESSAGING_PROVIDER=dryrun` (records logs, sends nothing) |
 | Marketing consent | Collected at the tablet payment screen + admin CRM page; customers can opt out via a tokenized link in every message |
+| Coupons | Phone-keyed, single-use, 사장만 발급/취소, redeemed at the tablet payment screen; percent or amount with an optional 최소 결제금액 |
+| Guest entry | No `?table=` needed — the root URL shows a 자리 선택 screen |
 | Removed from original spec | Supabase hosted, chat, hearts, market, character, push, gift — already gone |
 
 ### Out of scope / explicitly dropped
@@ -74,6 +76,8 @@ Guest phone / staff tablet
 | **P5** | Points ledger (earn / redeem / expire / adjust), FEFO deduction | **DONE (verified: smoke 169/169, lint, build)** |
 | **P6** | CRM & consent (customer profile, marketing consent, visit history) | **DONE (verified: smoke 201/201, lint, build, deployed live)** |
 | **P7** | Marketing & messaging (segments, campaigns, 문자/알림톡 send, opt-out link, CSV export) | **DONE (verified: smoke 242/242, lint, build, deployed live)** |
+| **P8** | Revisit coupons (`coupons` table, issue/void, redemption at the tablet payment screen, admin coupon panel) | **DONE (verified: smoke 269/269, lint, build)** |
+| **P9** | 직원 계정·권한 관리 (사장 전용 메뉴, 역할 + 직원별 세부 권한 override) | **DONE (verified: smoke 292/292, lint, build)** |
 | **Ops** | Cloudflare cutover (`api.honjaya-server.xyz` live, Tailscale → backup, `vercel.json` rewrite swapped) | **DONE** |
 
 ---
@@ -116,6 +120,9 @@ Guards implemented:
 | `OWNER` | 사장 | everything + `menu.price`, `employee.manage`, `point.adjust`, `settings.manage` |
 | `MANAGER` | 매니저 | orders, payment/refund, sales/crm/audit view |
 | `STAFF` | 알바 | order accept/status, table manage, payment, `menu.toggle` |
+
+Role defaults are defined in `server/src/auth/permissions.js`. Since P9 the owner can override them per employee
+(`employees.permissions`); `OWNER` accounts always keep the full role defaults.
 
 ### Frontend
 
@@ -486,7 +493,8 @@ identity; Kakao is only a delivery channel for 알림톡.
 ### Backend
 
 - `server/src/messaging.js` — provider adapter. `MESSAGING_PROVIDER=dryrun` (default, returns a `dry-…` id and
-  sends nothing), `none` (feature off), `solapi` (**stub**: honest 503 until a provider is contracted).
+  sends nothing), `none` (feature off), `solapi` (real `POST /messages/v4/send`, HMAC-SHA256 auth header, auto
+  SMS/LMS by body length, `ALIMTALK` → 503 until a 카카오 채널 + 발신 프로필 exists).
 - `server/src/marketing.js` — `SEGMENTS` (`CONSENTED` / `DORMANT` 60d / `NEW` 30d / `POINTS` ≥1,000P),
   `AUDIENCE_CTE` (consent + valid phone 9–11 digits + points balance + visit stats), `previewAudience`,
   `createCampaign`, `materializeLogs`, `deliverPending`, `refreshCampaignStats`, `sendCampaign`, `retryCampaign`,
@@ -532,6 +540,152 @@ identity; Kakao is only a delivery channel for 알림톡.
 
 ---
 
+## 3-8. P8 — Revisit coupons (DONE)
+
+Goal: the bar can hand a specific customer a coupon ("다음에 오시면 5,000원 할인") and the tablet redeems it at payment.
+Coupons belong to a **phone number** (same identity as points/CRM), so no login is required.
+
+### Schema — `server/sql/coupons.sql`
+
+- `public.coupons` — `code` (unique), `customer_id` → `customers`, `phone`, `title`, `discount_type`
+  (`AMOUNT` / `PERCENT`), `discount_value`, `min_amount` (default 0), `status`
+  (`ACTIVE` / `USED` / `EXPIRED` / `VOID`), `expires_at`, `used_at`, `used_payment_id`, `used_order_sheet_id`,
+  `issued_by` → `employees`, `memo`, timestamps. Indexes: `(phone, status)`, `(status, expires_at)`, `code`.
+- Registered in `apply-schema.mjs` (applied last). **Not** added to `server/src/tables.js` (that registry governs
+  `/rest/v1` only).
+
+### Backend
+
+- `server/src/coupons.js` — `mapCoupon` (derives `ACTIVE` → `EXPIRED` on read, exposes `usable`),
+  `discountAmountOf` (`PERCENT` → `min(base, floor(base*min(value,100)/100))`, `AMOUNT` → `min(base, value)`),
+  `issueCoupon`, `voidCoupon`, `listCustomerCoupons`, `listUsableCouponsByPhone`, `redeemCouponsForPayment`.
+- `server/src/routes/api/crm.js` — `GET /api/crm/customers/:phone/coupons` (`crm.view`),
+  `POST … /coupons` (`marketing.manage`, audit `coupon.issue`), `POST … /coupons/:id/void` (`marketing.manage`,
+  audit `coupon.void`).
+- `server/src/routes/api/payments.js` — `GET /api/payments/coupons?phone=&baseAmount=` (`payment.view`);
+  `POST /api/payments` passes `couponIds` through.
+- `server/src/payments.js` — `recordPayment({ couponIds })`: resolves the coupons server-side, adds them to
+  `discounts` as `{type:'COUPON'}`, marks them `USED` with the payment/order-sheet ids, returns `coupons: [...]`.
+  Rejects coupons without `originalAmount` (400) or without a resolvable `customerId` (400); an already used
+  coupon → **409**.
+
+### Frontend
+
+- Tablet payment modal (`TabletAdminView.vue`): 휴대폰 번호로 재방문 쿠폰 조회 → checkbox list → summary/receipt rows
+  → `completePayment` sends `couponIds` (discount math mirrored client-side **for display only**).
+- `AdminCustomerView.vue`: coupon issue form (제목/할인 유형/값/최소 금액/유효기간) + coupon list with 취소.
+- `src/lib/payments.js` (`couponIds`, `fetchUsableCoupons`), `src/lib/orderSheet.js` (`couponIds` passthrough),
+  `src/lib/crm.js` (coupon constants + CRUD + `formatCouponDiscount`).
+
+### Rules
+
+- A coupon is single-use: `ACTIVE → USED` in the same transaction as the payment. `USED` / `VOID` / `EXPIRED`
+  coupons never show up in `GET /api/payments/coupons`.
+- Coupon discount is capped by the remaining base amount and is added **after** manual discounts.
+- Refunds do not restore coupons (sheet totals/discounts are not reverted on refund either).
+- Issuing/voiding is 사장 전용 (`marketing.manage`).
+
+### Deploy checklist
+
+1. Backup: `BACKUP_DIR=/home/bar/backups-honjaya ./deploy/backup-db.sh`
+2. `npm run db:apply` (or the `migrate` profile) — applies `coupons.sql`
+3. `docker compose up -d --build api` — **`--build` 필수** (새 `/api/crm/customers/:phone/coupons`, `/api/payments/coupons`)
+4. Vercel redeploy (tablet 쿠폰 UI + 관리자 고객 화면)
+
+### Verification (local)
+
+- `npm run smoke` — **269/269 통과** (P8 block ~27 checks: issue → 201, 권한 403/401, 목록, 결제 조회 할인 금액,
+  쿠폰 결제 → `discount_total`/`total_amount`/`discounts` 기록, 쿠폰 → 결제·주문서 연결, 재사용 409, 취소 후 상태,
+  취소/사용 쿠폰 조회 제외, 전화번호 없는 쿠폰 결제 400).
+- `pnpm lint` / `pnpm build` 통과.
+
+---
+
+## 3-9. UI polish & tablet fixes (DONE)
+
+- **Admin dark theme** — `AdminPointHistoryView.vue`, `AdminCustomerView.vue`, `AdminMarketingView.vue` were still on the
+  light palette; they now share the dark admin tokens. `.admin-layout` sets `color-scheme: dark`, and
+  `AdminTableView.vue` `select option` is dark so dropdowns stop rendering white-on-white.
+- **Root table picker** — `HomeView.vue` shows a 자리 선택 screen (zone groups 바 / 큰 테이블, 52px tiles,
+  loading / error / empty states) when the URL has no `?table=`. Choosing a table calls `/api/guest/session` and
+  `router.replace` strips `?table=`, so 손님 can just open the root URL. A "다른 자리 선택" button returns to the picker.
+- **테이블별 매출** — `AdminSalesView.vue` aggregates payments per table (매출 / 건수 / 객단가) for the selected range.
+- **Tablet payment bug fixes** — `completePayment` recalculates the sheet totals before billing (the modal used to send
+  a stale amount that the server then wrote into `order_sheets.total_amount`), and "테이블 정리 완료" now deletes the
+  `active_order_sheets` row (`finalizeOrderSheetCleanup({ orderSheetId, tableNumber })`).
+- **Open follow-ups** from the tablet flow audit (not fixed yet): duplicate order on `UserCartView` retry (no
+  idempotency), unguarded `guardOrderSheetUsable()` calls outside `try` (silent no-op / endless loading), guest
+  session recovery only on `UserMainView`, order history total includes `CANCELLED`, fetch failures rendering as an
+  empty menu, tablet order list filtered by business-day start breaking midnight-spanning sheets, 주문 관리
+  showing only `REQUESTED` with no undo, `buildLatestSheetMap` possibly picking a `CLOSED` sheet.
+
+---
+
+## 3-10. P9 — 직원 계정·권한 관리 (DONE)
+
+Goal: the owner needs one screen to create staff accounts, reset passwords, switch roles, and fine-tune what each
+person can see — without touching SQL.
+
+### Model
+
+- Two layers: `employees.role` (`OWNER` / `MANAGER` / `STAFF`) supplies a default permission set, and the optional
+  `employees.permissions text[]` overrides it per employee.
+- `permissions = null` → role defaults; `permissions = '{}'` → **no** permissions; `permissions = '{...}'` → exactly
+  those.
+- **OWNER is always forced to role defaults** — the API stores `null` and ignores overrides. This is the
+  lockout-prevention mechanism (nobody can strip `employee.manage` from the last owner), so the owner account can
+  never lock itself out.
+- Unknown permission strings are silently dropped and the array is normalised to `ALL_PERMISSIONS` order, so the UI
+  can never persist a permission the server does not check.
+- Any change to `permissions` revokes all sessions of that employee (the caller keeps their own), so the tablet must
+  log in again — the UI warns "다시 로그인해야 합니다".
+- A `MANAGER` can be *granted* `employee.manage`, but still cannot create or modify an `OWNER` account (403).
+
+### Schema — `server/sql/staff.sql`
+
+- `alter table public.employees add column if not exists permissions text[];` (idempotent, safe to re-apply).
+
+### Backend
+
+- `server/src/auth/permissions.js` — `PERMISSION_LABELS` (Korean), `PERMISSION_GROUPS` (주문 / 테이블 / 결제·포인트 /
+  고객·마케팅 / 메뉴·매장 / 직원·보안), `ALL_PERMISSIONS`, `normalizePermissions()`, `permissionsForEmployee()`
+  (the single source of truth for the effective set), `permissionCatalog()`.
+- `server/src/auth/sessions.js` — `resolveStaffSession` selects `e.permissions` and resolves the effective set through
+  `permissionsForEmployee()`; `toPublicEmployee` exposes both `permissions` (effective) and `permissionOverrides`
+  (raw, `null` when defaulted).
+- `server/src/routes/api/admin.js` — `GET /api/admin/permissions` (catalogue for the checkbox UI);
+  `POST/PATCH /api/admin/employees` accept `permissions` (`undefined` = untouched, `null` = reset, array = set);
+  OWNER targets are rejected for non-OWNER callers; every permission change is audited.
+- `server/src/routes/api/staffAuth.js` — login `select` includes `permissions`.
+
+### Frontend
+
+- `src/lib/adminEmployees.js` — API helper (`fetchPermissionCatalog`, `fetchEmployees`, `createEmployee`,
+  `updateEmployee`, `resetEmployeePassword`).
+- `src/views/Admin/AdminEmployeeView.vue` — 사장 전용 page: 직원 추가 form, 직원 목록 (아이디 / 이름 / 역할 / 권한 /
+  상태 / 마지막 로그인 / 관리), 인라인 수정 card (이름·역할·계정 상태·권한 체크박스 그룹), 비밀번호 변경 card.
+- `src/router/index.js` — `/admin/employees` with `meta: { permission: "employee.manage" }`; `beforeEach` reads
+  `to.matched` meta and redirects to `/admin/dashboard` when the permission is missing.
+- `src/layouts/AdminLayout.vue` — every menu item now carries a `permission`, and only `visibleMenuList` is rendered,
+  so 매출 / 결제 / 포인트 / CRM / 마케팅 / 메뉴 / 테이블 / 직원 관리 / 태블릿 entries appear per employee.
+
+### Deploy checklist
+
+1. `npm run db:apply` on the server — adds `employees.permissions` **and** re-applies `coupons.sql`.
+   **Mandatory before the API rebuild**: the API selects `employees.permissions`, so without the column every staff
+   login and session resolution fails.
+2. `docker compose up -d --build api`.
+3. Vercel redeploy (the frontend is served from `dist/`).
+
+### Verification (local)
+
+- `npm run smoke` — **292/292 통과** (P9 block ~23 checks: catalogue 200/401, create with a bogus permission dropped,
+  effective vs override, 부여된 권한만 200 / 나머지 403, 권한 변경 시 기존 세션 401, `null` reset 복원, OWNER 강제
+  기본값, 위임받은 매니저의 사장 계정 403 / 직원 생성 200).
+- `pnpm lint` / `pnpm build` 통과.
+
+---
+
 ## 4. Open questions
 
 1. ~~**₩30,000 point-redemption threshold**: before or after discount?~~ → **resolved in P5**: after discount, before point deduction.
@@ -541,8 +695,9 @@ identity; Kakao is only a delivery channel for 알림톡.
 4. P3: is per-order allocation (`orderIds`) needed, or is FIFO by order creation enough?
 5. P5: when a payment is fully refunded, should the points spent on it be restored? (current: no)
 6. P5: should point expiry be materialized by a daily job instead of lazily on read? (current: lazy)
-7. P7: **which messaging provider** (솔라피 / 알리고 / 비즈뿌리오 …)? Does the bar have 사업자등록 +
-   a registered 발신번호 (needed for both 문자 and 알림톡)? Until then `MESSAGING_PROVIDER=dryrun`.
+7. P7: **which messaging provider** (솔라피 / 알리고 / 비즈뿌리오 …)? → **partially resolved**: 솔라피 implemented
+   (`MESSAGING_PROVIDER=solapi`), still needs 사업자등록 + a registered 발신번호 + `SOLAPI_API_KEY/SECRET/FROM`.
+   알림톡 additionally needs a 카카오 채널 + 발신 프로필 + template review (currently honest 503).
 8. P7: is the 1,000-character body limit enough for LMS/알림톡, or do we need MMS/이미지? (current: text only)
 
 ---
@@ -561,8 +716,15 @@ done     p5-points-ledger       point_ledger + earn/redeem/expire/adjust + FEFO
 done     p5-customer-min        customers table (phone key) + staff-driven attribution at the tablet payment screen
 done     p6-crm-consent         customer profile + marketing consent + visit history
 done     p7-marketing           segments + campaigns + 문자/알림톡 adapter (dryrun) + opt-out link + CSV export
-pending  p7-provider            choose messaging provider (solapi/aligo/bizppurio), fill sendViaSolapi(), set MESSAGING_*
+done     p7-provider            솔라피 real send implemented (MESSAGING_PROVIDER=solapi); 알림톡 대기
+done     p8-coupons             coupons table + issue/void + tablet redemption + admin panel
+done     p9-employee-admin      사장 전용 직원 계정 관리 화면 (생성/수정/비밀번호/활성) + 메뉴·라우터 권한 게이팅
+done     p9-permissions         employees.permissions text[] override + /api/admin/permissions 카탈로그 + 세션 반영
+done     dark-admin-theme       point-history / customer / marketing 관리자 화면을 다크 테마로 통일
+done     root-table-picker      손님이 ?table= 없이 루트로 들어와 자리 선택 (HomeView)
 done     p5-point-basis         redemption threshold counted AFTER discount, BEFORE point deduction (confirmed)
+done     p3-table-sales-panel   AdminSalesView 에 테이블별 매출 패널 추가
+todo     tablet-audit-followup  tablet-flow-audit 잔여 항목 (#2~#10, #13~#16) 순차 수정
 ```
 
 ---
@@ -590,3 +752,7 @@ done     p5-point-basis         redemption threshold counted AFTER discount, BEF
   the first-party cookie is not sent and every guest read fails with 403.
 - **P2:** guests cannot PATCH/DELETE `orders` and cannot close/pay a sheet — those stay staff/tablet only.
 - **P2:** closing an `order_sheets` row (`status = 'CLOSED'`) auto-revokes that sheet's guest sessions.
+- **P9:** the API selects `employees.permissions`, so `npm run db:apply` **must** run before `--build api` on deploy.
+- **P9:** `employees.permissions = null` means "역할 기본값", `'{}'` means "권한 없음". `OWNER` overrides are ignored
+  and stored as `null` on purpose (lockout prevention).
+- **P9:** any `permissions` change revokes that employee's sessions; the UI must tell them to log in again.

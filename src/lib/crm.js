@@ -1,7 +1,7 @@
 // P6 — 고객 관리(CRM) API 호출 도우미.
 //
 // 보유 포인트/방문 이력/누적 결제는 서버가 계산한 값을 그대로 보여 줍니다.
-import { apiGet, apiPatch } from "@/lib/api";
+import { apiGet, apiPatch, apiPost } from "@/lib/api";
 
 export const CONSENT_FILTERS = [
   { value: "", label: "전체" },
@@ -95,4 +95,56 @@ export function updateCustomerProfile(
   if (marketingConsent !== undefined) body.marketingConsent = marketingConsent;
 
   return apiPatch(`/api/crm/customers/${encodeURIComponent(customerId)}`, body);
+}
+
+// P8 — 재방문 쿠폰. 발급/취소는 사장(마케팅 관리)만, 조회는 매니저 이상 가능합니다.
+export const COUPON_DISCOUNT_TYPES = [
+  { value: "AMOUNT", label: "정액 할인" },
+  { value: "PERCENT", label: "정률 할인" },
+];
+
+export const COUPON_STATUS_LABELS = {
+  ACTIVE: "사용 가능",
+  USED: "사용 완료",
+  EXPIRED: "기간 만료",
+  VOID: "취소됨",
+};
+
+export function formatCouponDiscount(coupon) {
+  const value = Number(coupon?.discountValue || 0);
+
+  if (coupon?.discountType === "PERCENT") return `${value}% 할인`;
+
+  return `${value.toLocaleString("ko-KR")}원 할인`;
+}
+
+export function fetchCustomerCoupons(customerId) {
+  return apiGet(
+    `/api/crm/customers/${encodeURIComponent(String(customerId || ""))}/coupons`
+  );
+}
+
+export function issueCustomerCoupon(
+  customerId,
+  {
+    title,
+    discountType,
+    discountValue,
+    minAmount = 0,
+    expiresInDays = 90,
+    memo = "",
+  }
+) {
+  return apiPost(
+    `/api/crm/customers/${encodeURIComponent(
+      String(customerId || "")
+    )}/coupons`,
+    { title, discountType, discountValue, minAmount, expiresInDays, memo }
+  );
+}
+
+export function voidCustomerCoupon(couponId) {
+  return apiPost(
+    `/api/crm/coupons/${encodeURIComponent(String(couponId || ""))}/void`
+  );
 }

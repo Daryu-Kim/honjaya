@@ -534,34 +534,33 @@ onMounted(() => {
   flex-direction: column;
   gap: 20px;
   padding: 24px;
-  background: #f8fafc;
-  min-height: 100vh;
+  min-height: 100%;
+  color: #ffffff;
 }
 .page-header .eyebrow {
   margin: 0 0 6px;
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.12em;
-  color: #6366f1;
+  color: rgba(255, 255, 255, 0.55);
 }
 .page-header h1 {
   margin: 0 0 6px;
   font-size: 26px;
   font-weight: 800;
-  color: #0f172a;
+  color: #ffffff;
 }
 .description {
   margin: 0;
   font-size: 14px;
-  color: #64748b;
+  color: rgba(255, 255, 255, 0.66);
 }
 .filter-card,
 .customer-card,
 .ledger-section {
   padding: 18px;
   border-radius: 18px;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.08);
 }
 .filter-grid,
 .adjust-grid {
@@ -577,16 +576,19 @@ onMounted(() => {
 .filter-group label {
   font-size: 12px;
   font-weight: 700;
-  color: #475569;
+  color: rgba(255, 255, 255, 0.72);
 }
 .filter-group input {
   height: 40px;
   padding: 0 12px;
-  border: 1px solid #cbd5f5;
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 10px;
   font-size: 14px;
-  background: #fff;
-  color: #0f172a;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+.filter-group ::placeholder {
+  color: rgba(255, 255, 255, 0.4);
 }
 .filter-actions {
   display: flex;
@@ -599,8 +601,8 @@ onMounted(() => {
   padding: 0 14px;
   border: none;
   border-radius: 10px;
-  background: #eef2ff;
-  color: #4338ca;
+  background: rgba(99, 102, 241, 0.16);
+  color: #c7d2fe;
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
@@ -620,18 +622,17 @@ onMounted(() => {
   gap: 6px;
   padding: 16px;
   border-radius: 16px;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.08);
 }
 .summary-label {
   font-size: 12px;
   font-weight: 700;
-  color: #64748b;
+  color: rgba(255, 255, 255, 0.66);
 }
 .summary-card strong {
   font-size: 20px;
   font-weight: 800;
-  color: #0f172a;
+  color: #ffffff;
 }
 .customer-head,
 .ledger-head {
@@ -646,12 +647,12 @@ onMounted(() => {
   margin: 0 0 4px;
   font-size: 18px;
   font-weight: 800;
-  color: #0f172a;
+  color: #ffffff;
 }
 .customer-memo {
   margin: 12px 0 0;
   font-size: 13px;
-  color: #475569;
+  color: rgba(255, 255, 255, 0.72);
 }
 .customer-summary-grid {
   margin-top: 12px;
@@ -659,19 +660,19 @@ onMounted(() => {
 .adjust-form {
   margin-top: 18px;
   padding-top: 16px;
-  border-top: 1px dashed #cbd5f5;
+  border-top: 1px dashed rgba(255, 255, 255, 0.16);
 }
 .adjust-form h3 {
   margin: 0 0 12px;
   font-size: 15px;
   font-weight: 800;
-  color: #0f172a;
+  color: #ffffff;
 }
 .adjust-message {
   margin: 10px 0 0;
   font-size: 13px;
   font-weight: 700;
-  color: #4338ca;
+  color: #c7d2fe;
 }
 .history-block {
   margin-top: 18px;
@@ -680,7 +681,7 @@ onMounted(() => {
   margin: 0 0 10px;
   font-size: 15px;
   font-weight: 800;
-  color: #0f172a;
+  color: #ffffff;
 }
 .table-wrap {
   overflow-x: auto;
@@ -695,42 +696,42 @@ onMounted(() => {
   padding: 10px 12px;
   text-align: left;
   white-space: nowrap;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 .payment-table th {
   font-size: 12px;
   font-weight: 800;
-  color: #475569;
-  background: #f8fafc;
+  color: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.05);
 }
 .phone-text {
   margin-left: 6px;
   font-size: 12px;
-  color: #94a3b8;
+  color: rgba(255, 255, 255, 0.48);
 }
 .point-plus {
-  color: #047857;
+  color: #6ee7b7;
   font-weight: 800;
 }
 .point-minus {
-  color: #b91c1c;
+  color: #fca5a5;
   font-weight: 800;
 }
 .ledger-error {
   margin: 0 0 12px;
   padding: 10px 12px;
   border-radius: 10px;
-  background: #fef2f2;
-  color: #b91c1c;
+  background: rgba(248, 113, 113, 0.14);
+  color: #fca5a5;
   font-size: 13px;
   font-weight: 700;
 }
 .empty-box {
   padding: 28px 16px;
   border-radius: 14px;
-  background: #f8fafc;
+  background: rgba(255, 255, 255, 0.05);
   text-align: center;
-  color: #64748b;
+  color: rgba(255, 255, 255, 0.66);
   font-size: 14px;
 }
 </style>

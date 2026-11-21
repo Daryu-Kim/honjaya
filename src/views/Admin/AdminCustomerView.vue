@@ -283,6 +283,155 @@
         </form>
 
         <div class="visit-block">
+          <h3>재방문 쿠폰</h3>
+          <p class="description">
+            발급한 쿠폰은 손님이 결제할 때 태블릿 화면에서 적용할 수 있어요.
+          </p>
+
+          <p v-if="couponError" class="error-box">{{ couponError }}</p>
+          <p v-if="couponMessage" class="success-box">{{ couponMessage }}</p>
+
+          <form
+            v-if="canManageCoupons"
+            class="edit-form coupon-form"
+            @submit.prevent="submitCoupon"
+          >
+            <div class="filter-grid">
+              <div class="filter-group">
+                <label for="couponTitle">쿠폰 이름</label>
+                <input
+                  id="couponTitle"
+                  v-model="couponForm.title"
+                  type="text"
+                  maxlength="40"
+                  placeholder="예: 재방문 3,000원 할인"
+                />
+              </div>
+              <div class="filter-group">
+                <label for="couponType">할인 종류</label>
+                <select id="couponType" v-model="couponForm.discountType">
+                  <option
+                    v-for="option in couponDiscountTypes"
+                    :key="option.value"
+                    :value="option.value"
+                  >
+                    {{ option.label }}
+                  </option>
+                </select>
+              </div>
+              <div class="filter-group">
+                <label for="couponValue">할인 값</label>
+                <input
+                  id="couponValue"
+                  v-model.number="couponForm.discountValue"
+                  type="number"
+                  min="1"
+                  :max="couponForm.discountType === 'PERCENT' ? 100 : undefined"
+                  placeholder="예: 3000"
+                />
+              </div>
+              <div class="filter-group">
+                <label for="couponMinAmount">최소 결제 금액</label>
+                <input
+                  id="couponMinAmount"
+                  v-model.number="couponForm.minAmount"
+                  type="number"
+                  min="0"
+                  step="1000"
+                  placeholder="0"
+                />
+              </div>
+              <div class="filter-group">
+                <label for="couponExpiresIn">유효 기간(일)</label>
+                <input
+                  id="couponExpiresIn"
+                  v-model.number="couponForm.expiresInDays"
+                  type="number"
+                  min="1"
+                  max="365"
+                  placeholder="90"
+                />
+              </div>
+              <div class="filter-group wide">
+                <label for="couponMemo">메모</label>
+                <input
+                  id="couponMemo"
+                  v-model="couponForm.memo"
+                  type="text"
+                  maxlength="200"
+                  placeholder="선택 입력 (예: 8월 재방문 이벤트)"
+                />
+              </div>
+            </div>
+            <div class="filter-actions">
+              <button
+                type="submit"
+                class="preset-button primary"
+                :disabled="isIssuingCoupon"
+              >
+                {{ isIssuingCoupon ? "발급 중..." : "쿠폰 발급" }}
+              </button>
+            </div>
+          </form>
+
+          <div v-if="isLoadingCoupons" class="empty-box">
+            <p>쿠폰을 불러오는 중이에요.</p>
+          </div>
+          <div v-else-if="coupons.length === 0" class="empty-box">
+            <p>발급한 쿠폰이 없어요.</p>
+          </div>
+          <div v-else class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>쿠폰</th>
+                  <th>할인</th>
+                  <th>조건</th>
+                  <th>상태</th>
+                  <th>만료</th>
+                  <th>발급자</th>
+                  <th>관리</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="coupon in coupons" :key="coupon.id">
+                  <td>{{ coupon.title }}</td>
+                  <td>{{ formatCouponDiscount(coupon) }}</td>
+                  <td>
+                    {{
+                      Number(coupon.minAmount || 0) > 0
+                        ? `${formatWon(coupon.minAmount)} 이상`
+                        : "조건 없음"
+                    }}
+                  </td>
+                  <td>
+                    <span
+                      :class="['coupon-status', coupon.status.toLowerCase()]"
+                    >
+                      {{ couponStatusLabel(coupon.status) }}
+                    </span>
+                  </td>
+                  <td>{{ formatVisitDate(coupon.expiresAt) }}</td>
+                  <td>{{ coupon.issuedByEmployeeName || "-" }}</td>
+                  <td>
+                    <button
+                      v-if="canManageCoupons && coupon.usable"
+                      type="button"
+                      class="preset-button danger"
+                      :disabled="isIssuingCoupon"
+                      @click="voidCoupon(coupon)"
+                    >
+                      취소
+                    </button>
+                    <span v-else>-</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="visit-block">
           <h3>방문 이력</h3>
           <div v-if="visits.length === 0" class="empty-box">
             <p>아직 결제 기록이 없어요.</p>
@@ -330,16 +479,23 @@ import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   CONSENT_FILTERS,
+  COUPON_DISCOUNT_TYPES,
+  COUPON_STATUS_LABELS,
   CUSTOMER_SORTS,
+  fetchCustomerCoupons,
   fetchCustomerList,
   fetchCustomerProfile,
+  formatCouponDiscount,
   formatVisitDate,
   formatVisitDateTime,
   formatWon,
+  issueCustomerCoupon,
   updateCustomerProfile,
+  voidCustomerCoupon,
 } from "@/lib/crm";
 import { formatPointValue } from "@/lib/points";
 import { getPaymentMethodLabel } from "@/lib/payments";
+import { hasPermission } from "@/lib/staffAuth";
 
 const route = useRoute();
 const router = useRouter();
@@ -364,6 +520,30 @@ const saveMessage = ref("");
 const isSaving = ref(false);
 const profile = ref({ customer: null, visits: [] });
 const editForm = ref({ name: "", nickname: "", memo: "" });
+
+const couponDiscountTypes = COUPON_DISCOUNT_TYPES;
+const canManageCoupons = computed(() => hasPermission("marketing.manage"));
+const coupons = ref([]);
+const isLoadingCoupons = ref(false);
+const isIssuingCoupon = ref(false);
+const couponError = ref("");
+const couponMessage = ref("");
+const couponForm = ref(createCouponForm());
+
+function createCouponForm() {
+  return {
+    title: "",
+    discountType: "AMOUNT",
+    discountValue: 3000,
+    minAmount: 0,
+    expiresInDays: 90,
+    memo: "",
+  };
+}
+
+function couponStatusLabel(status) {
+  return COUPON_STATUS_LABELS[status] || status || "-";
+}
 
 const visits = computed(() =>
   Array.isArray(profile.value.visits) ? profile.value.visits : []
@@ -434,12 +614,89 @@ async function loadProfile(customerId) {
     };
     selectedId.value = customerId;
     syncEditForm(result?.customer);
+    await loadCoupons(customerId);
   } catch (error) {
     console.error("고객 정보 조회 실패:", error);
     profileError.value = error?.message || "고객 정보를 불러오지 못했어요.";
     profile.value = { customer: null, visits: [] };
   } finally {
     isLoadingProfile.value = false;
+  }
+}
+
+async function loadCoupons(customerId) {
+  if (!customerId) return;
+
+  isLoadingCoupons.value = true;
+  couponError.value = "";
+
+  try {
+    const result = await fetchCustomerCoupons(customerId);
+
+    coupons.value = Array.isArray(result?.coupons) ? result.coupons : [];
+  } catch (error) {
+    console.error("쿠폰 조회 실패:", error);
+    couponError.value = error?.message || "쿠폰을 불러오지 못했어요.";
+    coupons.value = [];
+  } finally {
+    isLoadingCoupons.value = false;
+  }
+}
+
+async function submitCoupon() {
+  const customer = profile.value.customer;
+
+  if (!customer) return;
+
+  couponError.value = "";
+  couponMessage.value = "";
+  isIssuingCoupon.value = true;
+
+  try {
+    await issueCustomerCoupon(customer.id, {
+      title: couponForm.value.title.trim(),
+      discountType: couponForm.value.discountType,
+      discountValue: Number(couponForm.value.discountValue || 0),
+      minAmount: Number(couponForm.value.minAmount || 0),
+      expiresInDays: Number(couponForm.value.expiresInDays || 90),
+      memo: couponForm.value.memo.trim(),
+    });
+
+    couponMessage.value = "쿠폰을 발급했어요.";
+    couponForm.value = createCouponForm();
+    await loadCoupons(customer.id);
+  } catch (error) {
+    console.error("쿠폰 발급 실패:", error);
+    couponError.value = error?.message || "쿠폰을 발급하지 못했어요.";
+  } finally {
+    isIssuingCoupon.value = false;
+  }
+}
+
+async function voidCoupon(coupon) {
+  const customer = profile.value.customer;
+
+  if (!customer || !coupon?.id) return;
+
+  const confirmed = window.confirm(
+    `"${coupon.title}" 쿠폰을 취소할까요? 취소한 쿠폰은 되돌릴 수 없어요.`
+  );
+
+  if (!confirmed) return;
+
+  couponError.value = "";
+  couponMessage.value = "";
+  isIssuingCoupon.value = true;
+
+  try {
+    await voidCustomerCoupon(coupon.id);
+    couponMessage.value = "쿠폰을 취소했어요.";
+    await loadCoupons(customer.id);
+  } catch (error) {
+    console.error("쿠폰 취소 실패:", error);
+    couponError.value = error?.message || "쿠폰을 취소하지 못했어요.";
+  } finally {
+    isIssuingCoupon.value = false;
   }
 }
 
@@ -562,34 +819,33 @@ onMounted(async () => {
   flex-direction: column;
   gap: 20px;
   padding: 24px;
-  background: #f8fafc;
-  min-height: 100vh;
+  min-height: 100%;
+  color: #ffffff;
 }
 .page-header .eyebrow {
   margin: 0 0 6px;
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.12em;
-  color: #6366f1;
+  color: rgba(255, 255, 255, 0.55);
 }
 .page-header h1 {
   margin: 0 0 6px;
   font-size: 26px;
   font-weight: 800;
-  color: #0f172a;
+  color: #ffffff;
 }
 .description {
   margin: 0;
   font-size: 14px;
-  color: #64748b;
+  color: rgba(255, 255, 255, 0.66);
 }
 .filter-card,
 .list-section,
 .detail-section {
   padding: 18px;
   border-radius: 18px;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.08);
 }
 .filter-grid {
   display: grid;
@@ -607,17 +863,24 @@ onMounted(async () => {
 .filter-group label {
   font-size: 12px;
   font-weight: 700;
-  color: #475569;
+  color: rgba(255, 255, 255, 0.72);
 }
 .filter-group input,
 .filter-group select {
   height: 40px;
   padding: 0 12px;
-  border: 1px solid #cbd5f5;
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 10px;
   font-size: 14px;
-  background: #fff;
-  color: #0f172a;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+.filter-group ::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+.filter-group select option {
+  background: #111827;
+  color: #ffffff;
 }
 .filter-actions {
   display: flex;
@@ -630,19 +893,19 @@ onMounted(async () => {
   padding: 0 14px;
   border: none;
   border-radius: 10px;
-  background: #eef2ff;
-  color: #4338ca;
+  background: rgba(99, 102, 241, 0.16);
+  color: #c7d2fe;
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
 }
 .preset-button.primary {
-  background: #4338ca;
+  background: #6366f1;
   color: #fff;
 }
 .preset-button.danger {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: rgba(248, 113, 113, 0.2);
+  color: #fca5a5;
 }
 .preset-button:disabled {
   opacity: 0.6;
@@ -659,18 +922,17 @@ onMounted(async () => {
   gap: 6px;
   padding: 16px;
   border-radius: 16px;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.08);
 }
 .summary-label {
   font-size: 12px;
   font-weight: 700;
-  color: #64748b;
+  color: rgba(255, 255, 255, 0.66);
 }
 .summary-card strong {
   font-size: 20px;
   font-weight: 800;
-  color: #0f172a;
+  color: #ffffff;
 }
 .section-head {
   display: flex;
@@ -683,7 +945,7 @@ onMounted(async () => {
   margin: 0 0 4px;
   font-size: 18px;
   font-weight: 800;
-  color: #0f172a;
+  color: #ffffff;
 }
 .head-actions {
   display: flex;
@@ -703,22 +965,22 @@ onMounted(async () => {
   padding: 10px 12px;
   text-align: left;
   white-space: nowrap;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 .data-table th {
   font-size: 12px;
   font-weight: 800;
-  color: #475569;
-  background: #f8fafc;
+  color: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.05);
 }
 .clickable-row {
   cursor: pointer;
 }
 .clickable-row:hover {
-  background: #f8fafc;
+  background: rgba(255, 255, 255, 0.05);
 }
 .clickable-row.selected {
-  background: #eef2ff;
+  background: rgba(99, 102, 241, 0.16);
 }
 .memo-cell {
   max-width: 220px;
@@ -729,7 +991,7 @@ onMounted(async () => {
   margin-left: 6px;
   font-size: 12px;
   font-weight: 600;
-  color: #94a3b8;
+  color: rgba(255, 255, 255, 0.48);
 }
 .badge {
   display: inline-block;
@@ -739,12 +1001,12 @@ onMounted(async () => {
   font-weight: 800;
 }
 .badge-on {
-  background: #dcfce7;
-  color: #047857;
+  background: rgba(34, 197, 94, 0.18);
+  color: #6ee7b7;
 }
 .badge-off {
-  background: #f1f5f9;
-  color: #64748b;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.66);
 }
 .detail-summary {
   margin-top: 4px;
@@ -757,23 +1019,23 @@ onMounted(async () => {
   margin-top: 16px;
   padding: 14px 16px;
   border-radius: 14px;
-  background: #f8fafc;
+  background: rgba(255, 255, 255, 0.05);
 }
 .consent-row strong {
   font-size: 14px;
-  color: #0f172a;
+  color: #ffffff;
 }
 .edit-form {
   margin-top: 18px;
   padding-top: 16px;
-  border-top: 1px dashed #cbd5f5;
+  border-top: 1px dashed rgba(255, 255, 255, 0.16);
 }
 .edit-form h3,
 .visit-block h3 {
   margin: 0 0 12px;
   font-size: 15px;
   font-weight: 800;
-  color: #0f172a;
+  color: #ffffff;
 }
 .visit-block {
   margin-top: 18px;
@@ -782,8 +1044,8 @@ onMounted(async () => {
   margin: 0 0 12px;
   padding: 10px 12px;
   border-radius: 10px;
-  background: #fef2f2;
-  color: #b91c1c;
+  background: rgba(248, 113, 113, 0.14);
+  color: #fca5a5;
   font-size: 13px;
   font-weight: 700;
 }
@@ -791,17 +1053,43 @@ onMounted(async () => {
   margin: 0 0 12px;
   padding: 10px 12px;
   border-radius: 10px;
-  background: #ecfdf5;
-  color: #047857;
+  background: rgba(52, 211, 153, 0.14);
+  color: #6ee7b7;
   font-size: 13px;
   font-weight: 700;
 }
 .empty-box {
   padding: 28px 16px;
   border-radius: 14px;
-  background: #f8fafc;
+  background: rgba(255, 255, 255, 0.05);
   text-align: center;
-  color: #64748b;
+  color: rgba(255, 255, 255, 0.66);
   font-size: 14px;
+}
+.coupon-form {
+  margin-bottom: 16px;
+  padding: 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+}
+.coupon-status {
+  display: inline-flex;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.coupon-status.active {
+  background: rgba(52, 211, 153, 0.18);
+  color: #6ee7b7;
+}
+.coupon-status.used {
+  background: rgba(148, 163, 184, 0.2);
+  color: #cbd5e1;
+}
+.coupon-status.expired,
+.coupon-status.void {
+  background: rgba(248, 113, 113, 0.18);
+  color: #fca5a5;
 }
 </style>

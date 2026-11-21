@@ -9,7 +9,7 @@ import {
 } from "@/lib/supabase";
 import { recordSheetPayment } from "@/lib/payments";
 
-export async function finalizeOrderSheetCleanup({ orderSheetId }) {
+export async function finalizeOrderSheetCleanup({ orderSheetId, tableNumber }) {
   const safeOrderSheetId = String(orderSheetId || "").trim();
 
   if (!safeOrderSheetId) {
@@ -21,6 +21,17 @@ export async function finalizeOrderSheetCleanup({ orderSheetId }) {
     closedAt: nowIso(),
     updatedAt: nowIso(),
   });
+
+  // 주문서를 닫아도 active_order_sheets 행이 남으면 손님 입장이 계속 이 주문서를
+  // 가리키므로, 테이블 번호를 알 때는 매핑도 함께 정리합니다.
+  const safeTableNumber = normalizeTableNumber(tableNumber);
+
+  if (safeTableNumber) {
+    await removeActiveOrderSheetForSheet({
+      tableNumber: safeTableNumber,
+      orderSheetId: safeOrderSheetId,
+    });
+  }
 }
 
 async function findReusableActiveOrderSheet(activeKeyCandidates) {
@@ -259,6 +270,7 @@ export async function completeOrderSheetPayment({
   totalAmount,
   discounts,
   paymentSplits,
+  couponIds = [],
   memo,
   close = true,
   customerPhone = "",
@@ -295,6 +307,7 @@ export async function completeOrderSheetPayment({
         : totalAmount || 0
     ),
     discounts: Array.isArray(discounts) ? discounts : [],
+    couponIds: Array.isArray(couponIds) ? couponIds : [],
     entries,
     memo,
     close,

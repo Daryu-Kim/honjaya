@@ -206,6 +206,39 @@
             </div>
           </div>
         </section>
+
+        <section class="panel-card">
+          <div class="panel-head">
+            <h2>테이블별 매출</h2>
+            <p>손님이 앉은 자리 기준으로 결제 완료 주문서를 합산했어요.</p>
+          </div>
+
+          <div v-if="isLoadingSheets" class="empty-box">
+            <p>매출 정보를 불러오는 중이에요.</p>
+          </div>
+
+          <div v-else-if="tableSalesList.length === 0" class="empty-box">
+            <p>선택한 기간에 테이블 매출이 없어요.</p>
+          </div>
+
+          <div v-else class="list-table">
+            <div class="list-head three">
+              <span>테이블</span>
+              <span>건수</span>
+              <span>매출</span>
+            </div>
+
+            <div
+              v-for="item in tableSalesList"
+              :key="item.tableNumber"
+              class="list-row three"
+            >
+              <span>{{ item.label }}</span>
+              <span>{{ item.count }}건</span>
+              <strong>{{ formatPrice(item.amount) }}원</strong>
+            </div>
+          </div>
+        </section>
       </div>
 
       <div class="right-column">
@@ -296,6 +329,7 @@ import {
   parseBusinessDateStart,
 } from "@/lib/businessDay";
 import { normalizeOrderSheetTags } from "@/lib/orderSheetTags";
+import { normalizeTableNumber } from "@/lib/orderSheet";
 
 const isLoadingSheets = ref(true);
 const isLoadingOrders = ref(true);
@@ -518,6 +552,28 @@ const productSalesList = computed(() => {
     if (b.amount !== a.amount) return b.amount - a.amount;
     return b.quantity - a.quantity;
   });
+});
+
+const tableSalesList = computed(() => {
+  const map = new Map();
+
+  filteredPaidSheets.value.forEach((sheet) => {
+    const tableNumber = normalizeTableNumber(sheet.tableNumber);
+    if (!tableNumber) return;
+
+    const current = map.get(tableNumber) || {
+      tableNumber,
+      label: sheet.displayName || `No.${tableNumber}`,
+      count: 0,
+      amount: 0,
+    };
+
+    current.count += 1;
+    current.amount += getRecognizedSheetSalesAmount(sheet);
+    map.set(tableNumber, current);
+  });
+
+  return [...map.values()].sort((a, b) => b.amount - a.amount);
 });
 
 const recentPaidSheets = computed(() => {

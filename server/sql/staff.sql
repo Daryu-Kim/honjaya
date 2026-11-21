@@ -20,6 +20,12 @@ create table if not exists public.employees (
 create unique index if not exists employees_login_id_lower_idx
   on public.employees (lower(login_id));
 
+-- P9 — 직원별 세부 권한.
+-- null 이면 역할(role) 기본 권한을 그대로 쓰고, 값이 있으면 그 직원만의 권한 목록입니다.
+-- (빈 배열 = 권한 없음, 사장 계정은 항상 역할 기본값을 씁니다)
+alter table public.employees
+  add column if not exists permissions text[];
+
 do $$
 begin
   if not exists (

@@ -7,6 +7,11 @@ import {
   listCustomers,
   updateCustomer,
 } from "../../crm.js";
+import {
+  issueCoupon,
+  listCustomerCoupons,
+  voidCoupon,
+} from "../../coupons.js";
 
 function readBody(request) {
   return request.body && typeof request.body === "object" ? request.body : {};
@@ -18,6 +23,7 @@ function clientIp(request) {
 
 export function registerCrmRoutes(app) {
   const requireCrm = createStaffGuard(PERMISSIONS.CRM_VIEW);
+  const requireMarketingManage = createStaffGuard(PERMISSIONS.MARKETING_MANAGE);
 
   app.get("/api/crm/customers", { preHandler: requireCrm }, async (request) => {
     const query = request.query || {};
@@ -73,6 +79,79 @@ export function registerCrmRoutes(app) {
       });
 
       return { customer: result.customer, visits: result.visits };
+    }
+  );
+
+  // 재방문 쿠폰 목록(사용/만료/취소 포함).
+  app.get(
+    "/api/crm/customers/:customerId/coupons",
+    { preHandler: requireCrm },
+    async (request) => ({
+      coupons: await listCustomerCoupons({
+        customerId: request.params?.customerId,
+        limit: request.query?.limit,
+      }),
+    })
+  );
+
+  // 쿠폰 발급은 혜택 지급이라 사장(marketing.manage)만 합니다.
+  app.post(
+    "/api/crm/customers/:customerId/coupons",
+    { preHandler: requireMarketingManage },
+    async (request) => {
+      const body = readBody(request);
+      const employee = request.staff?.employee || null;
+      const coupon = await issueCoupon({
+        customerId: request.params?.customerId,
+        title: body.title,
+        discountType: body.discountType,
+        discountValue: body.discountValue,
+        minAmount: body.minAmount,
+        expiresInDays: body.expiresInDays,
+        expiresAt: body.expiresAt,
+        memo: body.memo,
+        employee,
+      });
+
+      await writeAuditLog({
+        employee,
+        action: "coupon.issue",
+        targetType: "customer",
+        targetId: coupon.customerId,
+        detail: {
+          couponId: coupon.id,
+          title: coupon.title,
+          discountType: coupon.discountType,
+          discountValue: coupon.discountValue,
+          minAmount: coupon.minAmount,
+          expiresAt: coupon.expiresAt,
+        },
+        ip: clientIp(request),
+        log: request.log,
+      });
+
+      return { coupon };
+    }
+  );
+
+  app.post(
+    "/api/crm/coupons/:couponId/void",
+    { preHandler: requireMarketingManage },
+    async (request) => {
+      const employee = request.staff?.employee || null;
+      const coupon = await voidCoupon({ couponId: request.params?.couponId });
+
+      await writeAuditLog({
+        employee,
+        action: "coupon.void",
+        targetType: "customer",
+        targetId: coupon.customerId,
+        detail: { couponId: coupon.id, title: coupon.title },
+        ip: clientIp(request),
+        log: request.log,
+      });
+
+      return { coupon };
     }
   );
 }

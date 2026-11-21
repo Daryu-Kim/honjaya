@@ -8,7 +8,7 @@ import { config } from "../config.js";
 import { pool } from "../db.js";
 import { HttpError } from "../http/errors.js";
 import { parseCookies, serializeCookie } from "./cookies.js";
-import { permissionsForRole } from "./permissions.js";
+import { permissionsForEmployee } from "./permissions.js";
 
 const HOUR_MS = 60 * 60 * 1000;
 const USER_AGENT_MAX = 300;
@@ -77,7 +77,11 @@ export function toPublicEmployee(row) {
     loginId: row.login_id,
     name: row.name || "",
     role: row.role,
-    permissions: permissionsForRole(row.role),
+    permissions: permissionsForEmployee(row),
+    // null = 역할 기본값 사용, 배열 = 직원별 직접 설정값
+    permissionOverrides: Array.isArray(row.permissions)
+      ? [...row.permissions]
+      : null,
     isActive: row.is_active !== false,
     lastLoginAt: row.last_login_at || null,
   };
@@ -129,6 +133,7 @@ export async function resolveStaffSession(token) {
             e.login_id,
             e.name,
             e.role,
+            e.permissions,
             e.is_active,
             e.last_login_at
        from public.staff_sessions s

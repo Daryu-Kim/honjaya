@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 
 import { revokeGuestSessionsForSheet } from "./auth/guestSessions.js";
 import { toBusinessDate } from "./businessDay.js";
+import { redeemCouponsForPayment } from "./coupons.js";
 import { grantMarketingConsent } from "./crm.js";
 import { pool } from "./db.js";
 import { HttpError } from "./http/errors.js";
@@ -373,6 +374,7 @@ export async function recordPayment({
   orderSheetId,
   originalAmount = null,
   discounts = null,
+  couponIds = null,
   entries,
   memo = "",
   close = true,
@@ -407,14 +409,45 @@ export async function recordPayment({
       throw new HttpError(409, "HJ409", "이미 마감된 주문서예요.");
     }
 
+    // 쿠폰·포인트를 쓰려면 고객이 먼저 필요합니다. 전화번호가 있으면 여기서 확정합니다.
+    const customerPhoneText = String(customerPhone || "").trim();
+    let customer = null;
+
+    if (customerPhoneText) {
+      customer = await ensureCustomer(client, {
+        phone: customerPhoneText,
+        name: customerName,
+      });
+    }
+
+    const requestedCouponIds = Array.isArray(couponIds) ? couponIds.filter(Boolean) : [];
+
+    if (requestedCouponIds.length > 0 && (originalAmount === null || originalAmount === undefined)) {
+      throw new HttpError(400, "HJ400", "쿠폰을 적용하려면 주문 금액이 필요해요.");
+    }
+
     let totalAmount = Number(sheet.total_amount || 0);
     let grossAmount = null;
+    let appliedCoupons = [];
 
     if (originalAmount !== null && originalAmount !== undefined) {
       const base = readNonNegativeInt(originalAmount, "주문 금액을 확인해 주세요.");
       const computed = computeDiscountTotal(base, discounts);
+      const couponRedemption = await redeemCouponsForPayment(client, {
+        couponIds: requestedCouponIds,
+        customerId: customer?.id || null,
+        baseAmount: base,
+        orderSheetId: safeId,
+      });
 
-      grossAmount = Math.max(0, base - computed.total);
+      appliedCoupons = couponRedemption.coupons;
+
+      const allDiscounts = [...computed.discounts, ...couponRedemption.discounts];
+
+      grossAmount = Math.max(
+        0,
+        base - Math.min(base, computed.total + couponRedemption.total)
+      );
       totalAmount = grossAmount;
 
       await client.query(
@@ -425,24 +458,17 @@ export async function recordPayment({
                 total_amount = $5,
                 updated_at = now()
           where id = $1`,
-        [safeId, base, computed.total, JSON.stringify(computed.discounts), grossAmount]
+        [safeId, base, base - grossAmount, JSON.stringify(allDiscounts), grossAmount]
       );
     }
 
     // 포인트는 할인 다음 단계에서 차감합니다(사용/적립 모두 서버가 검증).
     const requestedPoints = Number(pointsUsed || 0);
-    const customerPhoneText = String(customerPhone || "").trim();
-    let customer = null;
 
     if (requestedPoints > 0) {
-      if (!customerPhoneText) {
+      if (!customer) {
         throw new HttpError(400, "HJ400", "포인트를 사용하려면 고객 전화번호가 필요해요.");
       }
-
-      customer = await ensureCustomer(client, {
-        phone: customerPhoneText,
-        name: customerName,
-      });
 
       const paymentBase = grossAmount ?? totalAmount + Number(sheet.points_used || 0);
 
@@ -465,11 +491,6 @@ export async function recordPayment({
           where id = $1`,
         [safeId, totalAmount, requestedPoints]
       );
-    } else if (customerPhoneText) {
-      customer = await ensureCustomer(client, {
-        phone: customerPhoneText,
-        name: customerName,
-      });
     }
 
     if (totalAmount <= 0) {
@@ -529,6 +550,16 @@ export async function recordPayment({
         orderSheetId: safeId,
         amount: entry.amount,
       });
+    }
+
+    // 쿠폰을 실제 결제 건과 연결합니다(첫 결제 행 기준).
+    if (appliedCoupons.length > 0 && insertedPaymentIds[0]) {
+      await client.query(
+        `update public.coupons
+            set used_payment_id = $2
+          where id = any($1::text[])`,
+        [appliedCoupons.map((coupon) => coupon.id), insertedPaymentIds[0]]
+      );
     }
 
     // 적립은 할인·포인트 차감 후 실제로 받은 금액 기준입니다.
@@ -599,6 +630,7 @@ export async function recordPayment({
       pointsUsed: requestedPoints,
       pointsEarned,
       pointsBalance: pointsBalanceAfter,
+      coupons: appliedCoupons,
       customer: customer
         ? {
             id: customer.id,
