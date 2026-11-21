@@ -185,6 +185,12 @@ export function toColumn(table, field) {
   return fieldMap[field] || String(field);
 }
 
+// products.option_groups 는 jsonb 라서 예전 데이터에 배열이 아닌 값(예: {})이 섞여 있을 수
+// 있습니다. 화면에서 바로 펼쳐 쓰므로 읽을 때 항상 배열로 맞춥니다.
+function normalizeOptionGroups(value) {
+  return Array.isArray(value) ? value : [];
+}
+
 // postgres row -> app object
 export function toAppRow(table, row) {
   if (!row || typeof row !== "object") {
@@ -202,6 +208,10 @@ export function toAppRow(table, row) {
   // order_sheets rows keep their id in the primary key column only
   if (tableName === "order_sheets") {
     result.orderSheetId = row.id;
+  }
+
+  if (tableName === "products") {
+    result.optionGroups = normalizeOptionGroups(result.optionGroups);
   }
 
   return result;
