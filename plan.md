@@ -73,7 +73,7 @@ Guest phone / staff tablet
 | **P4** | Kakao login readiness (`/api/kakao/status` + console checklist) | **DROPPED** — members are identified by phone number; the scaffold was removed in P7 |
 | **P5** | Points ledger (earn / redeem / expire / adjust), FEFO deduction | **DONE (verified: smoke 169/169, lint, build)** |
 | **P6** | CRM & consent (customer profile, marketing consent, visit history) | **DONE (verified: smoke 201/201, lint, build, deployed live)** |
-| **P7** | Marketing & messaging (segments, campaigns, 문자/알림톡 send, opt-out link, CSV export) | **DONE (code + smoke 242/242)** — deploy pending |
+| **P7** | Marketing & messaging (segments, campaigns, 문자/알림톡 send, opt-out link, CSV export) | **DONE (verified: smoke 242/242, lint, build, deployed live)** |
 | **Ops** | Cloudflare cutover (`api.honjaya-server.xyz` live, Tailscale → backup, `vercel.json` rewrite swapped) | **DONE** |
 
 ---
@@ -468,7 +468,7 @@ Scope decision: build the CRM base **without Kakao login** (user choice). Member
 
 ---
 
-## 3-7. P7 — Marketing & messaging: segments, campaigns, 문자/알림톡 (DONE — deploy pending)
+## 3-7. P7 — Marketing & messaging: segments, campaigns, 문자/알림톡 (DONE)
 
 Goal: message customers whose phone number we already have, **without Kakao login**. A phone number is the member
 identity; Kakao is only a delivery channel for 알림톡.
@@ -526,7 +526,9 @@ identity; Kakao is only a delivery channel for 알림톡.
 - `npm run smoke` — **242/242 통과** (P7 block ~40 checks: dry-run defaults, 권한 403/401, segment counts,
   audience preview, 201 create, send 2/0, resend 409, retry, log detail, `marketing.send` audit row, opt-out
   token → 미동의 전환, CSV BOM + Korean header; plus a "카카오 로그인 제거 → 404" regression check).
-- Deploy/live verification pending.
+- Live (2026-11-21): `marketing.sql` 8개 적용 → `/api/marketing/settings` 200(사장 쿠키) / 401(미로그인),
+  `/api/marketing/segments` 200, `/api/kakao/status` 404, 잘못된 수신거부 토큰 404,
+  `https://honjaya.vercel.app/api/marketing/*` rewrite 동작 + `/unsubscribe` 페이지 200.
 
 ---
 
