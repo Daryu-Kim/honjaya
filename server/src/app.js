@@ -7,7 +7,7 @@ import { HttpError, PG_MESSAGES, PG_STATUS } from "./http/errors.js";
 import { registerAdminRoutes } from "./routes/api/admin.js";
 import { registerCrmRoutes } from "./routes/api/crm.js";
 import { registerGuestRoutes } from "./routes/api/guest.js";
-import { registerKakaoRoutes } from "./routes/api/kakao.js";
+import { registerMarketingRoutes } from "./routes/api/marketing.js";
 import { registerPaymentRoutes } from "./routes/api/payments.js";
 import { registerPointRoutes } from "./routes/api/points.js";
 import { registerStaffAuthRoutes } from "./routes/api/staffAuth.js";
@@ -189,7 +189,8 @@ export async function buildApp(options = {}) {
       "/api/payments",
       "/api/points",
       "/api/crm/customers",
-      "/api/kakao/status",
+      "/api/marketing/campaigns",
+      "/api/marketing/unsubscribe",
       "/health",
     ],
   }));
@@ -203,7 +204,7 @@ export async function buildApp(options = {}) {
   registerPaymentRoutes(app);
   registerPointRoutes(app);
   registerCrmRoutes(app);
-  registerKakaoRoutes(app);
+  registerMarketingRoutes(app);
 
   return app;
 }

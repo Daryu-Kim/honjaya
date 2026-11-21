@@ -138,6 +138,12 @@ const menuList = [
     matchStartsWith: "/admin/customers",
   },
   {
+    to: "/admin/marketing",
+    label: "마케팅",
+    description: "문자·알림톡 발송",
+    matchStartsWith: "/admin/marketing",
+  },
+  {
     to: "/admin/products",
     label: "상품 관리",
     description: "상품 등록 및 수정",

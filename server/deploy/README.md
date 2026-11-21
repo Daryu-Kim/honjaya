@@ -285,25 +285,29 @@ STAFF_COOKIE_DOMAIN=
 > (`.env` 는 git 에 올라가지 않으므로 `git clone` 으로는 안 옮겨집니다 — `scp`/USB 로 직접 복사해야 합니다.)
 > 단, 그 파일에는 `POSTGRES_PASSWORD` 줄이 없으니 **`POSTGRES_PASSWORD=원하는비밀번호` 한 줄을 직접 추가**하세요.
 
-### 5-1. 카카오 로그인 (P4 — 준비만, 선택)
+### 5-1. 마케팅 문자/알림톡 발송 (P7 — 선택)
 
-지금은 비워 두어도 됩니다. 값을 넣으면 `/api/kakao/status` 가 `enabled:true` 를 돌려주고, 비어 있으면
-프런트엔드가 카카오 로그인 버튼을 숨깁니다. 실제 로그인 연결은 P6(고객/CRM)에서 붙입니다.
+회원은 **휴대폰 번호로만** 식별합니다. 카카오 로그인은 쓰지 않으므로 카카오 앱 키가 필요 없습니다.
+발송 업체를 계약하기 전까지는 `dryrun` 으로 두세요 — 실제로는 아무것도 나가지 않고, 발송 이력만 쌓입니다.
 
 ```dotenv
-# 카카오 developers > 내 애플리케이션 > 앱 키 > REST API 키 (JavaScript 키 아님)
-KAKAO_REST_API_KEY=
+# dryrun = 실제 발송 안 함(기본) / none = 기능 끔 / solapi = 솔라피 연동
+MESSAGING_PROVIDER=dryrun
 
-# 카카오 developers > 보안 > Client Secret (코드 발급을 "사용함" 으로 켰을 때만)
-KAKAO_CLIENT_SECRET=
+# 발신번호 (통신사 사전 등록 필요). 검수용 모드에서는 비워도 됩니다
+MESSAGING_SENDER=
 
-# 카카오 로그인 > Redirect URI 에 등록한 값과 글자 단위로 같아야 합니다
-KAKAO_REDIRECT_URI=https://honjaya.vercel.app/kakao/callback
+# MESSAGING_PROVIDER=solapi 일 때만 사용
+SOLAPI_API_KEY=
+SOLAPI_API_SECRET=
 ```
 
-> `KAKAO_REST_API_KEY` 와 `KAKAO_REDIRECT_URI` 가 **둘 다** 있어야 켜집니다.
-> 콘솔에서 등록할 Web 플랫폼 도메인은 `https://honjaya.vercel.app` (+ 개발용 `http://localhost:8080`) 입니다.
-> 동의항목은 닉네임(필수) + 프로필 사진(선택)만 쓰세요. 이메일은 비즈 앱 심사가 필요합니다.
+> - `dryrun` / `none` / `solapi` 외의 값은 `dryrun` 으로 처리됩니다.
+> - **`solapi` 연동은 아직 스텁 상태**입니다. 키를 넣어도 실제 발송 대신 503 오류를 돌려줍니다.
+>   업체를 계약하면 `server/src/messaging.js` 의 `sendViaSolapi()` 하나만 채우면 됩니다.
+> - 문자(LMS)는 발신번호 사전 등록만 하면 되지만, **알림톡**은 카카오 채널 + 발신 프로필 + 템플릿
+>   검수가 필요합니다. 알림톡 템플릿은 `#{이름}`, `#{포인트}` 치환 변수를 그대로 등록하면 됩니다.
+> - 수신거부 링크(`https://honjaya.vercel.app/unsubscribe?token=...`)가 본문에 자동으로 붙습니다.
 
 ---
 
@@ -375,7 +379,8 @@ docker compose run --rm import node scripts/import-supabase-export.mjs --dir /cs
 > `pgdata/` 폴더가 이미 있는 상태에서 `POSTGRES_PASSWORD` 를 바꾸면 DB 에 접속할 수 없습니다.
 > 비밀번호를 바꾸려면 백업 후 `pgdata/` 를 지우고 7단계를 다시 실행하세요.
 
-> `migrate`(=`npm run db:apply`)는 `tables.sql` → `events.sql` → `staff.sql` 순서로 적용합니다.
+> `migrate`(=`npm run db:apply`)는 `tables.sql` → `events.sql` → `staff.sql` → `payments.sql` → `points.sql`
+> → `crm.sql` → `marketing.sql` 순서로 적용합니다.
 > `tables.sql` 이 테이블 마스터(`bar_tables`) 1~30번을 자동으로 채우므로 CSV 백업에는 넣지 마세요.
 
 ### 7-1. 직원(사장) 계정 만들기
@@ -605,11 +610,12 @@ Vercel 대시보드 → 프로젝트 → **Settings → Environment Variables**:
 { "source": "/api/payments(/(.*))?", "destination": "https://<서버주소>/api/payments$1" }
 { "source": "/api/points(/(.*))?",   "destination": "https://<서버주소>/api/points$1" }
 { "source": "/api/crm(/(.*))?",      "destination": "https://<서버주소>/api/crm$1" }
-{ "source": "/api/kakao/(.*)",  "destination": "https://<서버주소>/api/kakao/$1" }
+{ "source": "/api/marketing(/(.*))?", "destination": "https://<서버주소>/api/marketing$1" }
 ```
 
-> 새 `/api/*` 묶음(예: P5 포인트, P6 CRM)을 추가하면 `vercel.json` 에 rewrite 두 줄(목록/하위 경로)을
+> 새 `/api/*` 묶음(예: P5 포인트, P6 CRM, P7 마케팅)을 추가하면 `vercel.json` 에 rewrite 를
 > 같이 넣고 Vercel 을 재배포해야 합니다. 지금은 `https://api.honjaya-server.xyz` (Cloudflare Tunnel) 를 가리킵니다.
+> `/api/marketing/unsubscribe` 는 **비로그인 손님도 호출**하므로 rewrite 가 없으면 수신거부 링크가 동작하지 않습니다.
 
 - 브라우저 입장에서는 같은 오리진 호출이므로 **1st-party 쿠키**가 됩니다. `SameSite=None` 이 필요 없습니다.
 - `/rest/v1/*` 와 SSE(`/api/events`)는 **일부러 제외**했습니다. 이 둘은 `VUE_APP_SUPABASE_URL` 절대 주소를 그대로 씁니다.
@@ -701,6 +707,8 @@ docker compose exec db psql -U postgres -d honjaya -c "\dt"
 > `docker compose exec db psql -U postgres -d honjaya -c "select count(*) from point_ledger;"` 로 확인하세요.
 > P6 부터는 `server/sql/crm.sql`(customers 마케팅 동의/닉네임 + `payments.customer_id` + 백필)도 함께 적용됩니다.
 > 적용 여부는 `docker compose exec db psql -U postgres -d honjaya -c "select count(*) from payments where customer_id is not null;"` 로 확인하세요.
+> P7 부터는 `server/sql/marketing.sql`(수신거부 토큰 + `message_campaigns` / `message_logs`)도 함께 적용됩니다.
+> 적용 여부는 `docker compose exec db psql -U postgres -d honjaya -c "select count(*) from message_campaigns;"` 로 확인하세요.
 
 ### 자동 배포 (선택)
 

@@ -23,8 +23,9 @@ server/
 │  ├─ payments.js         결제 원장(부분/분할 결제, 환불, 주문서 상태 동기화)
 │  ├─ points.js           포인트 원장(적립/사용/소멸/조정, FEFO 차감) + 고객 최소 테이블
 │  ├─ crm.js              고객 관리(목록/프로필/방문 이력/마케팅 동의) — 카운터 비정규화 없음
+│  ├─ marketing.js        마케팅 대상 집계/캠페인/발송/수신거부/명단 CSV
+│  ├─ messaging.js        문자·알림톡 발송 어댑터(dryrun/none/solapi)
 │  ├─ businessDay.js       영업일 계산(15:00 KST 기준) 공용 헬퍼
-│  ├─ kakao.js            카카오 로그인 준비(P4) — 활성 여부 + authorize URL 조립
 │  ├─ http/
 │  │  ├─ sql.js           필터/정렬/select → SQL (식별자 검증)
 │  │  ├─ prefer.js        Prefer 헤더 파싱
@@ -47,7 +48,7 @@ server/
 │     ├─ payments.js      /api/payments, /api/payments/sheet/:id, /api/payments/:id/refund
 │     ├─ points.js        /api/points/{rules,customer,ledger,adjust}
 │     ├─ crm.js           /api/crm/customers, /api/crm/customers/:id
-│     ├─ kakao.js         /api/kakao/status (P4 준비용 상태 확인)
+│     ├─ marketing.js     /api/marketing/{settings,segments,audience,campaigns,unsubscribe}
 │     └─ admin.js         /api/admin/employees, /api/admin/audit-logs, /api/admin/tables
 ├─ sql/
 │  ├─ tables.sql          테이블 마스터(bar_tables) + 1~30번 시드
@@ -56,7 +57,8 @@ server/
 │  ├─ guest.sql           손님 세션(guest_sessions) + orders.guest_* 컬럼
 │  ├─ payments.sql        결제 원장(payments/payment_allocations/refunds) + order_sheets.paid_amount
 │  ├─ points.sql          포인트 원장(point_ledger/point_allocations) + customers + order_sheets.points_used
-│  └─ crm.sql             고객 CRM(customers 마케팅 동의/닉네임) + payments.customer_id
+│  ├─ crm.sql             고객 CRM(customers 마케팅 동의/닉네임) + payments.customer_id
+│  └─ marketing.sql       마케팅 발송(message_campaigns/message_logs) + customers 수신거부 토큰
 ├─ scripts/
 │  ├─ apply-schema.mjs    스키마 적용(멱등)
 │  ├─ import-supabase-export.mjs  Supabase CSV 백업 가져오기(멱등)
@@ -120,6 +122,9 @@ VUE_APP_SUPABASE_PUBLISHABLE_KEY=<server/.env 의 ANON_KEY 값>
 | `COOKIE_SECURE` | `auto` | `auto` = https 요청에서만 `Secure` 부여. `always`/`never` 로 고정 가능 |
 | `GUEST_SESSION_HOURS` | `12` | 손님 테이블 세션 유지 시간(시간) |
 | `GUEST_COOKIE_NAME` | `hj_guest` | 손님 세션 쿠키 이름 |
+| `MESSAGING_PROVIDER` | `dryrun` | 문자/알림톡 발송 업체. `dryrun`(발송 안 함) · `none`(기능 끔) · `solapi` |
+| `MESSAGING_SENDER` | (빈 값) | 발신번호(사전 등록 필요). 검수용 모드에서는 비워도 됩니다 |
+| `SOLAPI_API_KEY` / `SOLAPI_API_SECRET` | (빈 값) | `MESSAGING_PROVIDER=solapi` 일 때만 사용 |
 | `STAFF_OWNER_PASSWORD` | (빈 값) | `staff:seed` 실행 시 사용할 초기 비밀번호. 비우면 무작위 생성 |
 
 ---
@@ -246,9 +251,19 @@ psql "$DATABASE_URL" -f supabase_data.sql
 | `GET` | `/api/crm/customers` | 고객 목록(`q`, `consent=yes\|no`, `sort=recent\|spent\|balance\|name`, `limit`, `offset`) + 전체 요약 (`crm.view`) |
 | `GET` | `/api/crm/customers/:customerId` | 고객 프로필 + 방문 이력(결제/환불 포함) (`crm.view`) |
 | `PATCH` | `/api/crm/customers/:customerId` | 이름/닉네임/메모/마케팅 동의 수정 (`crm.view`, 감사 로그 기록) |
-| `GET` | `/api/kakao/status` | 카카오 로그인 준비 상태(`enabled`, `redirectUri`, `authorizeUrl`) — 키가 없으면 모두 비어 있음 (P4) |
+| `GET` | `/api/marketing/settings` | 발송 업체/검수용 여부/발송 방식/대상 목록 (`marketing.view`) |
+| `GET` | `/api/marketing/segments` | 대상별 인원 집계 (`marketing.view`) |
+| `GET` | `/api/marketing/audience` | 대상 미리보기(`segment`) + 샘플 5명 (`marketing.view`) |
+| `GET` | `/api/marketing/audience/export` | 대상 명단 CSV(`segment`, UTF-8 BOM) (`marketing.view`) |
+| `GET` | `/api/marketing/campaigns` | 캠페인 목록 (`marketing.view`) |
+| `GET` | `/api/marketing/campaigns/:id` | 캠페인 + 발송 기록 (`marketing.view`) |
+| `POST` | `/api/marketing/campaigns` | 캠페인 저장(`title`, `body`, `channel`, `segment`) → 201, 저장만으로는 미발송 (`marketing.manage`) |
+| `POST` | `/api/marketing/campaigns/:id/send` | 실제 발송(대상 확정 후 업체 API) — 이미 발송했으면 409 (`marketing.manage`) |
+| `POST` | `/api/marketing/campaigns/:id/retry` | 실패/대기 건만 재발송 (`marketing.manage`) |
+| `GET` | `/api/marketing/unsubscribe?token=` | 수신거부 화면용 정보(번호 가림) — 로그인 불필요 |
+| `POST` | `/api/marketing/unsubscribe` | 수신거부 처리(`token`) — 로그인 불필요 |
 
-> `/api/staff/*` · `/api/admin/*` · `/api/guest/*` · `/api/payments/*` · `/api/points/*` · `/api/crm/*` · `/api/kakao/*` 도 전역 `apikey` 검사를 통과해야 합니다(프런트엔드 `src/lib/api.js` 가 자동으로 붙입니다).
+> `/api/staff/*` · `/api/admin/*` · `/api/guest/*` · `/api/payments/*` · `/api/points/*` · `/api/crm/*` · `/api/marketing/*` 도 전역 `apikey` 검사를 통과해야 합니다(프런트엔드 `src/lib/api.js` 가 자동으로 붙입니다).
 > 세션 토큰은 DB 에 **sha256 해시로만** 저장되며, 평문은 쿠키에만 존재합니다.
 > `bar_tables`(테이블 마스터)는 `/rest/v1` 로 **읽기만** 가능합니다(쓰기 요청은 403). 수정은 위 `PATCH /api/admin/tables/:tableNumber` 로만 합니다.
 > **손님 범위(P2)**: `/rest/v1` 의 `orders` · `order_sheets` · `active_order_sheets` 는 `hj_guest`(손님) 또는 `hj_staff`(직원)
@@ -256,15 +271,18 @@ psql "$DATABASE_URL" -f supabase_data.sql
 > `orders` 는 생성만 가능하며 `status` 는 항상 `REQUESTED` 로 고정됩니다.
 > **결제 원장(P3)**: `payments` · `payment_allocations` · `refunds` 는 `/rest/v1` 화이트리스트에 없어 조회/수정이 404 입니다.
 > 모든 결제/환불은 위 `/api/payments` 로만 기록하며, 금액·할인·상태(`payment_status`, `paid_amount`)는 서버가 계산해 덮어씁니다.
-> **카카오 로그인(P4)**: 아직 로그인 기능은 없고 준비만 된 상태입니다. `KAKAO_REST_API_KEY` + `KAKAO_REDIRECT_URI` 가
-> 둘 다 있을 때만 `/api/kakao/status` 가 `enabled:true` 를 돌려주고, 그 전에는 프런트엔드가 카카오 버튼을 숨깁니다.
-> 키/시크릿은 서버에만 두고 번들에 넣지 않습니다.
+> **카카오 로그인(P4)**: **하지 않습니다.** 회원 식별자는 휴대폰 번호(`customers.phone`) 하나이고,
+> 로그인 경로(`/api/kakao/*`)와 관련 설정은 제거했습니다(`customers.kakao_id` 는 쓰지 않는 자리만 남음).
 > **포인트(P5)**: `customers` · `point_ledger` · `point_allocations` 는 `/rest/v1` 화이트리스트에 없어 404 입니다.
 > 적립·사용은 결제(`POST /api/payments` 의 `customerPhone` / `pointsUsed`) 안에서만 처리되고,
 > 잔액은 `point_ledger.points` 합계, 만료는 조회 시점에 `EXPIRE` 행으로 확정됩니다.
 > 계산 규칙(적립 1% · 1,000P 이상 1,000P 단위 · 결제 3만원 이상 · 유효기간 3개월)은 `src/points.js` 의 `POINT_RULES` 하나로 관리합니다.
 > **고객 CRM(P6)**: `payments.customer_id` 로 고객↔결제를 연결해 방문 이력·누적 결제(환불 차감)를 계산합니다(별도 카운터 없음).
-> 마케팅 동의는 태블릿 결제 화면에서 **켜기만** 가능하고, 철회는 관리자 `고객 관리` 화면에서만 합니다(`customer.consent` 감사 로그).
+> 마케팅 동의는 태블릿 결제 화면에서 **켜기만** 가능하고, 철회는 관리자 `고객 관리` 화면 또는 손님의 수신거부 링크로 합니다(`customer.consent` 감사 로그).
+> **마케팅(P7)**: 대상은 "마케팅 수신 동의 + 번호가 살아 있는 고객" 뿐입니다(`message_campaigns` / `message_logs`).
+> 발송은 손님 카카오 계정이 필요 없고, 가게가 계약한 업체 API 로 나갑니다(`src/messaging.js`).
+> `MESSAGING_PROVIDER` 가 없으면 `dryrun`(실제 발송 없음)이고, 캠페인 발송은 `marketing.manage`(사장)만 가능합니다.
+> 같은 캠페인에서 같은 고객에게 두 번 쌓이지 않도록 `message_logs(campaign_id, customer_id)` 에 유니크 인덱스가 있습니다.
 
 지원 필터: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `is`, `like`, `ilike`, `cs`(contains), `cd`, `ov`.
 지원 헤더: `Prefer: return=representation|minimal`, `count=exact|planned|estimated`, `resolution=merge-duplicates|ignore-duplicates`, `Accept: application/vnd.pgrst.object+json`, `Range: 0-9`.

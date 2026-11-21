@@ -665,22 +665,16 @@ try {
   });
   check("P3 손님 결제 기록 → 401", guestRecordPayment.statusCode === 401, guestRecordPayment.body);
 
-  // ---------------------------------------------------------------- kakao readiness (P4)
+  // ---------------------------------------------------------------- kakao login (P4 → DROPPED)
+  // 회원은 휴대폰 번호로만 식별합니다. 카카오 로그인 경로는 제거했습니다.
   const kakaoStatus = await app.inject({
     method: "GET",
     url: "/api/kakao/status",
     headers: { cookie: guestCookie },
   });
-  check("P4 카카오 상태 → 200", kakaoStatus.statusCode === 200, kakaoStatus.body);
-
-  const kakaoBody = kakaoStatus.json();
   check(
-    "P4 카카오 상태 → 키 없으면 꺼진 상태(로그인 버튼 숨김)",
-    kakaoBody.enabled === false
-      ? kakaoBody.authorizeUrl === "" && kakaoBody.redirectUri === ""
-      : String(kakaoBody.authorizeUrl).startsWith(
-          "https://kauth.kakao.com/oauth/authorize?"
-        ),
+    "P4 카카오 로그인 제거 → 404",
+    kakaoStatus.statusCode === 404,
     kakaoStatus.body
   );
 
@@ -1218,6 +1212,221 @@ try {
     [p6Customer.id]
   );
   check("P6 마케팅 동의 감사 로그", p6AuditRows.length === 1, p6AuditRows);
+
+  // ---------------------------------------------------------------- marketing (P7)
+  // 회원 식별자는 휴대폰 번호입니다. 카카오 로그인 없이 문자/알림톡만 발송합니다.
+  const mktSettings = await app.inject({
+    method: "GET",
+    url: "/api/marketing/settings",
+    headers: { cookie: staffCookie },
+  });
+  check("P7 마케팅 설정 → 200", mktSettings.statusCode === 200, mktSettings.body);
+  equal("P7 마케팅 설정 → 기본 검수용 모드", mktSettings.json().dryRun, true);
+  equal("P7 마케팅 설정 → 발송 방식 3종", mktSettings.json().channels.length, 3);
+
+  const mktStaffSettings = await app.inject({
+    method: "GET",
+    url: "/api/marketing/settings",
+    headers: { cookie: staffOnlyCookie },
+  });
+  check(
+    "P7 직원(STAFF) 마케팅 설정 → 403",
+    mktStaffSettings.statusCode === 403,
+    mktStaffSettings.body
+  );
+
+  const mktAnon = await app.inject({
+    method: "GET",
+    url: "/api/marketing/campaigns",
+  });
+  check("P7 비로그인 캠페인 목록 → 401", mktAnon.statusCode === 401, mktAnon.body);
+
+  const mktSegments = await app.inject({
+    method: "GET",
+    url: "/api/marketing/segments",
+    headers: { cookie: staffCookie },
+  });
+  check("P7 발송 대상 집계 → 200", mktSegments.statusCode === 200, mktSegments.body);
+
+  const mktConsented = mktSegments
+    .json()
+    .segments.find((row) => row.value === "CONSENTED") || { count: 0 };
+  equal("P7 동의 회원 수", mktConsented.count, 2);
+
+  const mktPointsSegments = mktSegments
+    .json()
+    .segments.find((row) => row.value === "POINTS") || { count: 0 };
+  check("P7 포인트 보유(1,000P↑) 대상 포함", mktPointsSegments.count >= 1, mktSegments.body);
+
+  const mktAudience = await app.inject({
+    method: "GET",
+    url: "/api/marketing/audience?segment=CONSENTED",
+    headers: { cookie: staffCookie },
+  });
+  check("P7 발송 대상 미리보기 → 200", mktAudience.statusCode === 200, mktAudience.body);
+  equal("P7 발송 대상 미리보기 → 인원", mktAudience.json().total, 2);
+  check(
+    "P7 발송 대상 미리보기 → 번호는 보기 좋게",
+    /^010-\d{4}-\d{4}$/.test(mktAudience.json().sample[0]?.phoneText || ""),
+    mktAudience.body
+  );
+
+  const mktBadSegment = await app.inject({
+    method: "GET",
+    url: "/api/marketing/audience?segment=NOPE",
+    headers: { cookie: staffCookie },
+  });
+  check("P7 잘못된 대상 → 400", mktBadSegment.statusCode === 400, mktBadSegment.body);
+
+  const mktNoTitle = await app.inject({
+    method: "POST",
+    url: "/api/marketing/campaigns",
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: { title: "", body: "내용", channel: "SMS", segment: "CONSENTED" },
+  });
+  check("P7 제목 없는 캠페인 → 400", mktNoTitle.statusCode === 400, mktNoTitle.body);
+
+  const mktStaffCreate = await app.inject({
+    method: "POST",
+    url: "/api/marketing/campaigns",
+    headers: { "content-type": "application/json", cookie: staffOnlyCookie },
+    payload: { title: "권한없음", body: "내용", channel: "SMS", segment: "CONSENTED" },
+  });
+  check(
+    "P7 직원(STAFF) 캠페인 생성 → 403",
+    mktStaffCreate.statusCode === 403,
+    mktStaffCreate.body
+  );
+
+  const mktCreate = await app.inject({
+    method: "POST",
+    url: "/api/marketing/campaigns",
+    headers: { "content-type": "application/json", cookie: staffCookie },
+    payload: {
+      title: "스모크 재방문 안내",
+      body: "#{이름}님, 보유 포인트 #{포인트}P 예요.",
+      channel: "SMS",
+      segment: "CONSENTED",
+    },
+  });
+  check("P7 캠페인 저장 → 201", mktCreate.statusCode === 201, mktCreate.body);
+  equal("P7 캠페인 저장 → 작성 중", mktCreate.json().status, "DRAFT");
+  equal("P7 캠페인 저장 → 대상 인원", mktCreate.json().targetCount, 2);
+
+  const mktCampaignId = mktCreate.json().id;
+
+  const mktSend = await app.inject({
+    method: "POST",
+    url: `/api/marketing/campaigns/${mktCampaignId}/send`,
+    headers: { cookie: staffCookie },
+  });
+  check("P7 캠페인 발송 → 200", mktSend.statusCode === 200, mktSend.body);
+  equal("P7 캠페인 발송 → 성공 건수", mktSend.json().sent, 2);
+  equal("P7 캠페인 발송 → 실패 건수", mktSend.json().failed, 0);
+  equal("P7 캠페인 발송 → 상태", mktSend.json().campaign.status, "SENT");
+  equal("P7 캠페인 발송 → 성공 = 대상", mktSend.json().campaign.sentCount, 2);
+  equal("P7 캠페인 발송 → 실패 0", mktSend.json().campaign.failedCount, 0);
+
+  const mktSendAgain = await app.inject({
+    method: "POST",
+    url: `/api/marketing/campaigns/${mktCampaignId}/send`,
+    headers: { cookie: staffCookie },
+  });
+  check("P7 같은 캠페인 재발송 → 409", mktSendAgain.statusCode === 409, mktSendAgain.body);
+
+  const mktRetry = await app.inject({
+    method: "POST",
+    url: `/api/marketing/campaigns/${mktCampaignId}/retry`,
+    headers: { cookie: staffCookie },
+  });
+  check("P7 실패 건 없을 때 재발송 → 200", mktRetry.statusCode === 200, mktRetry.body);
+  equal("P7 재발송 → 새로 보낸 건 없음", mktRetry.json().sent, 0);
+
+  const mktDetail = await app.inject({
+    method: "GET",
+    url: `/api/marketing/campaigns/${mktCampaignId}`,
+    headers: { cookie: staffCookie },
+  });
+  check("P7 캠페인 상세 → 200", mktDetail.statusCode === 200, mktDetail.body);
+  equal("P7 캠페인 상세 → 발송 기록 2건", mktDetail.json().logs.length, 2);
+  check(
+    "P7 캠페인 상세 → 모두 발송 완료",
+    mktDetail.json().logs.every((row) => row.status === "SENT"),
+    mktDetail.body
+  );
+
+  const { rows: mktAuditRows } = await db.pool.query(
+    `select action from public.admin_audit_logs
+      where action = 'marketing.send' and target_id = $1`,
+    [mktCampaignId]
+  );
+  check("P7 발송 감사 로그", mktAuditRows.length === 1, mktAuditRows);
+
+  // 수신거부 링크는 손님이 로그인 없이 엽니다.
+  const { rows: mktTokenRows } = await db.pool.query(
+    `select marketing_opt_out_token as token, marketing_consent_source as source
+       from public.customers where id = $1`,
+    [p6Customer.id]
+  );
+  check("P7 수신거부 토큰 발급", Boolean(mktTokenRows[0]?.token), mktTokenRows);
+  equal("P7 동의 경로 기록", mktTokenRows[0]?.source, "ADMIN");
+
+  const mktUnsubInfo = await app.inject({
+    method: "GET",
+    url: `/api/marketing/unsubscribe?token=${mktTokenRows[0].token}`,
+  });
+  check("P7 수신거부 안내 → 200", mktUnsubInfo.statusCode === 200, mktUnsubInfo.body);
+  check(
+    "P7 수신거부 안내 → 번호 가림",
+    String(mktUnsubInfo.json().phoneText).includes("****"),
+    mktUnsubInfo.body
+  );
+
+  const mktUnsubBad = await app.inject({
+    method: "GET",
+    url: "/api/marketing/unsubscribe?token=nope",
+  });
+  check("P7 잘못된 수신거부 링크 → 404", mktUnsubBad.statusCode === 404, mktUnsubBad.body);
+
+  const mktUnsub = await app.inject({
+    method: "POST",
+    url: "/api/marketing/unsubscribe",
+    headers: { "content-type": "application/json" },
+    payload: { token: mktTokenRows[0].token },
+  });
+  check("P7 수신거부 처리 → 200", mktUnsub.statusCode === 200, mktUnsub.body);
+
+  const { rows: mktAfterUnsub } = await db.pool.query(
+    `select marketing_consent as consent, marketing_consent_source as source
+       from public.customers where id = $1`,
+    [p6Customer.id]
+  );
+  equal("P7 수신거부 → 동의 해제", mktAfterUnsub[0]?.consent, false);
+  equal("P7 수신거부 → 경로 기록", mktAfterUnsub[0]?.source, "CUSTOMER");
+
+  const mktSegmentsAfter = await app.inject({
+    method: "GET",
+    url: "/api/marketing/segments",
+    headers: { cookie: staffCookie },
+  });
+  equal(
+    "P7 수신거부 고객은 대상에서 제외",
+    mktSegmentsAfter.json().segments.find((row) => row.value === "CONSENTED").count,
+    1
+  );
+
+  const mktCsv = await app.inject({
+    method: "GET",
+    url: "/api/marketing/audience/export?segment=CONSENTED",
+    headers: { cookie: staffCookie },
+  });
+  check("P7 명단 CSV → 200", mktCsv.statusCode === 200, mktCsv.body);
+  check(
+    "P7 명단 CSV → 헤더",
+    mktCsv.body.startsWith("\uFEFF휴대폰번호,"),
+    mktCsv.body.slice(0, 40)
+  );
+  equal("P7 명단 CSV → 헤더 + 1명", mktCsv.body.trim().split("\n").length, 2);
 
   // ---------------------------------------------------------------- select
   const list = await app.inject({

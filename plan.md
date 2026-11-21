@@ -21,12 +21,16 @@ Write in English. UI strings stay Korean.
 | Auth transport | HttpOnly + SameSite=Lax first-party cookie via `vercel.json` rewrites for `/rest/v1/*`, `/api/staff/*`, `/api/admin/*`, `/api/guest/*` |
 | Payment scope | Split / partial payment included in phase 1 |
 | Tablet console | Keep and extend (not replaced) |
+| Customer identity | **Phone number only** — no Kakao login, no member signup. `customers` is created at the tablet payment screen |
+| Marketing channel | 문자(SMS/LMS) + 카카오 알림톡 through a provider. Default `MESSAGING_PROVIDER=dryrun` (records logs, sends nothing) |
+| Marketing consent | Collected at the tablet payment screen + admin CRM page; customers can opt out via a tokenized link in every message |
 | Removed from original spec | Supabase hosted, chat, hearts, market, character, push, gift — already gone |
 
 ### Out of scope / explicitly dropped
 
 - Supabase as the backend (self-hosted Fastify + Postgres instead).
 - Real-time WebSocket (Supabase Realtime) → replaced by SSE `/api/events`.
+- **Kakao login** (P4 scaffold) — dropped. Members are identified by phone number; Kakao is only a message channel.
 
 ---
 
@@ -66,10 +70,11 @@ Guest phone / staff tablet
 | **P1** | Table master (`bar_tables`, 30 tables: 1–10 bar / 11–30 large), admin table settings page, tablet layout driven by the master | **DONE (verified)** |
 | **P2** | Guest table session cookie + per-guest attribution + order ownership (guest sees only own table sheet; staff any) | **DONE (verified)** |
 | **P3** | Payment ledger (`payments`, `payment_allocations`, `refunds`), split/partial payment, refunds | **DONE (verified)** |
-| **P4** | Kakao login readiness (env flag, `/api/kakao/status`, console checklist) | **DONE** (scaffold + guideline; live login lands in P6) |
+| **P4** | Kakao login readiness (`/api/kakao/status` + console checklist) | **DROPPED** — members are identified by phone number; the scaffold was removed in P7 |
 | **P5** | Points ledger (earn / redeem / expire / adjust), FEFO deduction | **DONE (verified: smoke 169/169, lint, build)** |
-| **P6** | CRM & consent (customer profile, marketing consent, visit history) | **DONE (code)** — verify/commit pending |
-| **P7** | Cloudflare cutover (`api.honjaya-server.xyz` live, Tailscale → backup, `vercel.json` rewrite swapped) | **DONE** (verify Vercel `VUE_APP_SUPABASE_URL` + redeploy) |
+| **P6** | CRM & consent (customer profile, marketing consent, visit history) | **DONE (verified: smoke 201/201, lint, build, deployed live)** |
+| **P7** | Marketing & messaging (segments, campaigns, 문자/알림톡 send, opt-out link, CSV export) | **DONE (code + smoke 242/242)** — deploy pending |
+| **Ops** | Cloudflare cutover (`api.honjaya-server.xyz` live, Tailscale → backup, `vercel.json` rewrite swapped) | **DONE** |
 
 ---
 
@@ -317,69 +322,17 @@ The ledger tables are **not** in `server/src/tables.js`, so `/rest/v1/payments` 
 
 ---
 
-## 3-4. P4 — Kakao login readiness (DONE — scaffold + guideline)
+## 3-4. P4 — Kakao login readiness (DROPPED)
 
-Kakao login is **not wired into the guest flow yet**; P4 only makes the platform ready so that P6 (CRM) can flip it on
-without touching the deploy pipeline. Guests keep using the `hj_guest` table-session cookie.
+Originally a P4 scaffold (`/api/kakao/status`, `KAKAO_*` env, console checklist). **Removed in P7.**
 
-### What was added
-
-| File | Change |
-| --- | --- |
-| `server/src/config.js` | `kakaoRestApiKey`, `kakaoClientSecret`, `kakaoRedirectUri` from `KAKAO_*` env |
-| `server/src/kakao.js` | `isKakaoLoginEnabled()`, `kakaoRedirectUri()`, `buildKakaoAuthorizeUrl()` (REST API key stays server-side) |
-| `server/src/routes/api/kakao.js` | `GET /api/kakao/status` → `{ enabled, redirectUri, authorizeUrl }` (all empty when keys are missing) |
-| `server/src/app.js` | route registration + endpoint list |
-| `vercel.json`, `vue.config.js` | `/api/kakao/(.*)` rewrite + dev proxy |
-| `server/scripts/smoke-test.mjs` | 2 checks: status 200, and "keys missing → disabled + blank URLs" |
-
-Feature flag contract: `enabled === false` ⇒ the frontend must **hide** the Kakao login button. Nothing else changes,
-so deploying P4 without any Kakao keys is a no-op for customers.
-
-### Kakao Developers checklist (do this in the console, no code change needed)
-
-1. https://developers.kakao.com → 내 애플리케이션 → **애플리케이션 추가하기** (앱 이름 `혼자야`, 사업자 정보는 개인으로 시작 가능).
-2. **앱 설정 → 플랫폼 → Web 플랫폼 등록**: `https://honjaya.vercel.app`, `http://localhost:8080`.
-3. **제품 설정 → 카카오 로그인 → 활성화 설정 ON**.
-4. **카카오 로그인 → Redirect URI 등록**. The URI must match `KAKAO_REDIRECT_URI` byte-for-byte.
-   - `https://honjaya.vercel.app/kakao/callback` — recommended (frontend page; keeps the code exchange on our API).
-   - `https://api.honjaya-server.xyz/api/kakao/callback` — only if the server handles the callback directly.
-   - `http://localhost:8080/kakao/callback` — local dev.
-5. **카카오 로그인 → 동의항목**: 닉네임 `profile_nickname` (required), 프로필 사진 `profile_image` (optional).
-   `account_email` needs a business app + review, so **do not request it** for the first release.
-6. **보안 → Client Secret**: set to `사용함`, then put the value into `KAKAO_CLIENT_SECRET` (server only, never in the bundle).
-7. (optional, P6) **카카오톡 채널** 연결 + 채널 추가 유도 → CRM marketing consent.
-
-### Env (server/.env → documented in `server/deploy/README.md` §5)
-
-```
-KAKAO_REST_API_KEY=...        # 앱 설정 → 앱 키 → REST API 키
-KAKAO_CLIENT_SECRET=...       # 보안 → Client Secret (사용함일 때만)
-KAKAO_REDIRECT_URI=https://honjaya.vercel.app/kakao/callback
-```
-
-`KAKAO_REST_API_KEY` and `KAKAO_REDIRECT_URI` are both required, otherwise `enabled` stays `false`.
-
-### Deploy checklist
-
-1. Add the three `KAKAO_*` vars to `server/.env` (only when you actually want to test).
-2. `docker compose up -d --force-recreate api` (no DB change in P4).
-3. Vercel redeploy (new `/api/kakao/(.*)` rewrite).
-4. `curl -s https://api.honjaya-server.xyz/api/kakao/status` → expect `enabled:false` until the keys are set.
-
-### Verification (local)
-
-- `npm run smoke` → **111/111** (P4 added 2 checks: status 200, disabled-state contract).
-- `pnpm lint` → clean.
-- `pnpm build` → OK (only the pre-existing bundle-size warning).
-- `node --check` on `src/kakao.js`, `routes/api/kakao.js`, `config.js`, `app.js` → OK; module import resolves.
-
-### What P6 must still build
-
-`customers` table (`kakao_id` unique, nickname, profile image, marketing consent), `POST /api/kakao/callback`
-(`code` → `https://kauth.kakao.com/oauth/token` → `/v2/user/me` → upsert customer), `state` CSRF validation, a
-customer session cookie separate from `hj_guest` (which stays as the table/session attribution layer), and the
-privacy-policy / terms URLs Kakao review requires.
+- Why: Kakao login bought nothing here — guests are bar customers, not app users. A phone number is the
+  natural identity and it is already collected at the tablet payment screen (P5/P6).
+- Kakao is still used as a **message channel** (알림톡), which needs only a 카카오 채널 + 발신 프로필,
+  not a login app.
+- Deleted: `server/src/kakao.js`, `server/src/routes/api/kakao.js`, `KAKAO_*` env keys, the
+  `/api/kakao/(.*)` rewrite/proxy, and the P4 smoke checks (replaced by a "404" regression check).
+- `customers.kakao_id` column is kept but **unused** (no migration risk); nothing reads or writes it.
 
 ---
 
@@ -387,7 +340,8 @@ privacy-policy / terms URLs Kakao review requires.
 
 Points are **staff-driven**: there is no customer login yet, so the tablet payment screen asks for the guest's phone
 number, looks up (or creates) the customer, then applies earn/redeem inside the same `POST /api/payments`
-transaction. P6 later adds Kakao identity on top, but the ledger does not change.
+transaction. Identity is the phone number — there is no customer login (Kakao was dropped in P7), so the ledger
+does not change.
 
 ### Schema — `server/sql/points.sql`
 
@@ -464,10 +418,10 @@ Applied by `npm run db:apply` (and the `migrate` container) after `payments.sql`
 
 ---
 
-## 3-6. P6 — CRM foundation: profile, marketing consent, visit history (code done)
+## 3-6. P6 — CRM foundation: profile, marketing consent, visit history (DONE)
 
-Scope decision: build the CRM base **without Kakao login** (user choice). Kakao login stays in P4 scaffold
-(`kakao_id` column is pre-created and unused).
+Scope decision: build the CRM base **without Kakao login** (user choice). Member identity is the phone number;
+`kakao_id` exists in the table but is never read or written.
 
 ### Schema — `server/sql/crm.sql`
 
@@ -514,14 +468,80 @@ Scope decision: build the CRM base **without Kakao login** (user choice). Kakao 
 
 ---
 
+## 3-7. P7 — Marketing & messaging: segments, campaigns, 문자/알림톡 (DONE — deploy pending)
+
+Goal: message customers whose phone number we already have, **without Kakao login**. A phone number is the member
+identity; Kakao is only a delivery channel for 알림톡.
+
+### Schema — `server/sql/marketing.sql`
+
+- `customers` += `marketing_opt_out_token text` (+ partial unique index), `marketing_consent_source text`
+  (`TABLET` / `ADMIN` / `CUSTOMER`). Tokens backfilled with `md5(...)` (no pgcrypto dependency).
+- `message_campaigns` — `title`, `body`, `channel` (`SMS`/`LMS`/`ALIMTALK`), `segment`, `target_count`,
+  `sent_count`, `failed_count`, `status` (`DRAFT`/`SENT`/`CANCELED`), `provider`, `provider_note`,
+  `created_by` → `employees`, timestamps.
+- `message_logs` — per-recipient row (`PENDING`/`SENT`/`FAILED`/`SKIPPED`), `attempts`, `error`,
+  `provider_message_id`; unique partial index `(campaign_id, customer_id)` so re-sends are idempotent.
+
+### Backend
+
+- `server/src/messaging.js` — provider adapter. `MESSAGING_PROVIDER=dryrun` (default, returns a `dry-…` id and
+  sends nothing), `none` (feature off), `solapi` (**stub**: honest 503 until a provider is contracted).
+- `server/src/marketing.js` — `SEGMENTS` (`CONSENTED` / `DORMANT` 60d / `NEW` 30d / `POINTS` ≥1,000P),
+  `AUDIENCE_CTE` (consent + valid phone 9–11 digits + points balance + visit stats), `previewAudience`,
+  `createCampaign`, `materializeLogs`, `deliverPending`, `refreshCampaignStats`, `sendCampaign`, `retryCampaign`,
+  `unsubscribeByToken`, `exportAudienceCsv` (UTF-8 BOM, Korean headers). Placeholders `#{이름}` / `#{포인트}`
+  are resolved at send time.
+- `server/src/routes/api/marketing.js` — 12 endpoints. Staff: settings/segments/audience/campaigns/CSV guarded by
+  `marketing.view` (MANAGER+); create/send/retry by `marketing.manage` (OWNER). Public:
+  `GET/POST /api/marketing/unsubscribe` (token in the query/body, masked phone in the response).
+- `server/src/crm.js` — consent writes now also stamp `marketing_consent_source` and mint the opt-out token.
+- Kakao login removed end-to-end (see §3-4).
+
+### Frontend
+
+- `src/views/Admin/AdminMarketingView.vue` at `/admin/marketing` ("마케팅"): dry-run banner, segment summary cards,
+  composer (segment/channel/title/body with placeholder hints), audience preview, campaign table (상세/발송/재발송),
+  recipient log list, CSV download.
+- `src/views/User/UnsubscribeView.vue` at `/unsubscribe?token=…` — public opt-out page (Korean, masked phone).
+- `src/lib/marketing.js` + `apiText()` in `src/lib/api.js` (non-JSON responses for the CSV).
+- `vercel.json` / `vue.config.js` — `/api/kakao` rewrite/proxy replaced by `/api/marketing`.
+
+### Rules
+
+- Only `marketing_consent = true` **and** a 9–11 digit phone number is a valid recipient.
+- A campaign becomes `SENT` after any send attempt; failed rows stay `FAILED` and `retry` resets them to `PENDING`.
+  Resending a `SENT` campaign returns **409**.
+- Every message body gets the opt-out link `https://honjaya.vercel.app/unsubscribe?token=…` appended.
+
+### Deploy checklist
+
+1. Backup: `BACKUP_DIR=/home/bar/backups-honjaya ./deploy/backup-db.sh`
+2. `docker compose --profile tools build migrate && docker compose run --rm migrate` (applies `marketing.sql`)
+3. `docker compose up -d --build api` — **`--build` 필수**
+4. Vercel redeploy (new `/api/marketing` rewrites + the `/unsubscribe` page)
+
+### Verification (local)
+
+- `npm run smoke` — **242/242 통과** (P7 block ~40 checks: dry-run defaults, 권한 403/401, segment counts,
+  audience preview, 201 create, send 2/0, resend 409, retry, log detail, `marketing.send` audit row, opt-out
+  token → 미동의 전환, CSV BOM + Korean header; plus a "카카오 로그인 제거 → 404" regression check).
+- Deploy/live verification pending.
+
+---
+
 ## 4. Open questions
 
 1. ~~**₩30,000 point-redemption threshold**: before or after discount?~~ → **resolved in P5**: after discount, before point deduction.
-2. Kakao: does a Kakao channel / app already exist, or fully from scratch? (P4 scaffold is ready either way — see §3-4)
+2. ~~Kakao app/channel from scratch?~~ → **resolved**: Kakao **login dropped**. For 알림톡 we still need a
+   카카오 채널 + 발신 프로필 + template review, but no Kakao app.
 3. P3: should a refund mark the sheet `REFUNDED` instead of deriving back to `UNPAID`? (current: `status` untouched)
 4. P3: is per-order allocation (`orderIds`) needed, or is FIFO by order creation enough?
 5. P5: when a payment is fully refunded, should the points spent on it be restored? (current: no)
 6. P5: should point expiry be materialized by a daily job instead of lazily on read? (current: lazy)
+7. P7: **which messaging provider** (솔라피 / 알리고 / 비즈뿌리오 …)? Does the bar have 사업자등록 +
+   a registered 발신번호 (needed for both 문자 and 알림톡)? Until then `MESSAGING_PROVIDER=dryrun`.
+8. P7: is the 1,000-character body limit enough for LMS/알림톡, or do we need MMS/이미지? (current: text only)
 
 ---
 
@@ -534,10 +554,12 @@ done     p2-guest-session       guest table session cookie (guest_sessions) + /a
 done     p2-order-ownership     enforce order ownership on /rest/v1 (staff/guest/anon scope) + per-guest attribution
 done     p3-payment-ledger      payments / payment_allocations / refunds schema + API
 done     p3-split-payment       UI + API for split and partial payment
-done     p4-kakao-readiness     Kakao env flag + /api/kakao/status + console/consent checklist (live login in P6)
+done     p4-kakao-readiness     DROPPED — Kakao login removed in P7; members are identified by phone number
 done     p5-points-ledger       point_ledger + earn/redeem/expire/adjust + FEFO
 done     p5-customer-min        customers table (phone key) + staff-driven attribution at the tablet payment screen
-pending  p6-crm-consent         customer profile + marketing consent + visit history
+done     p6-crm-consent         customer profile + marketing consent + visit history
+done     p7-marketing           segments + campaigns + 문자/알림톡 adapter (dryrun) + opt-out link + CSV export
+pending  p7-provider            choose messaging provider (solapi/aligo/bizppurio), fill sendViaSolapi(), set MESSAGING_*
 done     p5-point-basis         redemption threshold counted AFTER discount, BEFORE point deduction (confirmed)
 ```
 

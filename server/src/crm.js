@@ -3,6 +3,7 @@
 // 방문 이력과 누적 결제는 payments.customer_id 로 계산합니다(집계 컬럼 없음 → 어긋날 일 없음).
 // 보유 포인트는 "아직 만료되지 않은 적립 건의 남은 포인트" 합계입니다(point_ledger 부채 계산과 같은 식).
 // 마케팅 수신 동의는 손님에게서 받은 사실만 저장하고, 철회도 같은 필드로 끕니다.
+import { randomBytes } from "node:crypto";
 import { pool } from "./db.js";
 import { HttpError } from "./http/errors.js";
 import { formatPhone } from "./points.js";
@@ -12,6 +13,11 @@ const MAX_NICKNAME = 30;
 const MAX_MEMO = 200;
 const MAX_QUERY = 30;
 const MAX_VISITS = 50;
+
+// 수신거부 링크용 토큰. 추측할 수 없어야 하므로 매번 새로 뽑습니다.
+export function newOptOutToken() {
+  return randomBytes(16).toString("hex");
+}
 
 const SORTS = {
   recent: "v.last_visit_at desc nulls last, c.created_at desc",
@@ -45,7 +51,7 @@ function readBool(value) {
 }
 
 // 만료되지 않은 적립 건의 남은 포인트 합계. customers 별칭은 c 를 씁니다.
-const ACTIVE_BALANCE_SQL = `
+export const ACTIVE_BALANCE_SQL = `
   coalesce((
     select sum(greatest(l.points - coalesce(a.used, 0), 0))::int
       from public.point_ledger l
@@ -59,7 +65,7 @@ const ACTIVE_BALANCE_SQL = `
        and (l.expires_at is null or l.expires_at > now())
   ), 0)`;
 
-const VISIT_STATS_SQL = `
+export const VISIT_STATS_SQL = `
   left join lateral (
     select count(distinct p.business_date)::int as visit_count,
            coalesce(sum(p.amount), 0)::int as paid_gross,
@@ -309,9 +315,25 @@ export async function updateCustomer({
                 when $6::boolean then now()
                 else marketing_consent_at
               end,
+              marketing_consent_source = case
+                when $6::boolean then 'ADMIN'
+                else marketing_consent_source
+              end,
+              marketing_opt_out_token = case
+                when $5::boolean then coalesce(marketing_opt_out_token, $7)
+                else marketing_opt_out_token
+              end,
               updated_at = now()
         where id = $1`,
-      [safeId, nextName, nextNickname, nextMemo, nextConsent, consentChanged]
+      [
+        safeId,
+        nextName,
+        nextNickname,
+        nextMemo,
+        nextConsent,
+        consentChanged,
+        newOptOutToken(),
+      ]
     );
 
     await client.query("commit");
@@ -340,14 +362,13 @@ export async function grantMarketingConsent(client, customerId) {
   const { rowCount } = await client.query(
     `update public.customers
         set marketing_consent = true,
-            marketing_consent_at = case
-              when marketing_consent then marketing_consent_at
-              else now()
-            end,
+            marketing_consent_at = now(),
+            marketing_consent_source = 'TABLET',
+            marketing_opt_out_token = coalesce(marketing_opt_out_token, $2),
             updated_at = now()
       where id = $1
         and marketing_consent = false`,
-    [safeId]
+    [safeId, newOptOutToken()]
   );
 
   return Number(rowCount || 0) > 0;

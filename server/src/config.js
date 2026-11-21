@@ -70,9 +70,11 @@ export const config = {
   // 손님 테이블 세션(쿠키). 술자리 한 번을 덮을 정도로 넉넉하게 잡습니다.
   guestCookieName: process.env.GUEST_COOKIE_NAME || "hj_guest",
   guestSessionHours: Number(process.env.GUEST_SESSION_HOURS || 12),
-  // 카카오 로그인 준비(P4). REST API 키와 Redirect URI 가 모두 있어야 켜집니다.
-  // 클라이언트 시크릿은 "사용함" 으로 설정했을 때만 필요합니다.
-  kakaoRestApiKey: String(process.env.KAKAO_REST_API_KEY || "").trim(),
-  kakaoClientSecret: String(process.env.KAKAO_CLIENT_SECRET || "").trim(),
-  kakaoRedirectUri: String(process.env.KAKAO_REDIRECT_URI || "").trim(),
+  // 마케팅 문자/알림톡 발송. 키가 없으면 dryrun(실제 발송 없음)으로 동작합니다.
+  messaging: {
+    provider: String(process.env.MESSAGING_PROVIDER || "dryrun").trim(),
+    sender: String(process.env.MESSAGING_SENDER || "").trim(),
+    solapiApiKey: String(process.env.SOLAPI_API_KEY || "").trim(),
+    solapiApiSecret: String(process.env.SOLAPI_API_SECRET || "").trim(),
+  },
 };

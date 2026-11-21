@@ -16,6 +16,8 @@ import AdminSalesView from "@/views/Admin/AdminSalesView.vue";
 import AdminPaymentHistoryView from "@/views/Admin/AdminPaymentHistoryView.vue";
 import AdminPointHistoryView from "@/views/Admin/AdminPointHistoryView.vue";
 import AdminCustomerView from "@/views/Admin/AdminCustomerView.vue";
+import AdminMarketingView from "@/views/Admin/AdminMarketingView.vue";
+import UnsubscribeView from "@/views/User/UnsubscribeView.vue";
 import StaffLoginView from "@/views/Staff/StaffLoginView.vue";
 import AdminLayout from "@/layouts/AdminLayout.vue";
 import { startGlobalBusy } from "@/lib/globalBusy";
@@ -68,6 +70,12 @@ const routes = [
     component: StaffLoginView,
   },
   {
+    // 문자에 넣은 수신거부 링크. 로그인 없이 열립니다.
+    path: "/unsubscribe",
+    name: "unsubscribe",
+    component: UnsubscribeView,
+  },
+  {
     path: "/admin",
     component: AdminLayout,
     meta: { requiresStaff: true },
@@ -100,6 +108,11 @@ const routes = [
         path: "customers",
         name: "admin-customers",
         component: AdminCustomerView,
+      },
+      {
+        path: "marketing",
+        name: "admin-marketing",
+        component: AdminMarketingView,
       },
       {
         path: "products",

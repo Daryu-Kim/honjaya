@@ -218,6 +218,7 @@ export async function applySchema(connectionString, log = console) {
     await runSqlFile(client, join(serverRoot, "sql", "points.sql"), log);
     // crm.sql 은 customers 를 확장하고 payments.customer_id 를 붙입니다(방문 이력 계산용).
     await runSqlFile(client, join(serverRoot, "sql", "crm.sql"), log);
+  await runSqlFile(client, join(serverRoot, "sql", "marketing.sql"), log);
   } finally {
     await client.end();
   }

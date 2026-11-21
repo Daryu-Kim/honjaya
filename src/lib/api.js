@@ -107,3 +107,54 @@ export function apiPost(path, body, options = {}) {
 export function apiPatch(path, body, options = {}) {
   return apiRequest(path, { ...options, method: "PATCH", body });
 }
+
+// CSV 내려받기처럼 JSON 이 아닌 응답을 그대로 받을 때 씁니다.
+export async function apiText(path, options = {}) {
+  const { method = "GET", headers, signal } = options;
+
+  const requestHeaders = { ...(headers || {}) };
+
+  if (API_KEY) {
+    requestHeaders.apikey = API_KEY;
+  }
+
+  let response;
+
+  try {
+    response = await fetch(buildUrl(path), {
+      method,
+      headers: requestHeaders,
+      credentials: "include",
+      signal,
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw error;
+    }
+
+    throw new ApiError(
+      "서버에 연결하지 못했어요. 네트워크 상태를 확인해 주세요.",
+      { code: "NETWORK_ERROR" }
+    );
+  }
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    let data = null;
+
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+
+    throw new ApiError(data?.message || "요청을 처리하지 못했어요.", {
+      status: response.status,
+      code: data?.code || "",
+      details: data?.details ?? null,
+    });
+  }
+
+  return text;
+}
