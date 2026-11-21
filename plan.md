@@ -756,3 +756,6 @@ todo     tablet-audit-followup  tablet-flow-audit 잔여 항목 (#2~#10, #13~#16
 - **P9:** `employees.permissions = null` means "역할 기본값", `'{}'` means "권한 없음". `OWNER` overrides are ignored
   and stored as `null` on purpose (lockout prevention).
 - **P9:** any `permissions` change revokes that employee's sessions; the UI must tell them to log in again.
+- **products.option_groups** is `jsonb`, so legacy rows can hold `{}` instead of `[]` (3 rows did, and
+  `[...optionGroups]` crashed the order sheet). `toAppRow()` now forces an array for `products`; the live
+  rows were normalized with `update products set option_groups = '[]'::jsonb where jsonb_typeof(option_groups) = 'object'`.
