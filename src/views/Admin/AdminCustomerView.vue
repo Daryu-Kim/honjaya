@@ -481,6 +481,65 @@
           </div>
         </div>
 
+        <div v-if="canViewGifts" class="visit-block">
+          <h3>구매한 기프티콘</h3>
+          <p class="description">
+            이 고객이 구매(발급)한 기프티콘이에요. 사용 후 남은 금액은
+            소멸됩니다.
+          </p>
+
+          <p v-if="giftError" class="error-box">{{ giftError }}</p>
+
+          <div v-if="isLoadingGifts" class="empty-box">
+            <p>기프티콘을 불러오는 중이에요.</p>
+          </div>
+          <div v-else-if="customerGifts.length === 0" class="empty-box">
+            <p>구매한 기프티콘이 없어요.</p>
+          </div>
+          <div v-else class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>코드</th>
+                  <th>상품</th>
+                  <th>액면가</th>
+                  <th>받는 분</th>
+                  <th>구매일</th>
+                  <th>유효기간</th>
+                  <th>상태</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="gift in customerGifts" :key="gift.id">
+                  <td>
+                    <code>{{ gift.code }}</code>
+                  </td>
+                  <td>{{ gift.productName || gift.kindLabel }}</td>
+                  <td>{{ formatGiftWon(gift.faceValue) }}</td>
+                  <td>
+                    {{ gift.recipientName || "-" }}
+                    <br />
+                    <span class="gift-phone">{{
+                      gift.recipientPhoneText || ""
+                    }}</span>
+                  </td>
+                  <td>{{ formatVisitDate(gift.purchasedAt) }}</td>
+                  <td>
+                    {{
+                      gift.expiresAt ? formatGiftDate(gift.expiresAt) : "무제한"
+                    }}
+                  </td>
+                  <td>
+                    <span :class="['coupon-status', gift.status.toLowerCase()]">
+                      {{ getGiftStatusLabel(gift.status) }}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="visit-block">
           <h3>방문 이력</h3>
           <div v-if="visits.length === 0" class="empty-box">
@@ -549,6 +608,12 @@ import {
   getPrepaidStatusLabel,
 } from "@/lib/prepaid";
 import { getPaymentMethodLabel } from "@/lib/payments";
+import {
+  fetchCustomerGifts,
+  formatGiftDate,
+  formatGiftWon,
+  getGiftStatusLabel,
+} from "@/lib/gifts";
 import { hasPermission } from "@/lib/staffAuth";
 
 const route = useRoute();
@@ -588,6 +653,11 @@ const canViewPrepaid = computed(() => hasPermission("prepaid.issue"));
 const prepaidPasses = ref([]);
 const isLoadingPrepaid = ref(false);
 const prepaidError = ref("");
+
+const canViewGifts = computed(() => hasPermission("gift.view"));
+const customerGifts = ref([]);
+const isLoadingGifts = ref(false);
+const giftError = ref("");
 
 function createCouponForm() {
   return {
@@ -673,7 +743,11 @@ async function loadProfile(customerId) {
     };
     selectedId.value = customerId;
     syncEditForm(result?.customer);
-    await Promise.all([loadCoupons(customerId), loadPrepaidPasses(customerId)]);
+    await Promise.all([
+      loadCoupons(customerId),
+      loadPrepaidPasses(customerId),
+      loadCustomerGifts(customerId),
+    ]);
   } catch (error) {
     console.error("고객 정보 조회 실패:", error);
     profileError.value = error?.message || "고객 정보를 불러오지 못했어요.";
@@ -718,6 +792,25 @@ async function loadPrepaidPasses(customerId) {
     prepaidPasses.value = [];
   } finally {
     isLoadingPrepaid.value = false;
+  }
+}
+
+async function loadCustomerGifts(customerId) {
+  if (!customerId || !canViewGifts.value) return;
+
+  isLoadingGifts.value = true;
+  giftError.value = "";
+
+  try {
+    const result = await fetchCustomerGifts(customerId);
+
+    customerGifts.value = Array.isArray(result?.gifts) ? result.gifts : [];
+  } catch (error) {
+    console.error("기프티콘 조회 실패:", error);
+    giftError.value = error?.message || "기프티콘을 불러오지 못했어요.";
+    customerGifts.value = [];
+  } finally {
+    isLoadingGifts.value = false;
   }
 }
 
@@ -1170,5 +1263,9 @@ onMounted(async () => {
 .coupon-status.void {
   background: rgba(248, 113, 113, 0.18);
   color: #fca5a5;
+}
+.gift-phone {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
 }
 </style>

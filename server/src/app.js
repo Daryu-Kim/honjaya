@@ -7,6 +7,7 @@ import { HttpError, PG_MESSAGES, PG_STATUS } from "./http/errors.js";
 import { registerAdminRoutes } from "./routes/api/admin.js";
 import { registerCrmRoutes } from "./routes/api/crm.js";
 import { registerGuestRoutes } from "./routes/api/guest.js";
+import { registerGiftRoutes } from "./routes/api/gifts.js";
 import { registerMarketingRoutes } from "./routes/api/marketing.js";
 import { registerPaymentRoutes } from "./routes/api/payments.js";
 import { registerPointRoutes } from "./routes/api/points.js";
@@ -190,6 +191,7 @@ export async function buildApp(options = {}) {
       "/api/payments",
       "/api/points",
       "/api/prepaid",
+      "/api/gifts",
       "/api/crm/customers",
       "/api/marketing/campaigns",
       "/api/marketing/unsubscribe",
@@ -206,6 +208,7 @@ export async function buildApp(options = {}) {
   registerPaymentRoutes(app);
   registerPointRoutes(app);
   registerPrepaidRoutes(app);
+  registerGiftRoutes(app);
   registerCrmRoutes(app);
   registerMarketingRoutes(app);
 

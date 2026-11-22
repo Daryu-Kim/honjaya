@@ -17,6 +17,13 @@
         >
           선불권 판매
         </button>
+        <button
+          type="button"
+          class="header-logout"
+          @click="giftSellModalOpen = true"
+        >
+          기프티콘 판매
+        </button>
         <button type="button" class="header-logout" @click="handleStaffLogout">
           로그아웃
         </button>
@@ -1200,6 +1207,13 @@
                 >
                   선불권 추가
                 </button>
+                <button
+                  type="button"
+                  class="quick-button"
+                  @click="addGiftPaymentSplit"
+                >
+                  기프티콘 추가
+                </button>
               </div>
             </div>
 
@@ -1243,6 +1257,22 @@
                     {{ prepaidPassLabel(pass) }}
                   </option>
                 </select>
+                <template v-else-if="split.method === 'GIFT_CERT'">
+                  <input
+                    v-model.trim="split.giftCode"
+                    type="text"
+                    maxlength="20"
+                    placeholder="기프티콘 코드"
+                    @change="onGiftCodeChange(split)"
+                  />
+                  <button
+                    type="button"
+                    class="quick-button"
+                    @click="onGiftCodeChange(split)"
+                  >
+                    확인
+                  </button>
+                </template>
                 <input
                   v-else
                   v-model.trim="split.payerLabel"
@@ -1277,6 +1307,20 @@
             <p v-if="paymentPrepaidUseSummary" class="modal-empty-text">
               {{ paymentPrepaidUseSummary }}
             </p>
+
+            <div
+              v-if="paymentGiftRows.length > 0"
+              class="payment-gift-state-list"
+            >
+              <p
+                v-for="row in paymentGiftRows"
+                :key="row.splitId"
+                class="modal-empty-text"
+                :class="{ warning: !!row.warning }"
+              >
+                {{ row.text }}
+              </p>
+            </div>
 
             <div class="payment-balance-box">
               <div>
@@ -1773,6 +1817,11 @@
       :default-phone="paymentModalState.customerPhone"
       @close="prepaidSellModalOpen = false"
     />
+
+    <GiftSellModal
+      :open="giftSellModalOpen"
+      @close="giftSellModalOpen = false"
+    />
   </div>
 </template>
 
@@ -1819,6 +1868,12 @@ import {
   formatPrepaidDate,
 } from "@/lib/prepaid";
 import {
+  computeGiftUsable,
+  formatGiftWon,
+  lookupGiftCode,
+  normalizeGiftCodeInput,
+} from "@/lib/gifts";
+import {
   isDemographicOrderSheetTag,
   normalizeOrderSheetTags,
 } from "@/lib/orderSheetTags";
@@ -1834,6 +1889,7 @@ import {
 } from "@/lib/tableMaster";
 import { staffLogout } from "@/lib/staffAuth.js";
 import PrepaidSellModal from "@/components/tablet/PrepaidSellModal.vue";
+import GiftSellModal from "@/components/tablet/GiftSellModal.vue";
 
 const router = useRouter();
 
@@ -1846,6 +1902,9 @@ const activeTab = ref("tables");
 
 // 선불권 판매(발급) 모달 — 태블릿 상단 버튼에서 엽니다.
 const prepaidSellModalOpen = ref(false);
+
+// 기프티콘 판매(발급) 모달 — 태블릿 상단 버튼에서 엽니다.
+const giftSellModalOpen = ref(false);
 
 const selectedTable = ref(null);
 const recipeModalProduct = ref(null);
@@ -2505,10 +2564,11 @@ const paymentPointsBlockedReason = computed(() => {
 
 const paymentPointsEarnPreview = computed(() => {
   const rate = Number(paymentPointRules.value.earnRate || 0);
-  // 선불권 사용분은 판매 시점에 적립했으므로 적립 예정에서 제외합니다(서버와 동일 규칙).
+  // 선불권·기프티콘 사용분은 판매 시점에 적립했으므로 적립 예정에서 제외합니다(서버와 동일 규칙).
   const earnable = paymentModalState.value.paymentSplits.reduce(
     (acc, split) => {
-      if (split.method === "PREPAID") return acc;
+      if (split.method === "PREPAID" || split.method === "GIFT_CERT")
+        return acc;
 
       return acc + Number(split.amount || 0);
     },
@@ -2612,6 +2672,7 @@ function createPaymentSplit(method = "CARD", amount = 0, payerLabel = "") {
     method,
     payerLabel,
     prepaidPassId: "",
+    giftCode: "",
     amount: Number(amount || 0),
   };
 }
@@ -2652,10 +2713,15 @@ function normalizePaymentDiscounts(discounts, originalAmount) {
 function normalizePaymentSplits(paymentSplits) {
   return paymentSplits
     .map((split) => ({
+      id: split.id,
       method: split.method || "CARD",
       payerLabel: String(split.payerLabel || "").trim(),
       prepaidPassId:
         split.method === "PREPAID" ? String(split.prepaidPassId || "") : "",
+      giftCode:
+        split.method === "GIFT_CERT"
+          ? normalizeGiftCodeInput(split.giftCode)
+          : "",
       amount: Number(split.amount || 0),
     }))
     .filter((split) => split.amount > 0);
@@ -2810,6 +2876,145 @@ const paymentPrepaidUseSummary = computed(() => {
     total
   )}원 사용 · 남은 잔액은 다음 방문에 쓸 수 있어요.`;
 });
+
+// 기프티콘은 회원 귀속이 아니라 코드로 확인하므로, 줄마다 조회 결과를 보관합니다.
+const paymentGiftState = ref({});
+
+function resetPaymentGiftState() {
+  paymentGiftState.value = {};
+}
+
+function addGiftPaymentSplit() {
+  const split = createPaymentSplit(
+    "GIFT_CERT",
+    Math.max(0, paymentDueAmount.value)
+  );
+
+  paymentModalState.value.paymentSplits.push(split);
+}
+
+// 이 기프티콘으로 이번 결제에서 쓸 수 있는 최대 금액(남은 금액 기준).
+// 액면가가 결제 금액보다 크면 남는 차액은 소멸합니다.
+function giftSplitLimit(split) {
+  const state = paymentGiftState.value[split?.id || ""] || {};
+  const gift = state.gift || null;
+
+  if (!gift || gift.blockedReason) return 0;
+
+  const assignedToOthers = paymentModalState.value.paymentSplits.reduce(
+    (acc, item) =>
+      item.id === split?.id ? acc : acc + Number(item.amount || 0),
+    0
+  );
+  const capacity = Math.max(0, paymentDueAmount.value - assignedToOthers);
+
+  return Math.min(computeGiftUsable(gift, paymentDueAmount.value), capacity);
+}
+
+// 코드를 입력하면 서버에서 상태·액면가를 확인하고 금액을 자동으로 채웁니다.
+async function onGiftCodeChange(split) {
+  const code = normalizeGiftCodeInput(split.giftCode);
+
+  split.giftCode = code;
+
+  if (!code || code === "G-") {
+    paymentGiftState.value = {
+      ...paymentGiftState.value,
+      [split.id]: { loading: false, gift: null, error: "" },
+    };
+    return;
+  }
+
+  paymentGiftState.value = {
+    ...paymentGiftState.value,
+    [split.id]: { loading: true, gift: null, error: "" },
+  };
+
+  try {
+    const result = await lookupGiftCode(code);
+    const gift = result?.gift || null;
+
+    paymentGiftState.value = {
+      ...paymentGiftState.value,
+      [split.id]: { loading: false, gift, error: "" },
+    };
+
+    if (!gift) {
+      split.amount = 0;
+      return;
+    }
+
+    split.payerLabel = gift.code || code;
+    split.amount = gift.blockedReason ? 0 : giftSplitLimit(split);
+  } catch (error) {
+    paymentGiftState.value = {
+      ...paymentGiftState.value,
+      [split.id]: {
+        loading: false,
+        gift: null,
+        error: error?.message || "기프티콘을 확인하지 못했어요.",
+      },
+    };
+    split.amount = 0;
+  }
+}
+
+const paymentGiftRows = computed(() =>
+  paymentModalState.value.paymentSplits
+    .filter((split) => split.method === "GIFT_CERT")
+    .map((split) => {
+      const state = paymentGiftState.value[split.id] || {};
+      const gift = state.gift || null;
+      const code = split.giftCode || "";
+      const amount = Number(split.amount || 0);
+
+      if (state.loading) {
+        return {
+          splitId: split.id,
+          text: `${code} 코드를 확인하는 중이에요.`,
+          warning: false,
+        };
+      }
+
+      if (state.error) {
+        return { splitId: split.id, text: state.error, warning: true };
+      }
+
+      if (!gift) {
+        return {
+          splitId: split.id,
+          text: code
+            ? "코드를 확인하지 못했어요. [확인]을 다시 눌러 주세요."
+            : "기프티콘 코드를 입력하고 [확인]을 눌러 주세요.",
+          warning: code !== "",
+        };
+      }
+
+      if (gift.blockedReason) {
+        return {
+          splitId: split.id,
+          text: `${gift.code} · ${gift.statusLabel} · ${gift.blockedReason}`,
+          warning: true,
+        };
+      }
+
+      const faceValue = Number(gift.faceValue || 0);
+      const remaining = Math.max(0, faceValue - amount);
+      const parts = [
+        `${gift.code} · ${gift.kindLabel} ${formatGiftWon(faceValue)}`,
+      ];
+
+      if (remaining > 0) {
+        parts.push(`차액 ${formatGiftWon(remaining)}은 소멸돼요.`);
+      }
+
+      return {
+        splitId: split.id,
+        text: parts.join(" · "),
+        warning: remaining > 0,
+      };
+    })
+);
 
 function onPaymentPhoneInput(event) {
   const formatted = formatPhoneInput(event.target.value);
@@ -3667,6 +3872,7 @@ function openTablePaymentModal(table) {
   resetPaymentPointState();
   resetPaymentCouponState();
   resetPaymentPrepaidState();
+  resetPaymentGiftState();
 
   paymentModalState.value = {
     isOpen: true,
@@ -3688,6 +3894,7 @@ function closePaymentModal() {
   resetPaymentPointState();
   resetPaymentCouponState();
   resetPaymentPrepaidState();
+  resetPaymentGiftState();
 
   paymentModalState.value = {
     isOpen: false,
@@ -3846,6 +4053,41 @@ async function completePayment() {
             `선불권은 이번 결제에서 ${formatPrice(
               limit
             )}원까지 사용할 수 있어요.`
+          );
+          return;
+        }
+      }
+
+      if (
+        paymentSplits.some(
+          (split) => split.method === "GIFT_CERT" && !split.giftCode
+        )
+      ) {
+        alert("기프티콘 결제는 사용할 기프티콘 코드를 입력해 주세요.");
+        return;
+      }
+
+      // 코드 확인 없이 결제되면 어떤 기프티콘인지 알 수 없으므로 먼저 확인을 요구합니다.
+      for (const split of paymentSplits) {
+        if (split.method !== "GIFT_CERT") continue;
+
+        const gift = paymentGiftState.value[split.id]?.gift || null;
+
+        if (!gift) {
+          alert(`${split.giftCode} 코드를 [확인]으로 먼저 조회해 주세요.`);
+          return;
+        }
+
+        if (gift.blockedReason) {
+          alert(`${gift.code} · ${gift.blockedReason}`);
+          return;
+        }
+
+        if (split.amount > Number(gift.faceValue || 0)) {
+          alert(
+            `기프티콘 액면가(${formatPrice(
+              gift.faceValue
+            )}원)보다 많이 사용할 수 없어요.`
           );
           return;
         }
@@ -4567,6 +4809,14 @@ onUnmounted(() => {
   margin: 0;
   font-size: 12px;
   color: rgba(255, 255, 255, 0.5);
+}
+.payment-gift-state-list {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+.payment-gift-state-list .modal-empty-text.warning {
+  color: #fbbf24;
 }
 .list-card {
   padding: 16px;

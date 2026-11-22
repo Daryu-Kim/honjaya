@@ -290,6 +290,9 @@ export async function completeOrderSheetPayment({
       method: String(split?.method || "").trim(),
       // 인원별로 나눠낼 때 누가 낸 금액인지 남깁니다.
       payerLabel: String(split?.payerLabel || "").trim(),
+      // 선불권/기프티콘은 서버가 어느 것을 쓸지 알아야 하므로 식별자를 함께 보냅니다.
+      prepaidPassId: String(split?.prepaidPassId || "").trim(),
+      giftCode: String(split?.giftCode || "").trim(),
       amount: Number(split?.amount || 0),
     }))
     .filter((entry) => entry.method && entry.amount > 0);

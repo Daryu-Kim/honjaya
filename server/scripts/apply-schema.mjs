@@ -223,6 +223,8 @@ export async function applySchema(connectionString, log = console) {
     await runSqlFile(client, join(serverRoot, "sql", "coupons.sql"), log);
     // prepaid.sql(선불권) 도 customers/payments 를 참조하므로 그 뒤에 실행합니다.
     await runSqlFile(client, join(serverRoot, "sql", "prepaid.sql"), log);
+    // gifts.sql(기프티콘) 은 products/customers/employees 를 참조하므로 맨 마지막입니다.
+    await runSqlFile(client, join(serverRoot, "sql", "gifts.sql"), log);
   } finally {
     await client.end();
   }

@@ -78,8 +78,8 @@ Guest phone / staff tablet
 | **P7** | Marketing & messaging (segments, campaigns, 문자/알림톡 send, opt-out link, CSV export) | **DONE (verified: smoke 242/242, lint, build, deployed live)** |
 | **P8** | Revisit coupons (`coupons` table, issue/void, redemption at the tablet payment screen, admin coupon panel) | **DONE (verified: smoke 269/269, lint, build)** |
 | **P9** | 직원 계정·권한 관리 (사장 전용 메뉴, 역할 + 직원별 세부 권한 override) | **DONE (verified: smoke 292/292, lint, build)** |
-| **P10** | 선불권 (member-bound balance, 다음 영업일부터 사용, 모든 조건을 관리자가 설정) | **PLANNED** |
-| **P11** | 혼자야 기프티콘 (code-based single-use gift, 링크/문자 전달, 태블릿 사용) | **PLANNED** |
+| **P10** | 선불권 (member-bound balance, 다음 영업일부터 사용, 모든 조건을 관리자가 설정) | **DONE (lint/build 통과, 커밋·배포 완료 — 서버 마이그레이션 대기)** |
+| **P11** | 혼자야 기프티콘 (code-based single-use gift, 링크/문자 전달, 태블릿 사용) | **DONE (코드 완료 — 검증/배포 대기)** |
 | **Ops** | Cloudflare cutover (`api.honjaya-server.xyz` live, Tailscale → backup, `vercel.json` rewrite swapped) | **DONE** |
 
 ---
@@ -778,7 +778,7 @@ Status: frontend committed + pushed (`7a2edf4`) → Vercel auto-deploy. Server s
 
 ---
 
-## 3-12. P11 — 혼자야 기프티콘 (PLANNED)
+## 3-12. P11 — 혼자야 기프티콘 (DONE — code complete, pending verification/deploy)
 
 Goal: a customer buys a HONJAYA-branded gift certificate at the bar and sends it to someone (카톡 링크 / 문자).
 The recipient shows the code; staff redeems it at the tablet payment screen.
@@ -803,22 +803,26 @@ The recipient shows the code; staff redeems it at the tablet payment screen.
   `theme` (`SOLO_NIGHT` / `CHEERS` / `BIRTHDAY` / `THANKS`), `message_max_length` (default 100),
   `is_active`, `sort_order`, `memo`.
 - `gift_certificates`: `id`, `code` (unique), `gift_product_id`, snapshots (`product_name`, `kind`, `face_value`,
-  `theme`), `status` (`ACTIVE` / `USED` / `EXPIRED` / `VOID`), `price_paid`, `buyer_customer_id`, `buyer_name`,
-  `recipient_name`, `recipient_phone`, `message`, `purchased_at`, `business_date`, `expires_at`, `used_at`,
-  `used_order_sheet_id`, `used_payment_id`, `redeemed_by_employee_id/name`, `sent_at`, `sent_channel`,
-  `voided_at`, `sold_by_employee_id/name`.
+  `theme`), `status` (`ACTIVE` / `USED` / `EXPIRED` / `VOID`), `price_paid`, `payment_method`, `buyer_customer_id`,
+  `buyer_name`, `buyer_phone`, `recipient_name`, `recipient_phone`, `message`, `purchased_at`, `business_date`,
+  `expires_at`, `used_at`, `used_order_sheet_id`, `used_payment_id`, `forfeited_amount`,
+  `redeemed_by_employee_id/name`, `sent_at`, `sent_channel`, `voided_at`, `voided_reason`,
+  `sold_by_employee_id/name`.
 - Registered in `apply-schema.mjs` after `prepaid.sql`.
 
 ### Backend
 
-- `server/src/gifts.js` — `listGiftProducts`, `issueGift` (code generation with collision retry), `lookupGiftCode`,
-  `redeemGiftForPayment`, `voidGift`, `expireGift` (lazy), `listGifts`, `giftSummary`, `sendGiftMessage`.
-- `server/src/routes/api/gifts.js` — staff: `GET /api/gifts/products`, `POST /api/gifts`,
-  `GET /api/gifts/lookup?code=`, `GET /api/gifts`, `POST /api/gifts/:id/void`, `POST /api/gifts/:id/resend`;
-  public: `GET /api/public/gifts/:code` (no staff cookie, rate limited).
-- `server/src/payments.js` — accept `giftCode`, validate and mark `USED` inside the payment transaction, add the
-  `GIFT_CERT` entry server-side.
-- Audit actions: `gift.issue` / `gift.redeem` / `gift.void` / `gift.resend`.
+- `server/src/gifts.js` — `listGiftProducts` / product CRUD (`createGiftProduct`, `updateGiftProduct`), `issueGift`
+  (code generation `G-XXXXXXXX` with collision retry), `lookupGiftCode`, `lookupPublicGift`, `listGifts`,
+  `listCustomerGifts`, `giftSummary`, `sendGiftMessage`, `resendGift`, `voidGift`, `expireDueGifts` (lazy),
+  `readGiftForPayment` / `applyGiftUse` / `restoreGiftForRefund` (payment layer).
+- `server/src/routes/api/gifts.js` — staff: `GET|POST /api/gifts/products`, `POST /api/gifts/products/:productId`,
+  `POST /api/gifts`, `GET /api/gifts/lookup`, `GET /api/gifts`, `GET /api/gifts/customer/:customerId`,
+  `GET /api/gifts/summary`, `POST /api/gifts/:giftId/resend`, `POST /api/gifts/:giftId/void`;
+  public: `GET /api/public/gifts/:code` (staff cookie 없이, 전역 API key만).
+- `server/src/payments.js` — `giftCode`를 entry에 받아 트랜잭션 안에서 검증 후 `USED` 처리, 중복 코드 거부,
+  부분 환불 시 복원하지 않고 전액 환불 + 미만료일 때만 `ACTIVE` 복원.
+- Audit actions: `gift.issue` / `gift.resend` / `gift.void`.
 
 ### Permissions
 
@@ -826,20 +830,23 @@ The recipient shows the code; staff redeems it at the tablet payment screen.
 
 ### Frontend
 
-- `src/lib/gifts.js` — API helper + theme/label constants.
-- `src/components/tablet/GiftPanel.vue` — 발급(상품/받는 분/메시지/결제수단) + 사용(코드 입력 → 액면·상태·경고).
-- `TabletAdminView.vue` — 결제 모달에 기프티콘 섹션, 결제 수단 `혼자야 기프티콘`.
-- `src/views/Admin/AdminGiftView.vue` — 템플릿 CRUD + 발급 내역/재발송/취소 + 사용 통계.
-- `src/views/User/GiftView.vue` — `/gift/:code` 공개 카드 페이지 (테마 배경, 메시지, 큰 코드, 상태/유효기간).
-- `AdminCustomerView.vue` — 구매/수령 기프티콘 목록.
+- `src/lib/gifts.js` — API helper + theme/label constants + `normalizeGiftCodeInput`, `computeGiftUsable`.
+- `src/components/tablet/GiftSellModal.vue` — 발급 모달 (상품 선택 / 받는 분 / 메시지 / 결제수단 / 문자 발송 / 발급 완료 + 링크 복사·재발송).
+  (`GiftPanel.vue` was replaced by this modal + the payment-split GIFT_CERT row.)
+- `TabletAdminView.vue` — 헤더 `기프티콘 판매` 버튼, 결제 분할 `+ 기프티콘 추가` 행(코드 입력 → 확인 → 액면/차액 경고),
+  결제 수단 `혼자야 기프티콘`, `GIFT_CERT`는 적립 대상에서 제외.
+- `src/views/Admin/AdminGiftView.vue` — 상품 설정 CRUD + 발급 내역(조회/링크 복사/재발송/취소) + 요약 카드.
+- `src/views/User/GiftCardView.vue` — `/gift/:code` 공개 카드 페이지 (테마 배경, 큰 코드, 상태/유효기간, 코드 복사).
+- `AdminCustomerView.vue` — 구매한 기프티콘 목록 (`gift.view` 필요).
 - `AdminLayout.vue` + `router/index.js` — `/admin/gifts` (permission `gift.view`), `/gift/:code` public route.
+- `src/lib/orderSheet.js` — `completeOrderSheetPayment` entries에 `prepaidPassId` / `giftCode` 전달
+  (P10 선불권 결제가 서버에서 거부되던 버그도 함께 수정).
 
-### Verification (planned)
+### Verification
 
-- smoke P11 block: template CRUD 권한, issue (code format, no duplicates), lookup 200, 결제 연동 `GIFT_CERT` entry,
-  재사용 409, 만료 EXPIRED + 400, VOID 후 조회 400, public endpoint 200 with minimal fields + rate limit,
-  문자 dryrun log, summary.
-- `pnpm lint` / `pnpm build`.
+- `pnpm lint` / `pnpm build` / `node --check` (server files) — 실행 예정.
+- smoke P11 block (아직 없음): template CRUD 권한, issue (code format, no duplicates), lookup 200, 결제 연동 `GIFT_CERT` entry,
+  재사용 409, 만료 EXPIRED + 400, VOID 후 조회 400, public endpoint 200 + rate limit, 문자 dryrun log, summary.
 
 ### Deploy checklist
 
@@ -865,12 +872,16 @@ The recipient shows the code; staff redeems it at the tablet payment screen.
 8. P7: is the 1,000-character body limit enough for LMS/알림톡, or do we need MMS/이미지? (current: text only)
 9. ~~**P10**: 선불권 형태~~ → **확정: 금액 충전형(잔액)만**. 횟수형은 P11 기프티콘 `ITEM`(메뉴 교환권)으로 커버.
 10. ~~**P10**: 선불권 판매가 ≠ 충전가(보너스) 허용?~~ → **확정: 허용**. `price`와 `face_value`를 따로 입력합니다.
-11. **P11**: 기프티콘 종류 — 메뉴 교환권(`ITEM`) + 금액권(`AMOUNT`) 둘 다(권장) / 하나만?
-12. **P11**: 액면가 > 결제 금액일 때 차액 처리 — 소멸(권장, 기프티콘 관례) / 선불권 잔액으로 이월?
+11. ~~**P11**: 기프티콘 종류~~ → **확정: `ITEM`(메뉴 교환권) + `AMOUNT`(금액권) 둘 다**.
+12. ~~**P11**: 액면가 > 결제 금액일 때 차액 처리~~ → **확정: 차액 소멸** (기프티콘 관례). 사용 전 UI 경고 필수.
 13. **P10/P11**: 판매 경로 — PG 미연동이라 **매장에서 직원이 결제 후 발급**이 기본. 온라인 선결제는 PG 도입 별도 단계.
 14. **P10/P11**: 기본 유효기간 — 선불권 3개월, 기프티콘 90일 (관리자가 상품별로 변경 가능)
 15. **P10**: 선불권 적립 — 판매 시 판매가의 1% 적립, 사용 시에는 적립 대상에서 제외(중복 적립 방지). 변경하려면
     `server/src/prepaid.js#issuePass` 와 `server/src/payments.js`의 `earnableTotal` 두 곳만 고치면 됩니다.
+16. **P11**: 기프티콘 적립 — 판매 시 구매자 전화번호가 기존 회원과 일치할 때만 판매가의 1% 적립
+    (`issueGift`의 `buyer_customer_id`). `GIFT_CERT` 사용은 적립 대상 제외.
+17. **P11**: 기프티콘은 **회원 귀속이 아님**(코드 소지자 사용). 구매자/수령인은 기록용 메타데이터.
+    회원과 연결되는 것은 "내가 구매한 내역"뿐이며 `AdminCustomerView`에서만 조회합니다.
 
 ---
 
@@ -901,11 +912,12 @@ done     p10-prepaid-plans     prepaid_plans 상품 템플릿 CRUD (판매가/�
 done     p10-prepaid-issue     선불권 판매·발급 + 원장 + 회원 귀속 (다음 영업일부터 사용)
 done     p10-prepaid-redeem    결제 수단 PREPAID 연동 (잔액 검증·차감·환불 복원)
 done     p10-prepaid-admin     /admin/prepaid 관리 화면 (상품 설정 / 발급·잔액 현황 / 조정·취소)
-todo     p11-gift-products     gift_products 템플릿 CRUD (ITEM/AMOUNT, 테마, 유효기간, 판매가)
-todo     p11-gift-issue        기프티콘 발급 + 코드 생성 + 링크/문자 전달
-todo     p11-gift-redeem       결제 수단 GIFT_CERT 연동 + 1회 사용 처리
-todo     p11-gift-card-page    공개 카드 페이지 /gift/:code (rate limit, 최소 필드)
-todo     p11-gift-admin        /admin/gifts 관리 화면 (템플릿 / 발급 내역 / 재발송·취소)
+done     p11-gift-products     gift_products 템플릿 CRUD (ITEM/AMOUNT, 테마, 유효기간, 판매가)
+done     p11-gift-issue        기프티콘 발급 + 코드 생성 + 링크/문자 전달
+done     p11-gift-redeem       결제 수단 GIFT_CERT 연동 + 1회 사용 처리
+done     p11-gift-card-page    공개 카드 페이지 /gift/:code (최소 필드만 노출)
+done     p11-gift-admin        /admin/gifts 관리 화면 (템플릿 / 발급 내역 / 재발송·취소)
+todo     p11-gift-smoke       smoke 스크립트에 P11 블록 추가 (발급/조회/재사용 409/만료/취소/public)
 ```
 
 ---
@@ -946,3 +958,13 @@ todo     p11-gift-admin        /admin/gifts 관리 화면 (템플릿 / 발급 �
   (`server/src/tables.js`)에 **추가하면 안 됩니다**. 전부 `/api/prepaid/*` 로만 접근합니다.
 - **P10:** 선불권 사용 요일은 ISO(1=월 … 7=일), 영업일 경계는 15:00 KST 컷오버(`businessDay.js`)를 그대로 씁니다.
 - **P10:** `payments.method` 에 CHECK 제약이 없어서 `PREPAID` 추가에 마이그레이션이 필요 없습니다.
+- **P11:** `gift_products` / `gift_certificates` 도 `/rest/v1` 허용 목록에 **추가하면 안 됩니다**.
+  전부 `/api/gifts/*` 로만 접근합니다.
+- **P11:** `payments.order_sheet_id` 가 `NOT NULL` 이므로 **기프티콘 "판매"는 `payments` 행을 만들 수 없습니다**.
+  판매 대금은 `gift_certificates.price_paid` + `payment_method` 에 기록하고, 매출 인식은 사용(`GIFT_CERT` 결제) 시점입니다.
+- **P11:** 기프티콘 사용은 결제 분할 entry의 `giftCode` 로 전달됩니다. 코드 중복은 서버가 400으로 거부합니다.
+  전액 환불 + 미만료일 때만 `ACTIVE` 로 복원되고, 부분 환불은 복원하지 않습니다(차액 소멸 규칙).
+- **P11:** `AdminGiftView.vue` 는 `gift.view` 권한이 필요합니다. STAFF 는 `gift.issue` 만 갖고 있으므로
+  관리자 화면에 들어갈 수 없고, 태블릿에서만 판매/사용합니다.
+- **P11:** `src/lib/orderSheet.js#completeOrderSheetPayment` 는 결제 분할을 서버 entry로 변환할 때
+  `prepaidPassId` / `giftCode` 를 반드시 함께 넘겨야 합니다. 누락되면 서버가 400으로 거부합니다.

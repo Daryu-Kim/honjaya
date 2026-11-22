@@ -142,6 +142,13 @@ const menuList = [
     permission: "prepaid.view",
   },
   {
+    to: "/admin/gifts",
+    label: "기프티콘 관리",
+    description: "상품 설정·발급 내역",
+    matchStartsWith: "/admin/gifts",
+    permission: "gift.view",
+  },
+  {
     to: "/admin/customers",
     label: "고객 관리",
     description: "방문 이력·마케팅 동의",

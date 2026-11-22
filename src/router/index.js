@@ -16,10 +16,12 @@ import AdminSalesView from "@/views/Admin/AdminSalesView.vue";
 import AdminPaymentHistoryView from "@/views/Admin/AdminPaymentHistoryView.vue";
 import AdminPointHistoryView from "@/views/Admin/AdminPointHistoryView.vue";
 import AdminPrepaidView from "@/views/Admin/AdminPrepaidView.vue";
+import AdminGiftView from "@/views/Admin/AdminGiftView.vue";
 import AdminCustomerView from "@/views/Admin/AdminCustomerView.vue";
 import AdminMarketingView from "@/views/Admin/AdminMarketingView.vue";
 import AdminEmployeeView from "@/views/Admin/AdminEmployeeView.vue";
 import UnsubscribeView from "@/views/User/UnsubscribeView.vue";
+import GiftCardView from "@/views/User/GiftCardView.vue";
 import StaffLoginView from "@/views/Staff/StaffLoginView.vue";
 import AdminLayout from "@/layouts/AdminLayout.vue";
 import { startGlobalBusy } from "@/lib/globalBusy";
@@ -78,6 +80,12 @@ const routes = [
     component: UnsubscribeView,
   },
   {
+    // 선물받은 기프티콘을 확인하는 화면. 로그인 없이 열립니다.
+    path: "/gift/:code",
+    name: "gift-card",
+    component: GiftCardView,
+  },
+  {
     path: "/admin",
     component: AdminLayout,
     meta: { requiresStaff: true },
@@ -111,6 +119,12 @@ const routes = [
         name: "admin-prepaid",
         component: AdminPrepaidView,
         meta: { permission: "prepaid.view" },
+      },
+      {
+        path: "gifts",
+        name: "admin-gifts",
+        component: AdminGiftView,
+        meta: { permission: "gift.view" },
       },
       {
         path: "customers",

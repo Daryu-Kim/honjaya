@@ -70,6 +70,10 @@ export const config = {
   // 손님 테이블 세션(쿠키). 술자리 한 번을 덮을 정도로 넉넉하게 잡습니다.
   guestCookieName: process.env.GUEST_COOKIE_NAME || "hj_guest",
   guestSessionHours: Number(process.env.GUEST_SESSION_HOURS || 12),
+  // 기프티콘 링크·문자에 넣는 손님용 주소(공개 카드 페이지).
+  publicAppUrl: String(
+    process.env.PUBLIC_APP_URL || "https://honjaya.vercel.app"
+  ).trim(),
   // 마케팅 문자/알림톡 발송. 키가 없으면 dryrun(실제 발송 없음)으로 동작합니다.
   messaging: {
     provider: String(process.env.MESSAGING_PROVIDER || "dryrun").trim(),

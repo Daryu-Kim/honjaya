@@ -19,6 +19,11 @@ import {
   redeemPointsForPayment,
 } from "./points.js";
 import {
+  applyGiftUse,
+  readGiftForPayment,
+  restoreGiftForRefund,
+} from "./gifts.js";
+import {
   applyPassUse,
   readPassForPayment,
   restorePassForRefund,
@@ -33,6 +38,7 @@ export const PAYMENT_METHODS = [
   "KAKAO_PAY",
   "NAVER_PAY",
   "GIFT_CARD",
+  "GIFT_CERT",
   "PREPAID",
   "OTHER",
 ];
@@ -129,6 +135,7 @@ function normalizeEntries(entries) {
       amount: readNonNegativeInt(entry?.amount, "결제 금액을 확인해 주세요."),
       payerLabel: trimText(entry?.payerLabel, MAX_PAYER_LABEL),
       prepaidPassId: trimText(entry?.prepaidPassId, 100),
+      giftCode: trimText(entry?.giftCode, 40).toUpperCase(),
     }))
     .filter((entry) => entry.amount > 0);
 
@@ -136,15 +143,34 @@ function normalizeEntries(entries) {
     throw new HttpError(400, "HJ400", "결제 금액을 1원 이상 입력해 주세요.");
   }
 
-  return mergePrepaidEntries(normalized);
+  return mergePaymentEntries(normalized);
 }
 
 // 같은 선불권을 여러 줄로 나눠도 원장에는 한 번만 남도록 한 줄로 합칩니다.
-function mergePrepaidEntries(entries) {
+// 기프티콘은 1회용이라 같은 코드를 두 줄로 쓰면 두 번 쓰는 셈이므로 거절합니다.
+function mergePaymentEntries(entries) {
   const merged = [];
   const byPass = new Map();
+  const giftCodes = new Set();
 
   for (const entry of entries) {
+    if (entry.method === "GIFT_CERT") {
+      const code = entry.giftCode;
+
+      if (code && giftCodes.has(code)) {
+        throw new HttpError(
+          400,
+          "HJ400",
+          "같은 기프티콘을 두 번 사용할 수 없어요."
+        );
+      }
+
+      if (code) giftCodes.add(code);
+
+      merged.push(entry);
+      continue;
+    }
+
     if (entry.method !== "PREPAID" || !entry.prepaidPassId) {
       merged.push(entry);
       continue;
@@ -552,12 +578,34 @@ export async function recordPayment({
     }
 
     // 선불권은 회원 귀속이라 전화번호가 필수입니다. 잔액은 결제 트랜잭션 안에서 차감합니다.
+    // 기프티콘은 코드만 있으면 되고 1회용입니다. 둘 다 검증은 여기서, 반영은 결제 행 insert 뒤에 합니다.
     const prepaidUses = [];
+    const giftUses = [];
     let earnableTotal = 0;
 
     for (const entry of normalizedEntries) {
+      if (entry.method === "GIFT_CERT") {
+        // 기프티콘 구매 시점에 이미 적립했으므로 사용 시점에는 적립하지 않습니다.
+        if (!entry.giftCode) {
+          throw new HttpError(400, "HJ400", "사용할 기프티콘 코드를 입력해 주세요.");
+        }
+
+        const gift = await readGiftForPayment(client, {
+          code: entry.giftCode,
+          amount: entry.amount,
+          now: occurredAt,
+        });
+
+        if (!entry.payerLabel) {
+          entry.payerLabel = trimText(gift.code || "기프티콘", MAX_PAYER_LABEL);
+        }
+
+        giftUses.push({ entry, gift });
+        continue;
+      }
+
       if (entry.method !== "PREPAID") {
-        // 선불권 사용분은 판매 시점에 이미 적립했으므로 여기서 또 적립하지 않습니다.
+        // 선불권·기프티콘 사용분은 판매 시점에 이미 적립했으므로 여기서 또 적립하지 않습니다.
         earnableTotal += entry.amount;
         continue;
       }
@@ -587,6 +635,7 @@ export async function recordPayment({
 
     const insertedPaymentIds = [];
     const prepaidPaymentIds = new Map();
+    const giftPaymentIds = new Map();
 
     for (const entry of normalizedEntries) {
       const paymentId = randomUUID();
@@ -623,6 +672,10 @@ export async function recordPayment({
       if (entry.method === "PREPAID") {
         prepaidPaymentIds.set(entry.prepaidPassId, paymentId);
       }
+
+      if (entry.method === "GIFT_CERT" && entry.giftCode) {
+        giftPaymentIds.set(entry.giftCode, paymentId);
+      }
     }
 
     // 검증이 끝난 선불권을 실제로 차감하고 사용 원장을 남깁니다.
@@ -631,6 +684,18 @@ export async function recordPayment({
         pass,
         amount: entry.amount,
         paymentId: prepaidPaymentIds.get(entry.prepaidPassId) || null,
+        orderSheetId: safeId,
+        employee,
+        occurredAt,
+      });
+    }
+
+    // 기프티콘은 1회용이므로 상태를 USED 로 바꾸고 차액(소멸)을 기록합니다.
+    for (const { entry, gift } of giftUses) {
+      await applyGiftUse(client, {
+        gift,
+        amount: entry.amount,
+        paymentId: giftPaymentIds.get(entry.giftCode) || null,
         orderSheetId: safeId,
         employee,
         occurredAt,
@@ -865,6 +930,15 @@ export async function refundPayment({
         refundId,
         employee,
         occurredAt,
+      });
+    }
+
+    // 기프티콘은 전액 환불일 때만 다시 사용할 수 있게 되돌립니다(부분 환불 시 두 번 사용 방지).
+    if (payment.method === "GIFT_CERT") {
+      await restoreGiftForRefund(client, {
+        paymentId: safePaymentId,
+        refundAmount,
+        employee,
       });
     }
 
