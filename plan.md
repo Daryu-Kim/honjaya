@@ -79,7 +79,7 @@ Guest phone / staff tablet
 | **P8** | Revisit coupons (`coupons` table, issue/void, redemption at the tablet payment screen, admin coupon panel) | **DONE (verified: smoke 269/269, lint, build)** |
 | **P9** | 직원 계정·권한 관리 (사장 전용 메뉴, 역할 + 직원별 세부 권한 override) | **DONE (verified: smoke 292/292, lint, build)** |
 | **P10** | 선불권 (member-bound balance, 다음 영업일부터 사용, 모든 조건을 관리자가 설정) | **DONE (lint/build 통과, 커밋·배포 완료 — 서버 마이그레이션 대기)** |
-| **P11** | 혼자야 기프티콘 (code-based single-use gift, 링크/문자 전달, 태블릿 사용) | **DONE (코드 완료 — 검증/배포 대기)** |
+| **P11** | 혼자야 기프티콘 (code-based single-use gift, 링크/문자 전달, 태블릿 사용) | **DONE (lint/build 통과, 커밋 완료 — 서버 마이그레이션 대기)** |
 | **Ops** | Cloudflare cutover (`api.honjaya-server.xyz` live, Tailscale → backup, `vercel.json` rewrite swapped) | **DONE** |
 
 ---
@@ -778,7 +778,7 @@ Status: frontend committed + pushed (`7a2edf4`) → Vercel auto-deploy. Server s
 
 ---
 
-## 3-12. P11 — 혼자야 기프티콘 (DONE — code complete, pending verification/deploy)
+## 3-12. P11 — 혼자야 기프티콘 (DONE — code complete, lint/build PASS, pending migrate)
 
 Goal: a customer buys a HONJAYA-branded gift certificate at the bar and sends it to someone (카톡 링크 / 문자).
 The recipient shows the code; staff redeems it at the tablet payment screen.
@@ -844,9 +844,16 @@ The recipient shows the code; staff redeems it at the tablet payment screen.
 
 ### Verification
 
-- `pnpm lint` / `pnpm build` / `node --check` (server files) — 실행 예정.
-- smoke P11 block (아직 없음): template CRUD 권한, issue (code format, no duplicates), lookup 200, 결제 연동 `GIFT_CERT` entry,
-  재사용 409, 만료 EXPIRED + 400, VOID 후 조회 400, public endpoint 200 + rate limit, 문자 dryrun log, summary.
+- `pnpm lint` PASS (auto-fix 후 재실행 → No lint errors found)
+- `pnpm build` PASS (36 s, 기존 bundle-size 경고 3건만)
+- `node --check` PASS (`gifts.js`, `routes/api/gifts.js`, `payments.js`, `config.js`, `permissions.js`, `app.js`)
+- smoke P11 블록은 아직 없음 (`p11-gift-smoke` todo). 실 DB 검증은 배포 후 `migrate` 실행 뒤에 가능합니다.
+
+### Deploy status
+
+- 코드 커밋 완료(`3fb2981`). **서버 마이그레이션은 아직 실행하지 않았습니다.**
+  호스트에서 `bash deploy/backup-db.sh` → `docker compose run --rm --build migrate` → `docker compose up -d --build api` 순서로 적용해야
+  `gift_products` / `gift_certificates` / `payment_method` 컬럼이 생깁니다. 그 뒤 Vercel redeploy.
 
 ### Deploy checklist
 
