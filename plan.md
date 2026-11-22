@@ -975,3 +975,8 @@ todo     p11-gift-smoke       smoke 스크립트에 P11 블록 추가 (발급/�
   관리자 화면에 들어갈 수 없고, 태블릿에서만 판매/사용합니다.
 - **P11:** `src/lib/orderSheet.js#completeOrderSheetPayment` 는 결제 분할을 서버 entry로 변환할 때
   `prepaidPassId` / `giftCode` 를 반드시 함께 넘겨야 합니다. 누락되면 서버가 400으로 거부합니다.
+- **P11 (405 incident):** `vercel.json` 의 rewrite 를 API prefix 별로 하나씩 적어 두면 새 prefix
+  (`/api/prepaid/*`, `/api/gifts/*`, `/api/public/gifts/*`) 를 추가할 때마다 빠뜨려서 브라우저 요청이
+  Vercel 정적 호스팅으로 흘러갑니다. 증상은 **GET 은 200 + `text/html`(index.html), POST 는 405**.
+  지금은 `/api/(.*)` 단일 catch-all 로 통합했으니 새 API 를 추가해도 vercel.json 수정이 필요 없습니다.
+  (SSE `/api/events` 는 버퍼링 때문에 절대 주소를 그대로 쓰므로 rewrite 대상이 아닙니다.)
