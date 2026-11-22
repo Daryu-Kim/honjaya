@@ -760,10 +760,12 @@ in an admin-managed plan table, so no code change is needed to add a new 선불�
 
 ### Verification
 
-Implemented but **not yet run** (Rule 15 — needs an explicit go): smoke P10 block (plan CRUD 403/200, issue,
-사용 가능일 이전 400, 잔액 차감 + `payment_splits` `PREPAID`, 잔액 부족 400, `min_payment_amount` 400,
-`max_use_percent` 400, 사용 요일 위반 400, 만료 `EXPIRE`, 환불 시 잔액 복원, adjust/void 권한 403, summary 합계),
-then `pnpm lint` / `pnpm build`, then the deploy checklist below.
+- `pnpm lint` — PASS (fixed one unused import in `TabletAdminView.vue`).
+- `pnpm build` — PASS (32 s; only the pre-existing bundle-size warnings).
+- `node --check` on all new/changed server files — PASS.
+- Smoke test — **not run** (needs a live DB). Run on the server after migrate: plan CRUD 403/200, issue,
+  사용 가능일 이전 400, 잔액 차감 + `payment_splits` `PREPAID`, 잔액 부족 400, `min_payment_amount` 400,
+  `max_use_percent` 400, 사용 요일 위반 400, 만료 `EXPIRE`, 환불 시 잔액 복원, adjust/void 권한 403, summary 합계.
 
 ### Deploy checklist
 
@@ -771,6 +773,8 @@ then `pnpm lint` / `pnpm build`, then the deploy checklist below.
 2. `docker compose run --rm --build migrate` — applies `prepaid.sql`
 3. `docker compose up -d --build api`
 4. Vercel redeploy
+
+Status: frontend committed + pushed (`7a2edf4`) → Vercel auto-deploy. Server steps 1–3 still pending (run on the host).
 
 ---
 
