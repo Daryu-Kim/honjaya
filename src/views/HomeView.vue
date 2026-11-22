@@ -116,6 +116,9 @@
         </button>
       </section>
     </div>
+
+    <!-- 사장님·직원용 진입점. 손님에게 보이지 않아도 되므로 아주 작게 둡니다. -->
+    <router-link to="/admin" class="staff-entry-link">관리자</router-link>
   </div>
 </template>
 
@@ -642,5 +645,24 @@ onMounted(() => {
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
+}
+
+// PWA 로 설치하면 루트로 진입하므로 관리자 페이지로 가는 통로를 남겨 둡니다.
+// 손님이 누를 버튼이 아니라서 화면 구석에 아주 작게 둡니다.
+.staff-entry-link {
+  position: fixed;
+  right: 10px;
+  bottom: 8px;
+  padding: 4px 6px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.22);
+  text-decoration: none;
+  z-index: 5;
+
+  &:hover,
+  &:focus-visible {
+    color: rgba(255, 255, 255, 0.55);
+  }
 }
 </style>
