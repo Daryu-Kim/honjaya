@@ -68,6 +68,23 @@
         <span class="summary-label">판매 상품 수량</span>
         <strong>{{ totalSoldQuantity }}개</strong>
       </article>
+
+      <template v-if="canViewPrepaid">
+        <article class="summary-card">
+          <span class="summary-label">선불권 판매</span>
+          <strong>{{ formatPrice(prepaidTotals.sold) }}원</strong>
+        </article>
+
+        <article class="summary-card">
+          <span class="summary-label">선불권 사용</span>
+          <strong>{{ formatPrice(prepaidTotals.used) }}원</strong>
+        </article>
+
+        <article class="summary-card">
+          <span class="summary-label">선불권 미사용 잔액</span>
+          <strong>{{ formatPrice(prepaidTotals.liability) }}원</strong>
+        </article>
+      </template>
     </section>
 
     <section class="ratio-grid">
@@ -319,7 +336,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { fetchList, subscribeTable, toTime } from "@/lib/supabase";
 import {
   formatInputDate,
@@ -330,6 +347,8 @@ import {
 } from "@/lib/businessDay";
 import { normalizeOrderSheetTags } from "@/lib/orderSheetTags";
 import { normalizeTableNumber } from "@/lib/orderSheet";
+import { fetchPrepaidSummary } from "@/lib/prepaid";
+import { hasPermission } from "@/lib/staffAuth";
 
 const isLoadingSheets = ref(true);
 const isLoadingOrders = ref(true);
@@ -342,6 +361,34 @@ let unsubscribeOrders = null;
 
 const startDate = ref("");
 const endDate = ref("");
+
+const canViewPrepaid = computed(() => hasPermission("prepaid.view"));
+const prepaidSummary = ref(null);
+const prepaidTotals = computed(() => {
+  const totals = prepaidSummary.value?.totals || {};
+
+  return {
+    sold: Number(totals.sold || 0),
+    used: Number(totals.used || 0),
+    liability: Number(totals.liability || 0),
+  };
+});
+
+async function loadPrepaidSummary() {
+  if (!canViewPrepaid.value || !startDate.value || !endDate.value) return;
+
+  try {
+    prepaidSummary.value = await fetchPrepaidSummary({
+      from: startDate.value,
+      to: endDate.value,
+    });
+  } catch (error) {
+    console.error("선불권 집계 조회 실패:", error);
+    prepaidSummary.value = null;
+  }
+}
+
+watch([startDate, endDate], loadPrepaidSummary);
 
 function setToday() {
   const value = getCurrentBusinessDateInput();

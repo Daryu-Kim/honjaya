@@ -10,6 +10,7 @@ export const PAYMENT_METHOD_OPTIONS = [
   { value: "KAKAO_PAY", label: "카카오페이" },
   { value: "NAVER_PAY", label: "네이버페이" },
   { value: "GIFT_CARD", label: "상품권" },
+  { value: "PREPAID", label: "선불권" },
   { value: "OTHER", label: "기타" },
 ];
 
@@ -43,9 +44,10 @@ export function fetchPaymentLedger({ from = "", to = "", limit = 200 } = {}) {
   return apiGet(`/api/payments${query ? `?${query}` : ""}`);
 }
 
-// entries: [{ method, amount, payerLabel }]
+// entries: [{ method, amount, payerLabel, prepaidPassId }]
 // customerPhone/pointsUsed 를 넘기면 서버가 포인트 사용·적립까지 함께 처리합니다.
 // couponIds 는 고객이 보유한 재방문 쿠폰 id 목록이며, 할인 금액은 서버가 계산합니다.
+// method === "PREPAID" 인 줄은 prepaidPassId 가 있어야 하며 잔액 차감도 서버가 합니다.
 export function recordSheetPayment({
   orderSheetId,
   originalAmount,

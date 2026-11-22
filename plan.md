@@ -78,6 +78,8 @@ Guest phone / staff tablet
 | **P7** | Marketing & messaging (segments, campaigns, 문자/알림톡 send, opt-out link, CSV export) | **DONE (verified: smoke 242/242, lint, build, deployed live)** |
 | **P8** | Revisit coupons (`coupons` table, issue/void, redemption at the tablet payment screen, admin coupon panel) | **DONE (verified: smoke 269/269, lint, build)** |
 | **P9** | 직원 계정·권한 관리 (사장 전용 메뉴, 역할 + 직원별 세부 권한 override) | **DONE (verified: smoke 292/292, lint, build)** |
+| **P10** | 선불권 (member-bound balance, 다음 영업일부터 사용, 모든 조건을 관리자가 설정) | **PLANNED** |
+| **P11** | 혼자야 기프티콘 (code-based single-use gift, 링크/문자 전달, 태블릿 사용) | **PLANNED** |
 | **Ops** | Cloudflare cutover (`api.honjaya-server.xyz` live, Tailscale → backup, `vercel.json` rewrite swapped) | **DONE** |
 
 ---
@@ -686,6 +688,164 @@ person can see — without touching SQL.
 
 ---
 
+## 3-11. P10 — 선불권 (DONE — code complete, pending deploy)
+
+Goal: a member (phone-keyed `customers`) pre-pays at the bar and spends the balance on later visits. Every condition
+an operator may tune — price, credited amount, validity, minimum spend, per-use limits, usable days/time — is a row
+in an admin-managed plan table, so no code change is needed to add a new 선불권.
+
+### Rules (proposed defaults)
+
+- **Member-bound**: a pass belongs to `customers.id` (phone). Not transferable, no code/link (that is P11).
+- **Next visit only**: usable from the **business day after the purchase business day**
+  (`usable_from_business_date = purchase_business_date + 1`). A purchase at 00:30 still belongs to the previous
+  business day (15:00 KST cut-over), so the same night stays blocked.
+- **Balance type (confirmed by owner)**: amount-based **only**. Count-based packages (e.g. "하이볼 5잔") are not
+  implemented here — they are covered by P11 `ITEM` gift certificates.
+  `price` (paid) may differ from `face_value` (credited) — bonus allowed,
+  e.g. pay ₩100,000 → ₩120,000 balance.
+- Expiry is lazy (same as points): an `EXPIRE` ledger row is written when a pass is read after `expires_at`.
+- Redemption = payment method `PREPAID` on the tablet payment screen (cash was collected at purchase, so it is
+  **not** a discount). Refunding that payment restores the balance.
+- **Points (decided)**: earn 1% of `price` **at sale time** only. `PREPAID` amounts are excluded from the point base
+  when a bill is paid with the pass, so the same money never earns twice. There is no `payments` row at sale time
+  (`payments.order_sheet_id` is `not null`), so the earn is written with `payment_id = null`.
+- Sale is recorded as `prepaid_transactions(PURCHASE)` with the payment method; the sales screen shows
+  판매(입금) / 사용(매출 인식) / 미사용 잔액(부채) separately so revenue is not double counted.
+
+### Schema — `server/sql/prepaid.sql`
+
+- `prepaid_plans` (admin templates): `id`, `name`, `price`, `face_value`, `validity_months` (0 = 무제한),
+  `min_payment_amount`, `min_use_amount`, `max_use_percent`, `usable_days smallint[]`,
+  `usable_from_time` / `usable_to_time`, `usable_from_next_visit boolean default true`,
+  `allow_multiple boolean`, `is_active`, `sort_order`, `memo`, timestamps.
+- `prepaid_passes`: `id`, `code`, `customer_id` → `customers`, plan snapshot (`plan_id`, `plan_name`, `face_value`),
+  `balance`, `price_paid`, `purchased_at`, `purchase_business_date`, `usable_from`, `expires_at`,
+  `status` (`ACTIVE` / `EXHAUSTED` / `EXPIRED` / `VOID`), `payment_method`, `memo`,
+  `issued_by_employee_id/name`.
+- `prepaid_transactions`: `id`, `pass_id`, `customer_id`, `entry_type`
+  (`PURCHASE` / `USE` / `ADJUST` / `EXPIRE` / `RESTORE`), `amount` (signed), `balance_after`, `payment_id`,
+  `refund_id`, `order_sheet_id`, `business_date`, `employee_id/name`, `reason`, `occurred_at`.
+- Registered in `apply-schema.mjs` right after `coupons.sql`. **Not** in `server/src/tables.js`.
+
+### Backend
+
+- `server/src/prepaid.js` — `mapPlan`, `mapPass` (lazy expire), `passBlockedReason`, `maxUsableAmount`, `listPlans`,
+  `createPlan`, `updatePlan`, `expireDuePasses`, `issuePass`, `listCustomerPasses`, `listPasses`, `getPassLedger`,
+  `readPassForPayment`, `applyPassUse`, `restorePassForRefund`, `adjustPass`, `voidPass`, `prepaidSummary`.
+- `server/src/routes/api/prepaid.js` — `GET/POST /api/prepaid/plans`, `PATCH /api/prepaid/plans/:planId`,
+  `POST /api/prepaid/passes`, `GET /api/prepaid/customer?phone=`, `GET /api/prepaid/passes`,
+  `GET /api/prepaid/passes/:id/ledger`, `POST /api/prepaid/passes/:id/adjust`, `POST /api/prepaid/passes/:id/void`,
+  `GET /api/prepaid/summary`.
+- `server/src/payments.js` — `PREPAID` in `PAYMENT_METHODS`, `prepaidPassId` per split (same-pass rows merged),
+  validation before insert, `applyPassUse` inside the payment transaction, earn base excludes `PREPAID`, and
+  `restorePassForRefund` on refund.
+- Audit actions: `prepaid.plan.create` / `prepaid.plan.update` / `prepaid.issue` / `prepaid.adjust` / `prepaid.void`.
+
+### Permissions (`server/src/auth/permissions.js`, new group 선불권·기프티콘)
+
+- `prepaid.view` — MANAGER default (admin screens).
+- `prepaid.issue` — STAFF default (staff must sell and redeem at the bar; unlike coupons, which stay owner-only).
+- `prepaid.manage` — OWNER only (plan CRUD, manual adjust, void).
+
+### Frontend
+
+- `src/lib/prepaid.js` — API helper + labels/formatters + `computePassMaxUsable` (mirrors the server rule).
+- `TabletAdminView.vue` — 결제 수단에 `선불권` 추가(결제 분할별 선불권 선택 + 사용 가능 금액 안내) + 헤더 `선불권 판매` 버튼.
+- `src/components/tablet/PrepaidSellModal.vue` — 판매(발급) 모달. `TabletAdminView.vue`가 이미 5.4k 줄이라 분리했습니다.
+- `src/views/Admin/AdminPrepaidView.vue` — 탭 1 상품 설정(CRUD), 탭 2 발급·잔액 현황(검색/조정/취소/원장).
+- `AdminCustomerView.vue` — 고객 상세에 보유 선불권 카드.
+- `AdminSalesView.vue` — 선불권 판매/사용/미사용 잔액 카드.
+- `AdminLayout.vue` + `router/index.js` — `/admin/prepaid` with `meta.permission = "prepaid.view"`.
+
+### Verification
+
+Implemented but **not yet run** (Rule 15 — needs an explicit go): smoke P10 block (plan CRUD 403/200, issue,
+사용 가능일 이전 400, 잔액 차감 + `payment_splits` `PREPAID`, 잔액 부족 400, `min_payment_amount` 400,
+`max_use_percent` 400, 사용 요일 위반 400, 만료 `EXPIRE`, 환불 시 잔액 복원, adjust/void 권한 403, summary 합계),
+then `pnpm lint` / `pnpm build`, then the deploy checklist below.
+
+### Deploy checklist
+
+1. `deploy/backup-db.sh`
+2. `docker compose run --rm --build migrate` — applies `prepaid.sql`
+3. `docker compose up -d --build api`
+4. Vercel redeploy
+
+---
+
+## 3-12. P11 — 혼자야 기프티콘 (PLANNED)
+
+Goal: a customer buys a HONJAYA-branded gift certificate at the bar and sends it to someone (카톡 링크 / 문자).
+The recipient shows the code; staff redeems it at the tablet payment screen.
+
+### Rules (proposed defaults)
+
+- **Code-based, not member-bound**: whoever holds the code redeems it. Buyer/recipient are metadata only.
+- **Single use, one shot**: the whole face value is consumed at once, no partial balance (that is what 선불권 is for).
+  When the face value exceeds the bill, the remainder is forfeited — the UI must warn before redeeming.
+- Two kinds, one table: `ITEM` (menu exchange; face value = menu price snapshot at issue) and `AMOUNT` (금액권).
+- Usable immediately (no next-visit rule) until `expires_at`; expiry lazy like points.
+- Redemption uses payment method `GIFT_CERT` (distinct from the legacy external `GIFT_CARD`).
+- Delivery: (1) copy link for 카톡, (2) 문자 via `messaging.js#sendOne` (Solapi / dryrun), (3) staff reads the code.
+- Public card page `/gift/:code` — no login; codes are random 10-char tokens; response is minimal
+  (name, face value, theme, message, recipient name, expiry, status) and rate limited against enumeration.
+- Sale recorded at issue time (`price_paid`), revenue recognised at redemption.
+
+### Schema — `server/sql/gifts.sql`
+
+- `gift_products` (templates): `id`, `name`, `kind` (`ITEM` / `AMOUNT`), `product_id`, `product_name`,
+  `face_value`, `price`, `validity_days` (0 = 무제한, default 90), `min_payment_amount`,
+  `theme` (`SOLO_NIGHT` / `CHEERS` / `BIRTHDAY` / `THANKS`), `message_max_length` (default 100),
+  `is_active`, `sort_order`, `memo`.
+- `gift_certificates`: `id`, `code` (unique), `gift_product_id`, snapshots (`product_name`, `kind`, `face_value`,
+  `theme`), `status` (`ACTIVE` / `USED` / `EXPIRED` / `VOID`), `price_paid`, `buyer_customer_id`, `buyer_name`,
+  `recipient_name`, `recipient_phone`, `message`, `purchased_at`, `business_date`, `expires_at`, `used_at`,
+  `used_order_sheet_id`, `used_payment_id`, `redeemed_by_employee_id/name`, `sent_at`, `sent_channel`,
+  `voided_at`, `sold_by_employee_id/name`.
+- Registered in `apply-schema.mjs` after `prepaid.sql`.
+
+### Backend
+
+- `server/src/gifts.js` — `listGiftProducts`, `issueGift` (code generation with collision retry), `lookupGiftCode`,
+  `redeemGiftForPayment`, `voidGift`, `expireGift` (lazy), `listGifts`, `giftSummary`, `sendGiftMessage`.
+- `server/src/routes/api/gifts.js` — staff: `GET /api/gifts/products`, `POST /api/gifts`,
+  `GET /api/gifts/lookup?code=`, `GET /api/gifts`, `POST /api/gifts/:id/void`, `POST /api/gifts/:id/resend`;
+  public: `GET /api/public/gifts/:code` (no staff cookie, rate limited).
+- `server/src/payments.js` — accept `giftCode`, validate and mark `USED` inside the payment transaction, add the
+  `GIFT_CERT` entry server-side.
+- Audit actions: `gift.issue` / `gift.redeem` / `gift.void` / `gift.resend`.
+
+### Permissions
+
+- `gift.view` — MANAGER default; `gift.issue` — STAFF default (sell + redeem); `gift.manage` — OWNER (templates, void).
+
+### Frontend
+
+- `src/lib/gifts.js` — API helper + theme/label constants.
+- `src/components/tablet/GiftPanel.vue` — 발급(상품/받는 분/메시지/결제수단) + 사용(코드 입력 → 액면·상태·경고).
+- `TabletAdminView.vue` — 결제 모달에 기프티콘 섹션, 결제 수단 `혼자야 기프티콘`.
+- `src/views/Admin/AdminGiftView.vue` — 템플릿 CRUD + 발급 내역/재발송/취소 + 사용 통계.
+- `src/views/User/GiftView.vue` — `/gift/:code` 공개 카드 페이지 (테마 배경, 메시지, 큰 코드, 상태/유효기간).
+- `AdminCustomerView.vue` — 구매/수령 기프티콘 목록.
+- `AdminLayout.vue` + `router/index.js` — `/admin/gifts` (permission `gift.view`), `/gift/:code` public route.
+
+### Verification (planned)
+
+- smoke P11 block: template CRUD 권한, issue (code format, no duplicates), lookup 200, 결제 연동 `GIFT_CERT` entry,
+  재사용 409, 만료 EXPIRED + 400, VOID 후 조회 400, public endpoint 200 with minimal fields + rate limit,
+  문자 dryrun log, summary.
+- `pnpm lint` / `pnpm build`.
+
+### Deploy checklist
+
+1. `deploy/backup-db.sh`
+2. `docker compose run --rm --build migrate` — applies `gifts.sql`
+3. `docker compose up -d --build api`
+4. Vercel redeploy
+
+---
+
 ## 4. Open questions
 
 1. ~~**₩30,000 point-redemption threshold**: before or after discount?~~ → **resolved in P5**: after discount, before point deduction.
@@ -699,6 +859,14 @@ person can see — without touching SQL.
    (`MESSAGING_PROVIDER=solapi`), still needs 사업자등록 + a registered 발신번호 + `SOLAPI_API_KEY/SECRET/FROM`.
    알림톡 additionally needs a 카카오 채널 + 발신 프로필 + template review (currently honest 503).
 8. P7: is the 1,000-character body limit enough for LMS/알림톡, or do we need MMS/이미지? (current: text only)
+9. ~~**P10**: 선불권 형태~~ → **확정: 금액 충전형(잔액)만**. 횟수형은 P11 기프티콘 `ITEM`(메뉴 교환권)으로 커버.
+10. ~~**P10**: 선불권 판매가 ≠ 충전가(보너스) 허용?~~ → **확정: 허용**. `price`와 `face_value`를 따로 입력합니다.
+11. **P11**: 기프티콘 종류 — 메뉴 교환권(`ITEM`) + 금액권(`AMOUNT`) 둘 다(권장) / 하나만?
+12. **P11**: 액면가 > 결제 금액일 때 차액 처리 — 소멸(권장, 기프티콘 관례) / 선불권 잔액으로 이월?
+13. **P10/P11**: 판매 경로 — PG 미연동이라 **매장에서 직원이 결제 후 발급**이 기본. 온라인 선결제는 PG 도입 별도 단계.
+14. **P10/P11**: 기본 유효기간 — 선불권 3개월, 기프티콘 90일 (관리자가 상품별로 변경 가능)
+15. **P10**: 선불권 적립 — 판매 시 판매가의 1% 적립, 사용 시에는 적립 대상에서 제외(중복 적립 방지). 변경하려면
+    `server/src/prepaid.js#issuePass` 와 `server/src/payments.js`의 `earnableTotal` 두 곳만 고치면 됩니다.
 
 ---
 
@@ -725,6 +893,15 @@ done     root-table-picker      손님이 ?table= 없이 루트로 들어와 자
 done     p5-point-basis         redemption threshold counted AFTER discount, BEFORE point deduction (confirmed)
 done     p3-table-sales-panel   AdminSalesView 에 테이블별 매출 패널 추가
 todo     tablet-audit-followup  tablet-flow-audit 잔여 항목 (#2~#10, #13~#16) 순차 수정
+done     p10-prepaid-plans     prepaid_plans 상품 템플릿 CRUD (판매가/충전가/유효기간/최소결제/사용요일·시간)
+done     p10-prepaid-issue     선불권 판매·발급 + 원장 + 회원 귀속 (다음 영업일부터 사용)
+done     p10-prepaid-redeem    결제 수단 PREPAID 연동 (잔액 검증·차감·환불 복원)
+done     p10-prepaid-admin     /admin/prepaid 관리 화면 (상품 설정 / 발급·잔액 현황 / 조정·취소)
+todo     p11-gift-products     gift_products 템플릿 CRUD (ITEM/AMOUNT, 테마, 유효기간, 판매가)
+todo     p11-gift-issue        기프티콘 발급 + 코드 생성 + 링크/문자 전달
+todo     p11-gift-redeem       결제 수단 GIFT_CERT 연동 + 1회 사용 처리
+todo     p11-gift-card-page    공개 카드 페이지 /gift/:code (rate limit, 최소 필드)
+todo     p11-gift-admin        /admin/gifts 관리 화면 (템플릿 / 발급 내역 / 재발송·취소)
 ```
 
 ---
@@ -759,3 +936,9 @@ todo     tablet-audit-followup  tablet-flow-audit 잔여 항목 (#2~#10, #13~#16
 - **products.option_groups** is `jsonb`, so legacy rows can hold `{}` instead of `[]` (3 rows did, and
   `[...optionGroups]` crashed the order sheet). `toAppRow()` now forces an array for `products`; the live
   rows were normalized with `update products set option_groups = '[]'::jsonb where jsonb_typeof(option_groups) = 'object'`.
+- **P10:** 선불권 판매는 `payments` 행을 만들지 않습니다(`payments.order_sheet_id`가 `not null`). 판매 기록은
+  `prepaid_transactions(PURCHASE).paid_amount` 이고, 매출 인식은 사용 시점(`USE`)입니다.
+- **P10:** `prepaid_plans` / `prepaid_passes` / `prepaid_transactions` 는 `/rest/v1` 허용 목록
+  (`server/src/tables.js`)에 **추가하면 안 됩니다**. 전부 `/api/prepaid/*` 로만 접근합니다.
+- **P10:** 선불권 사용 요일은 ISO(1=월 … 7=일), 영업일 경계는 15:00 KST 컷오버(`businessDay.js`)를 그대로 씁니다.
+- **P10:** `payments.method` 에 CHECK 제약이 없어서 `PREPAID` 추가에 마이그레이션이 필요 없습니다.

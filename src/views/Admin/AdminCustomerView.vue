@@ -431,6 +431,56 @@
           </div>
         </div>
 
+        <div v-if="canViewPrepaid" class="visit-block">
+          <h3>보유 선불권</h3>
+          <p class="description">
+            잔액과 사용 가능 여부는 판매한 상품 규칙에 따라 달라져요.
+          </p>
+
+          <p v-if="prepaidError" class="error-box">{{ prepaidError }}</p>
+
+          <div v-if="isLoadingPrepaid" class="empty-box">
+            <p>선불권을 불러오는 중이에요.</p>
+          </div>
+          <div v-else-if="prepaidPasses.length === 0" class="empty-box">
+            <p>보유한 선불권이 없어요.</p>
+          </div>
+          <div v-else class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>상품</th>
+                  <th>잔액</th>
+                  <th>충전 금액</th>
+                  <th>사용 가능일</th>
+                  <th>유효기간</th>
+                  <th>상태</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="pass in prepaidPasses" :key="pass.id">
+                  <td>{{ pass.planName }}</td>
+                  <td>{{ formatWon(pass.balance) }}</td>
+                  <td>{{ formatWon(pass.faceValue) }}</td>
+                  <td>{{ pass.usableFromDate || "-" }}</td>
+                  <td>
+                    {{
+                      pass.expiresAt
+                        ? formatVisitDate(pass.expiresAt)
+                        : "무제한"
+                    }}
+                  </td>
+                  <td>
+                    <span :class="['coupon-status', pass.status.toLowerCase()]">
+                      {{ getPrepaidStatusLabel(pass.status) }}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="visit-block">
           <h3>방문 이력</h3>
           <div v-if="visits.length === 0" class="empty-box">
@@ -494,6 +544,10 @@ import {
   voidCustomerCoupon,
 } from "@/lib/crm";
 import { formatPointValue } from "@/lib/points";
+import {
+  fetchCustomerPrepaidPasses,
+  getPrepaidStatusLabel,
+} from "@/lib/prepaid";
 import { getPaymentMethodLabel } from "@/lib/payments";
 import { hasPermission } from "@/lib/staffAuth";
 
@@ -529,6 +583,11 @@ const isIssuingCoupon = ref(false);
 const couponError = ref("");
 const couponMessage = ref("");
 const couponForm = ref(createCouponForm());
+
+const canViewPrepaid = computed(() => hasPermission("prepaid.issue"));
+const prepaidPasses = ref([]);
+const isLoadingPrepaid = ref(false);
+const prepaidError = ref("");
 
 function createCouponForm() {
   return {
@@ -614,7 +673,7 @@ async function loadProfile(customerId) {
     };
     selectedId.value = customerId;
     syncEditForm(result?.customer);
-    await loadCoupons(customerId);
+    await Promise.all([loadCoupons(customerId), loadPrepaidPasses(customerId)]);
   } catch (error) {
     console.error("고객 정보 조회 실패:", error);
     profileError.value = error?.message || "고객 정보를 불러오지 못했어요.";
@@ -640,6 +699,25 @@ async function loadCoupons(customerId) {
     coupons.value = [];
   } finally {
     isLoadingCoupons.value = false;
+  }
+}
+
+async function loadPrepaidPasses(customerId) {
+  if (!customerId || !canViewPrepaid.value) return;
+
+  isLoadingPrepaid.value = true;
+  prepaidError.value = "";
+
+  try {
+    const result = await fetchCustomerPrepaidPasses({ customerId });
+
+    prepaidPasses.value = Array.isArray(result?.passes) ? result.passes : [];
+  } catch (error) {
+    console.error("선불권 조회 실패:", error);
+    prepaidError.value = error?.message || "선불권을 불러오지 못했어요.";
+    prepaidPasses.value = [];
+  } finally {
+    isLoadingPrepaid.value = false;
   }
 }
 
@@ -1083,7 +1161,8 @@ onMounted(async () => {
   background: rgba(52, 211, 153, 0.18);
   color: #6ee7b7;
 }
-.coupon-status.used {
+.coupon-status.used,
+.coupon-status.exhausted {
   background: rgba(148, 163, 184, 0.2);
   color: #cbd5e1;
 }

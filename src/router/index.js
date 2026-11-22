@@ -15,6 +15,7 @@ import AdminDashboardView from "@/views/Admin/AdminDashboardView.vue";
 import AdminSalesView from "@/views/Admin/AdminSalesView.vue";
 import AdminPaymentHistoryView from "@/views/Admin/AdminPaymentHistoryView.vue";
 import AdminPointHistoryView from "@/views/Admin/AdminPointHistoryView.vue";
+import AdminPrepaidView from "@/views/Admin/AdminPrepaidView.vue";
 import AdminCustomerView from "@/views/Admin/AdminCustomerView.vue";
 import AdminMarketingView from "@/views/Admin/AdminMarketingView.vue";
 import AdminEmployeeView from "@/views/Admin/AdminEmployeeView.vue";
@@ -104,6 +105,12 @@ const routes = [
         path: "points",
         name: "admin-points",
         component: AdminPointHistoryView,
+      },
+      {
+        path: "prepaid",
+        name: "admin-prepaid",
+        component: AdminPrepaidView,
+        meta: { permission: "prepaid.view" },
       },
       {
         path: "customers",

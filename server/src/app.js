@@ -10,6 +10,7 @@ import { registerGuestRoutes } from "./routes/api/guest.js";
 import { registerMarketingRoutes } from "./routes/api/marketing.js";
 import { registerPaymentRoutes } from "./routes/api/payments.js";
 import { registerPointRoutes } from "./routes/api/points.js";
+import { registerPrepaidRoutes } from "./routes/api/prepaid.js";
 import { registerStaffAuthRoutes } from "./routes/api/staffAuth.js";
 import { registerEventRoutes } from "./routes/events.js";
 import { registerRestRoutes } from "./routes/rest.js";
@@ -188,6 +189,7 @@ export async function buildApp(options = {}) {
       "/api/admin/employees",
       "/api/payments",
       "/api/points",
+      "/api/prepaid",
       "/api/crm/customers",
       "/api/marketing/campaigns",
       "/api/marketing/unsubscribe",
@@ -203,6 +205,7 @@ export async function buildApp(options = {}) {
   registerAdminRoutes(app);
   registerPaymentRoutes(app);
   registerPointRoutes(app);
+  registerPrepaidRoutes(app);
   registerCrmRoutes(app);
   registerMarketingRoutes(app);
 

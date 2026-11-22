@@ -10,6 +10,13 @@
         <div class="header-summary">
           <span>{{ currentDateText }}</span>
         </div>
+        <button
+          type="button"
+          class="header-logout"
+          @click="prepaidSellModalOpen = true"
+        >
+          선불권 판매
+        </button>
         <button type="button" class="header-logout" @click="handleStaffLogout">
           로그아웃
         </button>
@@ -1185,8 +1192,25 @@
                 >
                   계좌 추가
                 </button>
+                <button
+                  type="button"
+                  class="quick-button"
+                  :disabled="paymentUsablePasses.length === 0"
+                  @click="addPrepaidPaymentSplit"
+                >
+                  선불권 추가
+                </button>
               </div>
             </div>
+
+            <p
+              v-if="
+                paymentPrepaidState.loaded && paymentUsablePasses.length === 0
+              "
+              class="modal-empty-text"
+            >
+              사용할 수 있는 선불권이 없어요.
+            </p>
 
             <div class="payment-edit-list">
               <div
@@ -1203,7 +1227,24 @@
                     {{ option.label }}
                   </option>
                 </select>
+                <select
+                  v-if="split.method === 'PREPAID'"
+                  v-model="split.prepaidPassId"
+                  class="split-pass-select"
+                  @change="onPrepaidPassChange(split)"
+                >
+                  <option value="">선불권 선택</option>
+                  <option
+                    v-for="pass in paymentPrepaidState.passes"
+                    :key="pass.id"
+                    :value="pass.id"
+                    :disabled="!pass.usable"
+                  >
+                    {{ prepaidPassLabel(pass) }}
+                  </option>
+                </select>
                 <input
+                  v-else
                   v-model.trim="split.payerLabel"
                   type="text"
                   maxlength="24"
@@ -1232,6 +1273,10 @@
                 </button>
               </div>
             </div>
+
+            <p v-if="paymentPrepaidUseSummary" class="modal-empty-text">
+              {{ paymentPrepaidUseSummary }}
+            </p>
 
             <div class="payment-balance-box">
               <div>
@@ -1722,6 +1767,12 @@
         </div>
       </div>
     </transition>
+
+    <PrepaidSellModal
+      :open="prepaidSellModalOpen"
+      :default-phone="paymentModalState.customerPhone"
+      @close="prepaidSellModalOpen = false"
+    />
   </div>
 </template>
 
@@ -1763,6 +1814,11 @@ import {
   normalizePhoneNumber,
 } from "@/lib/points";
 import {
+  computePassMaxUsable,
+  fetchCustomerPrepaidPasses,
+  formatPrepaidDate,
+} from "@/lib/prepaid";
+import {
   isDemographicOrderSheetTag,
   normalizeOrderSheetTags,
 } from "@/lib/orderSheetTags";
@@ -1777,6 +1833,7 @@ import {
   zoneLabel,
 } from "@/lib/tableMaster";
 import { staffLogout } from "@/lib/staffAuth.js";
+import PrepaidSellModal from "@/components/tablet/PrepaidSellModal.vue";
 
 const router = useRouter();
 
@@ -1786,6 +1843,9 @@ async function handleStaffLogout() {
 }
 
 const activeTab = ref("tables");
+
+// 선불권 판매(발급) 모달 — 태블릿 상단 버튼에서 엽니다.
+const prepaidSellModalOpen = ref(false);
 
 const selectedTable = ref(null);
 const recipeModalProduct = ref(null);
@@ -1844,6 +1904,13 @@ const paymentCouponState = ref({
   coupons: [],
 });
 const paymentCouponIds = ref([]);
+
+// 선불권 — 전화번호 조회 시 보유 선불권을 함께 받아 옵니다.
+const paymentPrepaidState = ref({
+  loading: false,
+  loaded: false,
+  passes: [],
+});
 
 const orderSheetTagPresets = [
   "블로그체험단",
@@ -2438,9 +2505,24 @@ const paymentPointsBlockedReason = computed(() => {
 
 const paymentPointsEarnPreview = computed(() => {
   const rate = Number(paymentPointRules.value.earnRate || 0);
+  // 선불권 사용분은 판매 시점에 적립했으므로 적립 예정에서 제외합니다(서버와 동일 규칙).
+  const earnable = paymentModalState.value.paymentSplits.reduce(
+    (acc, split) => {
+      if (split.method === "PREPAID") return acc;
 
-  return Math.floor(Math.max(0, paymentSplitTotal.value) * rate);
+      return acc + Number(split.amount || 0);
+    },
+    0
+  );
+
+  return Math.floor(Math.max(0, earnable) * rate);
 });
+
+// 선불권 사용 조건(최소 결제 금액·사용 한도)을 판단할 때 쓰는 결제 금액.
+// 서버가 쓰는 값과 같게 맞춥니다(할인·포인트 반영 후 금액).
+const prepaidPaymentBase = computed(() =>
+  Math.max(0, paymentPayableAmount.value - paymentPointsUsed.value)
+);
 
 const paymentDueAmount = computed(() => {
   return Math.max(
@@ -2529,6 +2611,7 @@ function createPaymentSplit(method = "CARD", amount = 0, payerLabel = "") {
     id: `split_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     method,
     payerLabel,
+    prepaidPassId: "",
     amount: Number(amount || 0),
   };
 }
@@ -2571,6 +2654,8 @@ function normalizePaymentSplits(paymentSplits) {
     .map((split) => ({
       method: split.method || "CARD",
       payerLabel: String(split.payerLabel || "").trim(),
+      prepaidPassId:
+        split.method === "PREPAID" ? String(split.prepaidPassId || "") : "",
       amount: Number(split.amount || 0),
     }))
     .filter((split) => split.amount > 0);
@@ -2634,6 +2719,98 @@ function resetPaymentCouponState() {
   };
 }
 
+function resetPaymentPrepaidState() {
+  paymentPrepaidState.value = {
+    loading: false,
+    loaded: false,
+    passes: [],
+  };
+
+  paymentModalState.value.paymentSplits =
+    paymentModalState.value.paymentSplits.map((split) =>
+      split.method === "PREPAID"
+        ? { ...split, method: "CARD", prepaidPassId: "" }
+        : split
+    );
+}
+
+// 결제 화면에서 쓸 수 있는(지금 사용 가능한) 선불권만 남깁니다.
+const paymentUsablePasses = computed(() =>
+  (paymentPrepaidState.value.passes || []).filter((pass) => pass.usable)
+);
+
+function prepaidPassLabel(pass) {
+  const balance = `${Number(pass.balance || 0).toLocaleString("ko-KR")}원`;
+
+  return `${pass.planName || "선불권"} · 잔액 ${balance}${
+    pass.expiresAt ? ` · ${formatPrepaidDate(pass.expiresAt)}까지` : ""
+  }`;
+}
+
+// 선불권 줄에서 쓸 수 있는 최대 금액(결제 대상 금액 기준).
+// 다른 결제 줄에 이미 배정된 금액은 빼고 계산해서 남은 금액을 넘지 않게 합니다.
+function prepaidSplitCapacity(excludeSplitId = "") {
+  const assignedToOthers = paymentModalState.value.paymentSplits.reduce(
+    (acc, split) =>
+      split.id === excludeSplitId ? acc : acc + Number(split.amount || 0),
+    0
+  );
+
+  return Math.max(0, paymentDueAmount.value - assignedToOthers);
+}
+
+function prepaidSplitLimit(split) {
+  const pass = (paymentPrepaidState.value.passes || []).find(
+    (item) => item.id === split.prepaidPassId
+  );
+
+  return Math.min(
+    computePassMaxUsable(pass, prepaidPaymentBase.value),
+    prepaidSplitCapacity(split?.id || "")
+  );
+}
+
+function addPrepaidPaymentSplit() {
+  const pass = paymentUsablePasses.value[0];
+
+  if (!pass) {
+    alert("사용할 수 있는 선불권이 없어요.");
+    return;
+  }
+
+  const split = createPaymentSplit("PREPAID", 0);
+
+  split.prepaidPassId = pass.id;
+  split.payerLabel = pass.code || "선불권";
+  split.amount = prepaidSplitLimit({ id: split.id, prepaidPassId: pass.id });
+
+  paymentModalState.value.paymentSplits.push(split);
+}
+
+// 선불권을 바꾸면 금액도 그 선불권 한도에 맞춰 다시 계산합니다.
+function onPrepaidPassChange(split) {
+  const pass = (paymentPrepaidState.value.passes || []).find(
+    (item) => item.id === split.prepaidPassId
+  );
+
+  split.payerLabel = pass?.code || "선불권";
+  split.amount = prepaidSplitLimit(split);
+}
+
+const paymentPrepaidUseSummary = computed(() => {
+  const rows = paymentModalState.value.paymentSplits.filter(
+    (split) => split.method === "PREPAID" && Number(split.amount || 0) > 0
+  );
+
+  if (rows.length === 0) return "";
+
+  const total = rows.reduce((acc, split) => acc + Number(split.amount || 0), 0);
+
+  return `선불권 ${formatPrice(
+    total
+  )}원 사용 · 남은 잔액은 다음 방문에 쓸 수 있어요.`;
+});
+
 function onPaymentPhoneInput(event) {
   const formatted = formatPhoneInput(event.target.value);
 
@@ -2657,6 +2834,7 @@ function onPaymentPhoneInput(event) {
     paymentPointInput.value = 0;
     paymentModalState.value.marketingConsent = false;
     resetPaymentCouponState();
+    resetPaymentPrepaidState();
   }
 }
 
@@ -2670,12 +2848,17 @@ async function lookupPaymentCustomer() {
 
   paymentPointState.value = { ...paymentPointState.value, loading: true };
   paymentCouponState.value = { ...paymentCouponState.value, loading: true };
+  paymentPrepaidState.value = { ...paymentPrepaidState.value, loading: true };
 
   try {
     const baseAmount = Number(paymentModalState.value.amount || 0);
-    const [result, couponResult] = await Promise.all([
+    const [result, couponResult, prepaidResult] = await Promise.all([
       fetchCustomerPoints({ phone, historyLimit: 5 }),
       fetchUsableCoupons({ phone, baseAmount }).catch(() => ({ coupons: [] })),
+      fetchCustomerPrepaidPasses({
+        phone,
+        paymentAmount: prepaidPaymentBase.value,
+      }).catch(() => ({ passes: [] })),
     ]);
 
     paymentPointState.value = {
@@ -2697,12 +2880,19 @@ async function lookupPaymentCustomer() {
     };
     paymentCouponIds.value = [];
 
+    paymentPrepaidState.value = {
+      loading: false,
+      loaded: true,
+      passes: Array.isArray(prepaidResult?.passes) ? prepaidResult.passes : [],
+    };
+
     paymentModalState.value.customerName = paymentPointState.value.name;
     paymentPointInput.value = 0;
   } catch (error) {
     console.error("포인트 조회 실패:", error);
     resetPaymentPointState();
     resetPaymentCouponState();
+    resetPaymentPrepaidState();
     alert(error?.message || "포인트를 조회하지 못했어요.");
   }
 }
@@ -3475,6 +3665,8 @@ function openTablePaymentModal(table) {
   const dueAmount = Math.max(0, amount - paidAmount);
 
   resetPaymentPointState();
+  resetPaymentCouponState();
+  resetPaymentPrepaidState();
 
   paymentModalState.value = {
     isOpen: true,
@@ -3495,6 +3687,7 @@ function openTablePaymentModal(table) {
 function closePaymentModal() {
   resetPaymentPointState();
   resetPaymentCouponState();
+  resetPaymentPrepaidState();
 
   paymentModalState.value = {
     isOpen: false,
@@ -3612,6 +3805,50 @@ async function completePayment() {
       if (paymentSplits.length === 0) {
         alert("결제 수단별 금액을 1개 이상 입력해주세요.");
         return;
+      }
+
+      if (
+        paymentSplits.some(
+          (split) => split.method === "PREPAID" && !split.prepaidPassId
+        )
+      ) {
+        alert("선불권 결제는 사용할 선불권을 선택해 주세요.");
+        return;
+      }
+
+      if (
+        paymentSplits.some((split) => split.method === "PREPAID") &&
+        !customerPhone
+      ) {
+        alert("선불권을 사용하려면 고객 전화번호를 입력해 주세요.");
+        return;
+      }
+
+      // 잔액/사용 한도 초과는 서버도 막지만 화면에서 먼저 알려 줍니다.
+      for (const split of paymentSplits) {
+        if (split.method !== "PREPAID") continue;
+
+        const pass = (paymentPrepaidState.value.passes || []).find(
+          (item) => item.id === split.prepaidPassId
+        );
+
+        if (!pass) {
+          alert(
+            "선택한 선불권을 찾을 수 없어요. 전화번호를 다시 조회해 주세요."
+          );
+          return;
+        }
+
+        const limit = computePassMaxUsable(pass, prepaidPaymentBase.value);
+
+        if (split.amount > limit) {
+          alert(
+            `선불권은 이번 결제에서 ${formatPrice(
+              limit
+            )}원까지 사용할 수 있어요.`
+          );
+          return;
+        }
       }
 
       if (splitTotal > dueAmount) {
@@ -4777,6 +5014,9 @@ onUnmounted(() => {
 }
 .payment-edit-row.split-row {
   grid-template-columns: 108px minmax(0, 0.9fr) minmax(0, 1fr) auto auto;
+}
+.payment-edit-row.split-row .split-pass-select {
+  min-width: 0;
 }
 .payment-edit-row.points-phone-row {
   grid-template-columns: minmax(0, 1fr);

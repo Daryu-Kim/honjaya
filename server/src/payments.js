@@ -18,6 +18,11 @@ import {
   ensureCustomer,
   redeemPointsForPayment,
 } from "./points.js";
+import {
+  applyPassUse,
+  readPassForPayment,
+  restorePassForRefund,
+} from "./prepaid.js";
 
 export { toBusinessDate };
 
@@ -28,6 +33,7 @@ export const PAYMENT_METHODS = [
   "KAKAO_PAY",
   "NAVER_PAY",
   "GIFT_CARD",
+  "PREPAID",
   "OTHER",
 ];
 
@@ -122,6 +128,7 @@ function normalizeEntries(entries) {
       method: normalizeMethod(entry?.method),
       amount: readNonNegativeInt(entry?.amount, "결제 금액을 확인해 주세요."),
       payerLabel: trimText(entry?.payerLabel, MAX_PAYER_LABEL),
+      prepaidPassId: trimText(entry?.prepaidPassId, 100),
     }))
     .filter((entry) => entry.amount > 0);
 
@@ -129,7 +136,34 @@ function normalizeEntries(entries) {
     throw new HttpError(400, "HJ400", "결제 금액을 1원 이상 입력해 주세요.");
   }
 
-  return normalized;
+  return mergePrepaidEntries(normalized);
+}
+
+// 같은 선불권을 여러 줄로 나눠도 원장에는 한 번만 남도록 한 줄로 합칩니다.
+function mergePrepaidEntries(entries) {
+  const merged = [];
+  const byPass = new Map();
+
+  for (const entry of entries) {
+    if (entry.method !== "PREPAID" || !entry.prepaidPassId) {
+      merged.push(entry);
+      continue;
+    }
+
+    const existing = byPass.get(entry.prepaidPassId);
+
+    if (existing) {
+      existing.amount += entry.amount;
+      if (!existing.payerLabel) existing.payerLabel = entry.payerLabel;
+      continue;
+    }
+
+    const copy = { ...entry };
+    byPass.set(entry.prepaidPassId, copy);
+    merged.push(copy);
+  }
+
+  return merged;
 }
 
 function mapPaymentRow(row) {
@@ -517,7 +551,42 @@ export async function recordPayment({
       );
     }
 
+    // 선불권은 회원 귀속이라 전화번호가 필수입니다. 잔액은 결제 트랜잭션 안에서 차감합니다.
+    const prepaidUses = [];
+    let earnableTotal = 0;
+
+    for (const entry of normalizedEntries) {
+      if (entry.method !== "PREPAID") {
+        // 선불권 사용분은 판매 시점에 이미 적립했으므로 여기서 또 적립하지 않습니다.
+        earnableTotal += entry.amount;
+        continue;
+      }
+
+      if (!customer) {
+        throw new HttpError(
+          400,
+          "HJ400",
+          "선불권을 사용하려면 고객 전화번호가 필요해요."
+        );
+      }
+
+      const pass = await readPassForPayment(client, {
+        passId: entry.prepaidPassId,
+        customerId: customer.id,
+        amount: entry.amount,
+        paymentAmount: totalAmount,
+        now: occurredAt,
+      });
+
+      if (!entry.payerLabel) {
+        entry.payerLabel = trimText(pass.code || "선불권", MAX_PAYER_LABEL);
+      }
+
+      prepaidUses.push({ entry, pass });
+    }
+
     const insertedPaymentIds = [];
+    const prepaidPaymentIds = new Map();
 
     for (const entry of normalizedEntries) {
       const paymentId = randomUUID();
@@ -550,6 +619,22 @@ export async function recordPayment({
         orderSheetId: safeId,
         amount: entry.amount,
       });
+
+      if (entry.method === "PREPAID") {
+        prepaidPaymentIds.set(entry.prepaidPassId, paymentId);
+      }
+    }
+
+    // 검증이 끝난 선불권을 실제로 차감하고 사용 원장을 남깁니다.
+    for (const { entry, pass } of prepaidUses) {
+      await applyPassUse(client, {
+        pass,
+        amount: entry.amount,
+        paymentId: prepaidPaymentIds.get(entry.prepaidPassId) || null,
+        orderSheetId: safeId,
+        employee,
+        occurredAt,
+      });
     }
 
     // 쿠폰을 실제 결제 건과 연결합니다(첫 결제 행 기준).
@@ -563,13 +648,14 @@ export async function recordPayment({
     }
 
     // 적립은 할인·포인트 차감 후 실제로 받은 금액 기준입니다.
+    // 선불권 사용분은 판매 시점에 적립했으므로 제외합니다.
     let pointsEarned = 0;
     let pointsBalanceAfter = null;
 
     if (customer) {
       const earned = await earnPointsForPayment(client, {
         customerId: customer.id,
-        amount: entryTotal,
+        amount: earnableTotal,
         orderSheetId: safeId,
         paymentId: insertedPaymentIds[0] || null,
         employee,
@@ -769,6 +855,17 @@ export async function refundPayment({
         );
         left = 0;
       }
+    }
+
+    // 선불권으로 결제한 건을 환불하면 차감했던 잔액을 되돌려 줍니다.
+    if (payment.method === "PREPAID") {
+      await restorePassForRefund(client, {
+        paymentId: safePaymentId,
+        amount: refundAmount,
+        refundId,
+        employee,
+        occurredAt,
+      });
     }
 
     const sheet = await readSheetForUpdate(client, payment.order_sheet_id);

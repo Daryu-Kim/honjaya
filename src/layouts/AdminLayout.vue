@@ -135,6 +135,13 @@ const menuList = [
     permission: "customer.view",
   },
   {
+    to: "/admin/prepaid",
+    label: "선불권 관리",
+    description: "상품 설정·잔액 현황",
+    matchStartsWith: "/admin/prepaid",
+    permission: "prepaid.view",
+  },
+  {
     to: "/admin/customers",
     label: "고객 관리",
     description: "방문 이력·마케팅 동의",
