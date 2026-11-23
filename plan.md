@@ -81,7 +81,7 @@ Guest phone / staff tablet
 | **P10** | 선불권 (member-bound balance, 다음 영업일부터 사용, 모든 조건을 관리자가 설정) | **DONE (lint/build 통과, 커밋·배포 완료 — 서버 마이그레이션 대기)** |
 | **P11** | 혼자야 기프티콘 (code-based single-use gift, 링크/문자 전달, 태블릿 사용) | **DONE (lint/build 통과, 커밋 완료 — 서버 마이그레이션 대기)** |
 | **Ops** | Cloudflare cutover (`api.honjaya-server.xyz` live, Tailscale → backup, `vercel.json` rewrite swapped) | **DONE** |
-| **P12** | Discord 통합 관리 시스템: 봇(서버 전체 관리) + 암호화 자동 백업 → Discord 업로드 + 웹 관리자 `/admin/discord` | **IN PROGRESS** — P12A 구현 완료(호스트 env·배포 대기), see §3-13 |
+| **P12** | Discord 통합 관리 시스템: 봇(서버 전체 관리) + 암호화 자동 백업 → Discord 업로드 + 웹 관리자 `/admin/discord` | **IN PROGRESS** — P12A·P12B 구현 완료(커밋/배포 대기), see §3-13 |
 
 ---
 
@@ -1123,7 +1123,7 @@ Move/Mute/Deafen Members, Send Messages, Attach Files, Embed Links, Read History
 | Phase | Scope | Size | Depends on | Status |
 | --- | --- | --- | --- | --- |
 | **P12A** | Bot foundation: `bot` compose service, token isolation, internal API + api proxy + `BOT_INTERNAL_TOKEN`, `discord.sql`, gateway with GUILD_MEMBERS, `/상태`, job queue, snapshot capture, structured logging, graceful shutdown | M | Discord app + portal intents | **DONE (code) — 호스트 env + 배포 대기** |
-| **P12B** | Encrypted backup pipeline + Discord upload + retention + retry queue + verify-restore to scratch DB | M | P12A | PLANNED |
+| **P12B** | Encrypted backup pipeline + Discord upload + retention + retry queue + verify-restore to scratch DB | M | P12A | **DONE (code) — 검증 완료, 커밋 대기** |
 | **P12C** | Read-only dashboard: `/admin/discord` 개요·채널 트리·역할·멤버·감사로그·스냅샷 diff·백업 이력 | M | P12B | PLANNED |
 | **P12D** | Live editing (non-structure): members (nickname/roles/timeout/kick/ban), messages & 공지, threads, invites, voice move | M | P12C | PLANNED |
 | **P12E** | Structure editing + apply engine: 채널·카테고리·역할 CRUD, 드래그 재정렬, 권한 매트릭스 편집, diff → 적용 → 롤백, 서버 설정 | L | P12D | PLANNED |
@@ -1184,6 +1184,50 @@ Key behaviours decided during implementation:
   20/14/8/12/60), snapshot insert, queue enqueue→claim→succeed, retry scheduling, dedupe, `depth()`,
   `discord_settings` single-row check constraint, internal API auth matrix (health 200 / no token 401 /
   bad token 401 / good token 200 / unknown route 404), and Fastify route registration for all 4 endpoints.
+
+---
+
+### P. P12B implementation notes (DONE)
+
+Files created:
+
+| Path | Role |
+| --- | --- |
+| `server/bot/src/backupFiles.js` | crypto/split primitives: `parseKey`, `generateKey`, `sha256File`, `encryptToFile` (gzip→AES-256-GCM), `decryptToDumpFile`, `splitFile`, `reassembleFiles`, `partFilename`, `byteCounter` |
+| `server/bot/src/backup.js` | the engine (~1030 lines): `createBackupService({pool,log,service,queue})` → `ensureSchedule/getRun/listRuns/partPath/prune/runBackup/tick/uploadRun/verifyRun`; `registerBackupJobs()`; `pickRunIdsToKeep()` (GFS) |
+| `server/bot/src/cron.js` | dependency-free 5-field cron (`parseCron`, `nextCronTime`, `isValidCron`); comma lists, ranges, steps, `sun`–`sat`, `7`=Sunday |
+| `server/bot/scripts/decrypt-backup.mjs` | host-side operator CLI (`--out --key --dir --base --sha256 --keep`) |
+
+Files edited: `server/bot/src/internalApi.js` (rewritten as a param router with 6 backup routes + streamed
+download), `server/bot/src/index.js` (service wiring + scheduler interval + shutdown), `server/bot/src/commands.js`
+(`/백업 /백업목록 /검증`, generalized `defer`), `server/bot/src/config.js` (`backup.*`),
+`server/src/routes/api/discord.js` (`callBotStream` + 6 endpoints + `assertUuid`), `server/bot/Dockerfile`
+(`COPY scripts`), `server/docker-compose.yml`, `server/.env.example`, `server/bot/README.md`,
+`server/deploy/README.md` (§11-1, §11-2 restore runbook).
+
+Key behaviours decided during implementation:
+
+- **Dump → gzip → encrypt → split → record, then enqueue.** The `BACKUP` job never uploads. It writes
+  `backup_runs`/`backup_files` and enqueues `BACKUP_UPLOAD` (maxAttempts 6) and `BACKUP_PRUNE` (maxAttempts 2)
+  with `dedupe:true`. Upload failure therefore never loses a backup.
+- **File layout** `HJBK1 | iv(12) | tag(16) | ciphertext` = `HEADER_BYTES 33`; the GCM tag is patched after
+  streaming via `handle.write(tag, 0, 16, 17)`. Part naming `<filename>.part-001-of-004`.
+- **Key only in the bot env.** `BACKUP_ENCRYPTION_KEY` (base64 or 64-char hex → 32 bytes) is never returned by
+  any API, never written to the DB, never posted to Discord.
+- **413 / discord.js `code 40005`** → re-split at `floor(partSize*0.8)` and throw so the job retries.
+- **`verifyRun` refuses if `BACKUP_SCRATCH_DB` equals the live DB name.** Restore path is
+  reassemble → sha256 → decrypt → `pg_restore --list` → dropdb/createdb → `pg_restore --exit-on-error` → row-count
+  diff → drop scratch. Result JSON goes to `backup_restores.verification`. Requires `CREATEDB` on the `DATABASE_URL` role.
+- **Scheduler**: `setInterval(tick, BACKUP_SCHEDULER_POLL_MS)` with `unref()` + re-entrancy guard, plus one
+  immediate tick after `service.start()` so a restart doesn't skip a due backup. `next_backup_at` stored in `discord_settings`.
+- Verified with a throwaway 56-check harness (then deleted) on an ephemeral embedded Postgres 18: cron parse/validate,
+  key parse/reject, encrypt→split(4)→reassemble→decrypt byte-identical on 3.4 MB, `sizeBytes === gzip+33`,
+  wrong-key GCM rejection, GFS keep set, full `applySchema`, real `backup_runs`/`backup_files` SQL, `getRun`/`listRuns`,
+  `verifyRun` reaching pg_restore after sha256 match (recording FAILED + `verification.sha256Match=true`, temp dir cleaned),
+  `prune` (rows + files), internal-API auth matrix + list/POST/verify/upload/download/404, and all 4 job handlers.
+  All 8 api routes confirmed registered via Fastify.
+- **Not verified here:** real `pg_dump`/`pg_restore`/`psql` execution (no client binaries on the Windows dev box)
+  and `uploadRun` against a live Discord channel (no token). Must be smoke-tested on the host after deploy.
 
 ---
 
@@ -1261,7 +1305,7 @@ done     p11-gift-card-page    공개 카드 페이지 /gift/:code (최소 필�
 done     p11-gift-admin        /admin/gifts 관리 화면 (템플릿 / 발급 내역 / 재발송·취소)
 todo     p11-gift-smoke       smoke 스크립트에 P11 블록 추가 (발급/조회/재사용 409/만료/취소/public)
 done     p12a-bot-foundation   bot compose 서비스 + 토큰 격리 + 내부 API/api 프록시 + discord.sql + /상태·/구조·/스냅샷 + 스냅샷 API
-todo     p12b-backup-pipeline  pg_dump→gzip→AES-256-GCM→sha256→split→Discord 업로드 + 보관정책 + 검증복원
+done     p12b-backup-pipeline  pg_dump→gzip→AES-256-GCM→sha256→split→Discord 업로드 + 보관정책 + 검증복원
 todo     p12c-discord-readonly /admin/discord 읽기 전용: 개요·채널 트리·역할·멤버·감사로그·스냅샷 diff·백업 이력
 todo     p12d-discord-live     라이브 편집: 멤버(역할/닉네임/타임아웃/킥/밴)·메시지·스레드·초대·음성
 todo     p12e-discord-struct   구조 편집 + apply 엔진: 채널/카테고리/역할 CRUD·재정렬·권한 매트릭스·diff·적용·롤백
@@ -1335,3 +1379,17 @@ todo     p12f-discord-extras   웹훅 알림·AutoMod·예약 이벤트·이모�
   **guild-scoped**, so they appear instantly and never need the 1-hour global propagation.
 - **P12A:** `discord.sql` must be applied (`docker compose run --rm --build migrate`) **before** `bot` starts,
   otherwise the bot's snapshot/job inserts fail with `42P01`.
+- **P12B:** the Windows dev box has **no `pg_dump`/`pg_restore`/`psql`**. `@embedded-postgres/windows-x64` ships
+  only `initdb/pg_ctl/postgres`, and `.cmd` shims are unusable (`spawn` → `ENOENT`). So `verifyRun` and
+  `uploadRun` can only be smoke-tested **on the host**. Verify the SQL and schema locally with embedded Postgres.
+- **P12B:** `verifyRun` runs `createdb`/`dropdb`, so the `DATABASE_URL` role needs `CREATEDB`.
+  `BACKUP_SCRATCH_DB` default is `honjaya_verify`; if it ever equals the live DB name the run is refused.
+- **P12B:** `Dockerfile` must `COPY scripts ./scripts` — `scripts/decrypt-backup.mjs` is part of the operator
+  runbook and is executed with `docker compose run --rm bot node scripts/decrypt-backup.mjs`.
+- **P12B:** encryption is `HJBK1 | iv(12) | tag(16) | ciphertext(gzip)`; the auth tag is patched at offset 17
+  *after* streaming, so `sizeBytes === gzipSize + 33`. Losing `BACKUP_ENCRYPTION_KEY` makes every backup unreadable —
+  keep an offline copy.
+- **P12B:** upload failures are isolated. `BACKUP` only dumps/encrypts/splits and enqueues `BACKUP_UPLOAD`;
+  a Discord outage leaves `backup_runs.status = SUCCEEDED` with `backup_files.upload_status = PENDING`.
+- **P12B:** local `server/bot/.env` is loaded before `process.env` reads, so ad-hoc test scripts must set
+  `ENV_FILE` to a nonexistent path and assign `process.env.*` **before** dynamically importing bot modules.

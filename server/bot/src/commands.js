@@ -59,6 +59,16 @@ async function lastSnapshot(pool, guildId) {
   return rows[0] ?? null;
 }
 
+function mb(bytes) {
+  return `${(Number(bytes || 0) / 1024 / 1024).toFixed(2)} MiB`;
+}
+
+const RUN_STATUS_LABEL = {
+  RUNNING: "진행 중",
+  SUCCEEDED: "성공",
+  FAILED: "실패",
+};
+
 const commands = [
   {
     data: new SlashCommandBuilder()
@@ -68,6 +78,8 @@ const commands = [
       const status = deps.service.describe();
       const depth = await deps.queue.depth();
       const snapshot = status.guildId ? await lastSnapshot(deps.pool, status.guildId) : null;
+      const { runs } = await deps.backups.listRuns({ limit: 1 });
+      const backup = runs[0] ?? null;
 
       const embed = new EmbedBuilder()
         .setTitle("혼자야 봇 상태")
@@ -87,6 +99,13 @@ const commands = [
             name: "최근 스냅샷",
             value: snapshot
               ? `${kst(snapshot.captured_at)} · 역할 ${snapshot.role_count} · 채널 ${snapshot.channel_count}`
+              : "없음",
+            inline: true,
+          },
+          {
+            name: "최근 백업",
+            value: backup
+              ? `${kst(backup.started_at)} · ${RUN_STATUS_LABEL[backup.status] ?? backup.status}\n${mb(backup.size_bytes)} · 업로드 ${backup.uploaded_parts}/${backup.part_rows}`
               : "없음",
             inline: true,
           },
@@ -141,6 +160,7 @@ const commands = [
     data: new SlashCommandBuilder()
       .setName("스냅샷")
       .setDescription("현재 서버 구조를 스냅샷으로 저장합니다."),
+    defer: true,
     async execute({ interaction, deps }) {
       await interaction.editReply("스냅샷을 저장하는 중입니다…");
 
@@ -162,6 +182,125 @@ const commands = [
           { name: "역할", value: String(summary.roles), inline: true },
           { name: "채널", value: String(summary.channels), inline: true },
           { name: "시각", value: kst(snapshot.captured_at) },
+        )
+        .setTimestamp(new Date());
+
+      return { embeds: [embed] };
+    },
+  },
+  {
+    data: new SlashCommandBuilder()
+      .setName("백업")
+      .setDescription("지금 DB 를 암호화 백업해 Discord 백업 채널로 올립니다."),
+    async execute({ interaction, deps }) {
+      const job = await deps.queue.enqueue({
+        kind: "BACKUP",
+        payload: { triggeredBy: `discord:${interaction.user.id}` },
+        createdBy: `discord:${interaction.user.id}`,
+        dedupe: true,
+      });
+
+      const embed = new EmbedBuilder()
+        .setTitle(job.deduped ? "이미 대기 중인 백업이 있습니다" : "백업을 시작했습니다")
+        .setColor(job.deduped ? WARN_COLOR : OK_COLOR)
+        .addFields(
+          { name: "작업 ID", value: `\`${job.id}\`` },
+          {
+            name: "진행 상황",
+            value: "덤프 → 암호화 → 분할 → 업로드 순서로 진행합니다.\n`/백업목록` 으로 결과를 확인하세요.",
+          },
+        )
+        .setTimestamp(new Date());
+
+      return { embeds: [embed] };
+    },
+  },
+  {
+    data: new SlashCommandBuilder()
+      .setName("백업목록")
+      .setDescription("최근 백업 이력과 업로드·검증 상태를 봅니다."),
+    async execute({ deps }) {
+      const { runs } = await deps.backups.listRuns({ limit: 5 });
+
+      if (runs.length === 0) {
+        return { embeds: [new EmbedBuilder().setTitle("백업 이력").setDescription("아직 백업이 없습니다.")] };
+      }
+
+      const embed = new EmbedBuilder()
+        .setTitle("최근 백업 5건")
+        .setColor(OK_COLOR)
+        .setDescription(
+          runs
+            .map((run) => {
+              const verify = run.last_verify_status
+                ? ` · 검증 ${run.last_verify_status === "SUCCEEDED" ? "통과" : "실패"}`
+                : "";
+              const upload =
+                run.part_rows === 0
+                  ? "업로드 대기"
+                  : `${run.uploaded_parts}/${run.part_rows} 조각 업로드`;
+
+              return [
+                `**${kst(run.started_at)}** · ${RUN_STATUS_LABEL[run.status] ?? run.status}`,
+                `${mb(run.size_bytes)} · ${upload}${verify}`,
+                `\`${run.id}\``,
+              ].join("\n");
+            })
+            .join("\n\n")
+            .slice(0, 3800),
+        )
+        .setTimestamp(new Date());
+
+      return { embeds: [embed] };
+    },
+  },
+  {
+    data: new SlashCommandBuilder()
+      .setName("검증")
+      .setDescription("백업을 스크래치 DB 로 복원해 실제로 쓸 수 있는지 확인합니다.")
+      .addStringOption((option) =>
+        option
+          .setName("run")
+          .setDescription("백업 ID (비우면 가장 최근 성공 백업)")
+          .setRequired(false),
+      ),
+    async execute({ interaction, deps }) {
+      const given = interaction.options?.getString("run")?.trim() || "";
+      let runId = given;
+
+      if (!runId) {
+        const { runs } = await deps.backups.listRuns({ limit: 20 });
+        const latest = runs.find((run) => run.status === "SUCCEEDED");
+
+        if (!latest) {
+          return { content: "검증할 성공한 백업이 없습니다. `/백업` 으로 먼저 백업해 주세요." };
+        }
+
+        runId = latest.id;
+      }
+
+      if (!/^[0-9a-f-]{36}$/i.test(runId)) {
+        return { content: "백업 ID 형식이 올바르지 않습니다." };
+      }
+
+      const job = await deps.queue.enqueue({
+        kind: "BACKUP_VERIFY",
+        payload: { runId, triggeredBy: `discord:${interaction.user.id}` },
+        maxAttempts: 2,
+        createdBy: `discord:${interaction.user.id}`,
+        dedupe: true,
+      });
+
+      const embed = new EmbedBuilder()
+        .setTitle(job.deduped ? "이미 대기 중인 검증이 있습니다" : "검증을 시작했습니다")
+        .setColor(OK_COLOR)
+        .addFields(
+          { name: "백업", value: `\`${runId}\`` },
+          {
+            name: "방법",
+            value: "조각 재조립 → SHA-256 대조 → 복호화 → 스크래치 DB 복원 → 행 수 비교",
+          },
+          { name: "작업 ID", value: `\`${job.id}\`` },
         )
         .setTimestamp(new Date());
 
@@ -199,7 +338,7 @@ export async function handleInteraction(interaction, deps) {
   try {
     await assertOwner(interaction);
 
-    const deferred = command.data.name === "스냅샷";
+    const deferred = command.defer === true;
 
     if (deferred) {
       await interaction.deferReply(ephemeral);

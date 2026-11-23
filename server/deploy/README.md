@@ -659,6 +659,86 @@ docker compose exec -T db pg_restore -U postgres -d honjaya --clean --if-exists 
 
 ---
 
+## 11-1. Discord 암호화 백업 (P12B)
+
+§11 의 호스트 cron 백업과 **별개로**, 봇 컨테이너가 `discord_settings.backup_cron`(기본 매일 05:00)에 맞춰
+`pg_dump -Fc` → gzip → **AES-256-GCM** → 20MiB 조각 분할 → Discord 백업 채널 업로드까지 수행합니다.
+
+* 키(`BACKUP_ENCRYPTION_KEY`)는 봇 컨테이너 env 에만 있습니다. DB·Discord·브라우저로 나가지 않습니다.
+* **이 키를 잃으면 백업을 복호화할 수 없습니다.** 오프라인 사본(암호 관리자/종이)을 반드시 보관하세요.
+* 업로드가 실패해도 백업 자체는 `SUCCEEDED` 로 남고 `BACKUP_UPLOAD` 잡이 최대 6회 재시도합니다.
+* 보관 정책은 GFS(`keep_daily 14 / keep_weekly 8 / keep_monthly 12`). 정리된 백업은 Discord 메시지와 로컬 파일이 함께 삭제됩니다.
+
+준비:
+
+```bash
+cd /opt/honjaya/server
+# .env 에 아래 3개를 채웁니다
+#   BOT_INTERNAL_TOKEN=$(openssl rand -hex 32)
+#   BACKUP_ENCRYPTION_KEY=$(openssl rand -base64 32)   ← 오프라인에 사본 보관
+#   DISCORD_BACKUP_CHANNEL_ID=백업 채널 ID
+docker compose up -d --build bot
+docker compose logs -f bot | head -40        # "internal api listening", "bot started" 확인
+```
+
+수동 실행(Discord 슬래시 명령):
+
+| 명령 | 설명 |
+| --- | --- |
+| `/백업` | 지금 백업 실행 |
+| `/백업목록` | 최근 5건(크기·업로드·검증 상태) |
+| `/검증` | 최신 성공 백업을 `honjaya_verify` 에 복원해 행 수까지 대조 |
+
+> 검증은 `createdb`/`dropdb` 권한이 필요합니다. `DATABASE_URL` 사용자가 `postgres` 가 아니면 `CREATEDB` 롤 권한을 주세요.
+
+암호화 파일 복호화(호스트):
+
+```bash
+cd /opt/honjaya/server
+docker compose run --rm bot node scripts/decrypt-backup.mjs \
+  --out /tmp/honjaya.dump \
+  --dir /backups --base honjaya-20261120-050000.dump.gz.enc \
+  --sha256 "$(docker compose exec -T db psql -U postgres -d honjaya -At \
+      -c "select sha256 from public.backup_runs where filename = 'honjaya-20261120-050000.dump.gz.enc'")"
+```
+
+## 11-2. 운영 DB 복원 절차 (수동 전용)
+
+**자동화하지 않습니다.** 봇에도 관리자 화면에도 운영 DB 를 덮어쓰는 경로가 없습니다.
+복원은 사람이 아래 순서로만 진행합니다.
+
+1. **점검 모드 ON** — 관리자 화면 → 설정. 고객 주문을 먼저 막습니다.
+2. **지금 백업** — `/백업` 으로 최신 백업을 새로 만들고 `backup_runs.sha256` 을 기록합니다.
+3. **내려받기** — `/admin/discord` 백업 탭(P12C) 또는 Discord 채널에서 조각을 받아 서버로 옮깁니다.
+4. **복호화** — 위 `scripts/decrypt-backup.mjs` 로 `/tmp/honjaya.dump` 를 만듭니다.
+5. **쓰기 중지** — `docker compose stop api bot` (주문 API·스케줄러·업로드를 모두 멈춥니다).
+6. **복원**
+
+   ```bash
+   cd /opt/honjaya/server
+   docker compose exec -T db pg_restore -U postgres -d honjaya \
+     --clean --if-exists --no-owner --no-privileges --exit-on-error < /tmp/honjaya.dump
+   ```
+
+   `pg_restore: error:` 가 하나라도 나오면 **즉시 멈추고** 2번 백업으로 되돌아갑니다.
+
+7. **스키마 확인** — `docker compose run --rm migrate` (여러 번 실행해도 안전).
+8. **기동 + 확인**
+
+   ```bash
+   docker compose up -d api bot
+   curl -fsS http://127.0.0.1:3000/health
+   ```
+
+   관리자 화면 로그인 → 최근 주문·결제·포인트 잔액·선불권/기프티콘 상태를 눈으로 확인합니다.
+
+9. **점검 모드 OFF.**
+
+> 5~8번 사이에 api 가 살아 있으면 복원 중인 DB 에 쓰기가 들어갑니다. 반드시 멈춘 상태에서 복원하세요.
+> 검증(`/검증`)은 스크래치 DB 만 건드리므로 운영 중에 언제든 돌려도 안전합니다.
+
+---
+
 ## 12. 업데이트(재배포)
 
 ### 프런트엔드만 수정한 경우

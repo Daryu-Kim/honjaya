@@ -1,3 +1,4 @@
+import { createBackupService, registerBackupJobs } from "./backup.js";
 import { config, configProblems } from "./config.js";
 import { handleInteraction, registerGuildCommands } from "./commands.js";
 import { createPool } from "./db.js";
@@ -13,12 +14,14 @@ async function main() {
   const pool = createPool(log);
   const queue = createJobQueue({ pool, log });
   const service = createDiscordService({ pool, log });
+  const backups = createBackupService({ pool, log, service, queue });
 
   const deps = {
     pool,
     log,
     queue,
     service,
+    backups,
     captureSnapshot,
     configProblems,
   };
@@ -26,6 +29,7 @@ async function main() {
   const handlers = {};
 
   registerSnapshotJob(handlers, { pool, log, requireGuild: service.requireGuild });
+  registerBackupJobs(handlers, { backups, queue, log });
 
   service.attachHandlers({
     onReady: async () => {
@@ -46,7 +50,31 @@ async function main() {
   const worker = startJobWorker({ queue, log, handlers, pollMs: config.jobPollMs });
   const api = startInternalApi({ log, deps });
 
+  // 스케줄러: next_backup_at 이 지나면 BACKUP 잡을 큐에 넣습니다. 실제 실행은 워커가 담당합니다.
+  let ticking = false;
+
+  async function scheduleTick() {
+    if (ticking) {
+      return;
+    }
+
+    ticking = true;
+
+    try {
+      await backups.tick();
+    } catch (error) {
+      log.warn("backup scheduler tick failed", { err: error });
+    } finally {
+      ticking = false;
+    }
+  }
+
+  const scheduler = setInterval(scheduleTick, config.backup.schedulerPollMs);
+  scheduler.unref();
+
   await service.start();
+
+  await scheduleTick();
 
   const problems = configProblems();
 
@@ -65,6 +93,8 @@ async function main() {
 
     shuttingDown = true;
     log.info("shutting down", { signal });
+
+    clearInterval(scheduler);
 
     try {
       await api.stop();

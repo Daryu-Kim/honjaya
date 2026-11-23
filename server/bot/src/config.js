@@ -70,6 +70,9 @@ export const config = {
     dir: text("BACKUP_DIR", "/backups"),
     encryptionKey: text("BACKUP_ENCRYPTION_KEY"),
     maxUploadMb: num("DISCORD_MAX_UPLOAD_MB", 20),
+    scratchDb: text("BACKUP_SCRATCH_DB", "honjaya_verify"),
+    verifyTimeoutMs: num("BACKUP_VERIFY_TIMEOUT_MS", 600_000),
+    schedulerPollMs: num("BACKUP_SCHEDULER_POLL_MS", 60_000),
   },
 };
 
