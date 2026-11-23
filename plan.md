@@ -1412,6 +1412,13 @@ Key behaviours decided during implementation:
   when the position is unknown. `Administrator` is deliberately not granted (`allowAdministrator` would
   otherwise be required). Baseline plan on a clean guild: 26 ops, 0 destructive, 0 blocked
   (cap is 60). Live validation still must go through `미리보기`.
+- **구조 편집 다중 선택 삭제** — the 역할/채널 subtabs now carry a per-row checkbox
+  (`selectedRoleIds` / `selectedChannelIds`) plus a panel-level `전체 선택` and a
+  `선택 삭제 (N)` button that loops the existing `removeRole()` / `removeChannel()` calls, so
+  deletions still land in the `삭제 예정` box as restorable chips and nothing is applied until
+  `미리보기` → `적용`. `@everyone` and bot-managed roles get no checkbox (same rule as the old
+  per-row `삭제`). Protected (백업/공지) channels stay selectable here; the server still blocks
+  them at preview time (`PROTECTED_CHANNEL`).
 - **P12B-1 서버(코드·설정) 백업** — `runServerBackup()` in `server/bot/src/backup.js` +
   `server/bot/src/serverBundle.js`. The `BACKUP` job enqueues a separate `BACKUP_SERVER` job
   between the DB upload and prune (single sequential worker ⇒ order is guaranteed), so a failing

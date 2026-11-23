@@ -88,6 +88,23 @@
       <div class="panel-head">
         <h3>역할 ({{ roleRows.length }}개)</h3>
         <div class="panel-actions">
+          <label v-if="canEdit" class="check-all">
+            <input
+              type="checkbox"
+              :checked="allRolesSelected"
+              :disabled="selectableRoleRows.length === 0"
+              @change="toggleAllRoles"
+            />
+            전체 선택
+          </label>
+          <button
+            v-if="canEdit && selectedRoleIds.length > 0"
+            type="button"
+            class="danger-button"
+            @click="removeSelectedRoles"
+          >
+            선택 삭제 ({{ selectedRoleIds.length }})
+          </button>
           <button
             type="button"
             class="preset-button"
@@ -100,11 +117,22 @@
       </div>
       <p class="hint">
         높은 순서부터 표시돼요. 봇 역할보다 위로는 올릴 수 없고, 앱이 관리하는
-        역할(봇 역할)은 이름·색상·순서를 바꿀 수 없습니다.
+        역할(봇 역할)은 이름·색상·순서를 바꿀 수 없습니다. 체크박스로 여러 개를
+        고른 뒤 한 번에 삭제할 수 있어요.
       </p>
 
       <div v-for="(row, index) in roleRows" :key="row.id" class="row-card">
         <div class="row-head">
+          <input
+            v-if="!row.everyone && !row.managed"
+            v-model="selectedRoleIds"
+            type="checkbox"
+            class="row-check"
+            :value="row.id"
+            :disabled="!canEdit"
+            :aria-label="`${roleLabel(row.role)} 삭제 선택`"
+          />
+          <span v-else class="row-check-space"></span>
           <span class="color-dot" :style="dotStyle(row.role.color)"></span>
           <input
             v-model="row.role.name"
@@ -254,6 +282,23 @@
       <div class="panel-head">
         <h3>채널 ({{ channelRows.length }}개)</h3>
         <div class="panel-actions">
+          <label v-if="canEdit" class="check-all">
+            <input
+              type="checkbox"
+              :checked="allChannelsSelected"
+              :disabled="channelRows.length === 0"
+              @change="toggleAllChannels"
+            />
+            전체 선택
+          </label>
+          <button
+            v-if="canEdit && selectedChannelIds.length > 0"
+            type="button"
+            class="danger-button"
+            @click="removeSelectedChannels"
+          >
+            선택 삭제 ({{ selectedChannelIds.length }})
+          </button>
           <button
             type="button"
             class="preset-button"
@@ -282,12 +327,21 @@
       </div>
       <p class="hint">
         스레드는 편집 대상이 아니에요(대화 기록이라 구조로 취급하지 않습니다).
-        백업·로그·공지로 지정된 채널은 삭제가 막힙니다.
+        백업·로그·공지로 지정된 채널은 삭제가 막힙니다. 체크박스로 여러 개를
+        고른 뒤 한 번에 삭제할 수 있어요.
       </p>
 
       <div v-for="group in channelGroups" :key="group.id" class="channel-group">
         <div v-if="group.category" class="row-card category-card">
           <div class="row-head">
+            <input
+              v-model="selectedChannelIds"
+              type="checkbox"
+              class="row-check"
+              :value="group.category.id"
+              :disabled="!canEdit"
+              :aria-label="`${group.category.name} 삭제 선택`"
+            />
             <span class="tag">카테고리</span>
             <input
               v-model="group.category.name"
@@ -333,6 +387,14 @@
           class="row-card"
         >
           <div class="row-head">
+            <input
+              v-model="selectedChannelIds"
+              type="checkbox"
+              class="row-check"
+              :value="channel.id"
+              :disabled="!canEdit"
+              :aria-label="`${channel.name} 삭제 선택`"
+            />
             <span class="tag">{{ getChannelTypeLabel(channel.typeName) }}</span>
             <input
               v-model="channel.name"
@@ -1093,6 +1155,10 @@ const baselineJson = ref("");
 const removedRoles = ref([]);
 const removedChannels = ref([]);
 
+// 여러 개 선택 삭제용. 행 id 를 그대로 담습니다(새 행은 임시 id).
+const selectedRoleIds = ref([]);
+const selectedChannelIds = ref([]);
+
 const expandedRoleId = ref("");
 const expandedChannelId = ref("");
 const rolePermQuery = ref("");
@@ -1240,6 +1306,8 @@ async function load() {
 function resetWorking() {
   removedRoles.value = [];
   removedChannels.value = [];
+  selectedRoleIds.value = [];
+  selectedChannelIds.value = [];
   expandedRoleId.value = "";
   expandedChannelId.value = "";
   overwriteTarget.value = {};
@@ -1417,6 +1485,7 @@ function removeRole(row) {
   }
 
   const [role] = desired.value.roles.splice(index, 1);
+  selectedRoleIds.value = selectedRoleIds.value.filter((id) => id !== role.id);
 
   // 새로 만든 역할은 Discord 에 없으니 "삭제 예정"에 넣지 않습니다.
   if (!isTempId(role.id)) {
@@ -1427,6 +1496,37 @@ function removeRole(row) {
 function restoreRole(role) {
   desired.value.roles.push(role);
   removedRoles.value = removedRoles.value.filter((item) => item.id !== role.id);
+}
+
+// 삭제할 수 있는 역할만 체크박스를 답니다(@everyone 과 봇 관리 역할 제외).
+const selectableRoleRows = computed(() =>
+  roleRows.value.filter((row) => !row.everyone && !row.managed)
+);
+
+const allRolesSelected = computed(
+  () =>
+    selectableRoleRows.value.length > 0 &&
+    selectedRoleIds.value.length === selectableRoleRows.value.length
+);
+
+function toggleAllRoles() {
+  selectedRoleIds.value = allRolesSelected.value
+    ? []
+    : selectableRoleRows.value.map((row) => row.id);
+}
+
+function removeSelectedRoles() {
+  const rows = roleRows.value.filter((row) =>
+    selectedRoleIds.value.includes(row.id)
+  );
+
+  if (rows.length === 0) {
+    return;
+  }
+
+  rows.forEach((row) => removeRole(row));
+  selectedRoleIds.value = [];
+  notice.value = `역할 ${rows.length}개를 삭제 예정으로 표시했어요. 초안을 저장한 뒤 미리보기로 확인하세요.`;
 }
 
 // 위/아래로 옮길 때는 position 값을 맞바꿉니다. 서버는 position 오름차순으로
@@ -1568,6 +1668,9 @@ function removeChannel(channel) {
   }
 
   const [removed] = desired.value.channels.splice(index, 1);
+  selectedChannelIds.value = selectedChannelIds.value.filter(
+    (id) => id !== removed.id
+  );
 
   if (!isTempId(removed.id)) {
     removedChannels.value.push(removed);
@@ -1579,6 +1682,32 @@ function restoreChannel(channel) {
   removedChannels.value = removedChannels.value.filter(
     (item) => item.id !== channel.id
   );
+}
+
+const allChannelsSelected = computed(
+  () =>
+    channelRows.value.length > 0 &&
+    selectedChannelIds.value.length === channelRows.value.length
+);
+
+function toggleAllChannels() {
+  selectedChannelIds.value = allChannelsSelected.value
+    ? []
+    : channelRows.value.map((channel) => channel.id);
+}
+
+function removeSelectedChannels() {
+  const channels = channelRows.value.filter((channel) =>
+    selectedChannelIds.value.includes(channel.id)
+  );
+
+  if (channels.length === 0) {
+    return;
+  }
+
+  channels.forEach((channel) => removeChannel(channel));
+  selectedChannelIds.value = [];
+  notice.value = `채널 ${channels.length}개를 삭제 예정으로 표시했어요. 초안을 저장한 뒤 미리보기로 확인하세요.`;
 }
 
 // ── 채널 권한 덮어쓰기 ──────────────────────────────────────────────────────
@@ -2135,6 +2264,39 @@ onBeforeUnmount(() => {
 }
 .spacer {
   flex: 1;
+}
+.row-check {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex: 0 0 auto;
+  accent-color: #818cf8;
+  cursor: pointer;
+}
+.row-check-space {
+  width: 16px;
+  flex: 0 0 auto;
+}
+.check-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+}
+.check-all input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #818cf8;
+  cursor: pointer;
 }
 .color-dot {
   width: 14px;
