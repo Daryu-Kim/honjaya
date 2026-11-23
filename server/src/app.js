@@ -6,6 +6,7 @@ import { config } from "./config.js";
 import { HttpError, PG_MESSAGES, PG_STATUS } from "./http/errors.js";
 import { registerAdminRoutes } from "./routes/api/admin.js";
 import { registerCrmRoutes } from "./routes/api/crm.js";
+import { registerDiscordRoutes } from "./routes/api/discord.js";
 import { registerGuestRoutes } from "./routes/api/guest.js";
 import { registerGiftRoutes } from "./routes/api/gifts.js";
 import { registerMarketingRoutes } from "./routes/api/marketing.js";
@@ -195,6 +196,7 @@ export async function buildApp(options = {}) {
       "/api/crm/customers",
       "/api/marketing/campaigns",
       "/api/marketing/unsubscribe",
+      "/api/discord",
       "/health",
     ],
   }));
@@ -211,6 +213,7 @@ export async function buildApp(options = {}) {
   registerGiftRoutes(app);
   registerCrmRoutes(app);
   registerMarketingRoutes(app);
+  registerDiscordRoutes(app);
 
   return app;
 }

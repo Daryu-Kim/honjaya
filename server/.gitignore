@@ -4,3 +4,5 @@ pgdata/
 csv/
 *.log
 .pgdata-smoke/
+# P12 — 암호화된 DB 백업 임시 보관 폴더 (bot 컨테이너가 기록)
+backups/

@@ -81,4 +81,11 @@ export const config = {
     solapiApiKey: String(process.env.SOLAPI_API_KEY || "").trim(),
     solapiApiSecret: String(process.env.SOLAPI_API_SECRET || "").trim(),
   },
+  // Discord 관리봇(P12). 봇 토큰은 api 가 아니라 bot 컨테이너에만 둡니다.
+  // api 는 compose 네트워크 안의 bot:4100 으로만 요청을 넘깁니다.
+  discord: {
+    botUrl: String(process.env.BOT_API_URL || "http://bot:4100").trim(),
+    internalToken: String(process.env.BOT_INTERNAL_TOKEN || "").trim(),
+    timeoutMs: Number(process.env.BOT_TIMEOUT_MS || 15000),
+  },
 };

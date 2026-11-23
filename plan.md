@@ -81,6 +81,7 @@ Guest phone / staff tablet
 | **P10** | 선불권 (member-bound balance, 다음 영업일부터 사용, 모든 조건을 관리자가 설정) | **DONE (lint/build 통과, 커밋·배포 완료 — 서버 마이그레이션 대기)** |
 | **P11** | 혼자야 기프티콘 (code-based single-use gift, 링크/문자 전달, 태블릿 사용) | **DONE (lint/build 통과, 커밋 완료 — 서버 마이그레이션 대기)** |
 | **Ops** | Cloudflare cutover (`api.honjaya-server.xyz` live, Tailscale → backup, `vercel.json` rewrite swapped) | **DONE** |
+| **P12** | Discord 통합 관리 시스템: 봇(서버 전체 관리) + 암호화 자동 백업 → Discord 업로드 + 웹 관리자 `/admin/discord` | **IN PROGRESS** — P12A 구현 완료(호스트 env·배포 대기), see §3-13 |
 
 ---
 
@@ -864,6 +865,328 @@ The recipient shows the code; staff redeems it at the tablet payment screen.
 
 ---
 
+## 3-13. P12 — Discord 통합 관리 시스템 (PLANNED)
+
+Source: ChatGPT-authored spec ("혼자야 Discord 통합 관리 시스템", 16 sections) + owner direction
+(2026-11-23): *"이 봇은 서버에 관한 전체적인 관리를 대신 해주기 위해 만들려는 거야. 그냥 그 디스코드 내에
+모든 항목에 대해서 관리가 가능하게 해야 해."*
+
+**The first-draft MVP cut is reverted.** Structure editor, permission matrix, moderation and the apply
+engine are all back in scope. What remains rejected is only what is technically wrong for this codebase
+(Nuxt, Redis, microservices, second DB). Status: **plan only, no code written.**
+
+### A. Clarification — bot app vs Discord OAuth2
+
+| Item | Needed? | Note |
+| --- | --- | --- |
+| Developer Portal **Application** (client id + secret) | **Yes** | Every bot is an application; this is the container. |
+| **Bot** tab → reset/copy **Bot Token** | **Yes** | The *only* runtime credential the bot needs. |
+| **OAuth2 login flow** (`/oauth2/authorize` → `code` → token exchange) | **No** | Not required to create or run a bot. The spec's OAuth2 section is a *separate* feature: "log in to the web admin with a Discord account". Moved to **P12F (optional)**. |
+| Privileged intent **GUILD_MEMBERS** | **Yes** | Required by `GET /guilds/{id}/members` (member list + moderation). Must be toggled ON in the portal — sending it unapproved closes the gateway with **`4014`**. A 1-guild app needs no verification/approval. |
+| Privileged intent **MESSAGE_CONTENT** | **No** | We post/edit/delete our own messages; we never read other people's message text. Skipping it avoids the gated-intent approval path. |
+| `GUILD_PRESENCES` | **No** | Not used. |
+
+So: **creating the bot app in the portal is required; the OAuth2 authorize/login flow is not.** If we later
+want "Discord로 관리자 로그인", it uses the same application's OAuth2 credentials — nothing has to be
+created twice. Design for that option: add `employees.discord_user_id`, verify guild membership +
+`ManageGuild` via `GET /users/@me/guilds`, then still issue **our own** session cookie. Permission checks
+stay in `server/src/auth/permissions.js` — Discord OAuth2 is only an authentication method, never an
+authorization source. A password login must always remain as a fallback (Discord outage ≠ locked out).
+
+### B. Capability matrix — what "manage everything" covers
+
+| # | Resource | Operations | Discord endpoint | Bot permission | Phase |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Server settings | name, icon/banner, description, verification level, content filter, system/AFK channel, notifications default, locale | `PATCH /guilds/{id}` | MANAGE_GUILD | P12E |
+| 2 | Category / channel | create, edit (name, topic, nsfw, slowmode, bitrate, user limit, archive duration, type), delete, reorder, re-parent | `POST/PATCH/DELETE /guilds/{id}/channels`, `PATCH /guilds/{id}/channels` (bulk position) | MANAGE_CHANNELS | P12E |
+| 3 | Channel permission overwrites | add/edit/remove per role & per member; 3-state (inherit / allow / deny) | `PUT/DELETE /channels/{id}/permissions/{overwrite_id}` | MANAGE_ROLES | P12E |
+| 4 | Roles | create, edit (name, color, hoist, mentionable, icon), **permission bitfield**, position, delete | `POST/PATCH/DELETE /guilds/{id}/roles`, `PATCH /guilds/{id}/roles` (bulk position) | MANAGE_ROLES | P12E |
+| 5 | Members | nickname, role add/remove, timeout (`communication_disabled_until`), kick, ban, unban, ban list, voice move/mute/deafen/disconnect | `PATCH /guilds/{id}/members/{user}`, `.../roles/{role}`, `PUT/DELETE /guilds/{id}/bans/{user}`, `PATCH /guilds/{id}/members/{user}` (channel_id) | MANAGE_NICKNAMES, MANAGE_ROLES, MODERATE_MEMBERS, KICK_MEMBERS, BAN_MEMBERS, MOVE/MUTE/DEAFEN_MEMBERS | P12D |
+| 6 | Messages | send (embed builder), edit, delete, bulk delete 2–100, pin/unpin | `POST/PATCH/DELETE /channels/{id}/messages/*`, `PUT /channels/{id}/pins/{msg}` | MANAGE_MESSAGES | P12D |
+| 7 | Threads | create, archive, lock, add/remove member | `POST /channels/{id}/threads`, `PATCH /channels/{id}` | MANAGE_THREADS | P12D |
+| 8 | Invites | create (max_age/max_uses/temporary), list, revoke | `POST/GET/DELETE /channels/{id}/invites`, `/invites/{code}` | CREATE_INSTANT_INVITE, MANAGE_GUILD | P12D |
+| 9 | Audit log | read + filter by action/user, paginated | `GET /guilds/{id}/audit-logs` | VIEW_AUDIT_LOG | P12C |
+| 10 | Emoji / sticker / soundboard | list, upload, rename, delete | `/guilds/{id}/emojis`, `/stickers`, `/soundboard-sounds` | MANAGE_GUILD_EXPRESSIONS | P12F |
+| 11 | Webhooks | create, edit, delete, execute (our API → Discord alerts) | `/channels/{id}/webhooks`, `/webhooks/{id}` | MANAGE_WEBHOOKS | P12F |
+| 12 | AutoMod | rule create/edit/delete (keyword, mention spam, profanity), actions block/alert/timeout | `/guilds/{id}/auto-moderation/rules` | MANAGE_GUILD | P12F |
+| 13 | Scheduled events | create/edit/delete, member list | `/guilds/{id}/scheduled-events` | MANAGE_EVENTS | P12F |
+| 14 | Guild template | export current structure as a template (structure backup) | `POST /guilds/{id}/templates` | MANAGE_GUILD | P12C |
+
+Priority is value-first: everything in #1–#9 ships in P12C–P12E; #10–#13 are routine additions in P12F.
+
+### C. Architecture — bot owns the token, nothing else does
+
+```mermaid
+flowchart TB
+  OWNER[사장님 · 직원] -->|HTTPS| V[Vercel /admin/discord]
+  V -->|"/api/discord/*"| API
+  subgraph host["자체 서버 · docker compose"]
+    API["api (Fastify)<br/>staff cookie + permission"]
+    BOT["bot (Fastify + discord.js)<br/>DISCORD_BOT_TOKEN"]
+    DB[(postgres 16)]
+    VOL[(/backups)]
+    API -->|"x-internal-token<br/>http://bot:4100"| BOT
+    API --> DB
+    BOT --> DB
+    BOT --> VOL
+  end
+  BOT <-->|gateway + REST| D[DISCORD]
+  BOT -->|암호화 백업 업로드| CH[#시스템-백업]
+```
+
+- **bot** = new compose service (`server/bot/`), `node:22-alpine` + `postgresql-client`. Holds the only copy of
+  `DISCORD_BOT_TOKEN`. Listens on `bot:4100` **inside the compose network only — no published port, no
+  Vercel rewrite, no Cloudflare route**. Dies independently of ordering.
+- **api** = keeps staff auth and becomes the authenticated proxy: `/api/discord/*` → verify session +
+  permission → forward to `http://bot:4100` with `x-internal-token: BOT_INTERNAL_TOKEN`. The api container
+  never receives the bot token.
+- **DB** = one Postgres. All Discord writes go through `discord_jobs` with **concurrency 1 per guild**, so
+  rate limits are respected by construction and every operation is resumable.
+- **No Redis, no Nuxt, no second DB.**
+
+### D. Apply engine — the core of "manage everything"
+
+Editing Discord *is* the risky part; the design exists to make it boring.
+
+1. **Draft, not live.** The web editor mutates a `discord_struct_docs` row (desired state JSONB), never Discord.
+2. **Preview.** `POST /api/discord/apply/preview` fetches live state, computes a 3-way diff
+   (desired / actual / last-synced) and returns an ordered operation list with human labels, e.g.
+   `역할 생성 · "단골"`, `채널 이동 · #공지 → 카테고리 정보`, `권한 변경 · @직원 #주문 (+ViewChannel)`.
+   Destructive ops are flagged `DESTRUCTIVE`.
+3. **Approve.** `POST /api/discord/apply` requires `discord.manage` + explicit confirmation; destructive ops
+   require typing the target name.
+4. **Pre-snapshot.** A full structure snapshot is captured automatically before the first op.
+5. **Execution order** (fixed — order matters):
+   `roles:create → roles:patch → roles:position(bottom-up) → categories:create → channels:create(children
+   after parents) → channels:position/parent(batch) → overwrites → renames(batched, last) → deletes`.
+6. **Isolation.** One `discord_jobs` row per op, `discord_apply_runs` as the parent. Each op stores
+   `before`/`after`, HTTP status, Discord error code. A failure **stops the run** (`403` = permission
+   problem — never keep hammering), while `429` waits `retry_after` and retries.
+7. **Rollback.** Inverse ops generated from the pre-snapshot; only for the most recent run; requires
+   `discord.manage`; warns that manual edits made in between will be lost.
+8. **Guardrails — hard-coded rejects:**
+   - delete guild / transfer ownership / leave guild
+   - delete or edit the `@everyone` role's identity (permissions editable only via the matrix, with a warning)
+   - create/edit/move a role **at or above** the bot's highest role (Discord will `403`; we refuse locally)
+   - kick/ban the guild owner, or the bot itself
+   - grant `Administrator` without an explicit extra confirmation
+   - more than `MAX_OPS_PER_RUN` (default 60) in one run
+9. **Permission pre-check.** Before each call we compute the bot's effective permission for the target and
+   skip+report if it will fail. This matters: Discord blocks an IP for **10,000 invalid requests per 10
+   minutes** (`401`/`403`/`429`), so "try and see" is not an option
+   (https://docs.discord.com/developers/topics/rate-limits.md).
+
+### E. Data model (`server/sql/discord.sql`, applied last in `scripts/apply-schema.mjs`)
+
+| Table | Key columns | Purpose |
+| --- | --- | --- |
+| `discord_guilds` | `id text pk` (snowflake), `name`, `owner_user_id`, `bot_role_id`, `joined_at` | the single managed guild |
+| `discord_settings` | `id int pk check (id = 1)`, `backup_channel_id`, `announce_channel_id`, `owner_discord_id`, `backup_cron`, `keep_daily/weekly/monthly`, `max_upload_mb`, `max_ops_per_run`, `next_backup_at` | bot config, editable in the admin page |
+| `discord_snapshots` | `id uuid pk`, `guild_id`, `captured_at`, `structure jsonb`, `structure_hash text`, `channel_count`, `role_count`, `member_count`, `reason` (`MANUAL`/`PRE_APPLY`/`SCHEDULED`) | full guild state; diffing two blobs in JS, no child tables |
+| `discord_struct_docs` | `id uuid pk`, `guild_id`, `version int`, `desired jsonb`, `note`, `updated_by`, `updated_at` | draft desired state |
+| `discord_apply_runs` | `id uuid pk`, `guild_id`, `doc_version`, `status`, `op_total`, `op_ok`, `op_failed`, `pre_snapshot_id`, `started_at`, `finished_at`, `rollback_of`, `error` | one apply attempt |
+| `discord_apply_ops` | `id uuid pk`, `run_id fk`, `seq`, `op`, `target_type`, `target_id`, `before jsonb`, `after jsonb`, `status`, `http_status`, `discord_code`, `error` | per-operation audit trail |
+| `discord_jobs` | `id uuid pk`, `kind`, `payload jsonb`, `status` (QUEUED/RUNNING/SUCCEEDED/FAILED), `attempts`, `max_attempts`, `run_after`, `last_error`, `result jsonb` | queue: apply_op, upload, announce, dm, snapshot |
+| `discord_messages` | `id uuid pk`, `channel_id`, `message_id text`, `kind`, `embed jsonb`, `created_by`, `deleted_at` | posted announcements |
+| `discord_mod_actions` | `id uuid pk`, `target_user_id text`, `action` (TIMEOUT/KICK/BAN/UNBAN/NICK/ROLE), `reason`, `expires_at`, `actor_employee_id`, `created_at` | moderation history (Discord's audit log also kept as source of truth) |
+| `backup_runs` | `id uuid pk`, `kind`, `status`, `started_at`, `finished_at`, `size_bytes`, `sha256`, `key_id`, `encrypted`, `part_count`, `local_path`, `app_version`, `app_commit`, `row_counts jsonb`, `error` | one row per dump |
+| `backup_files` | `id uuid pk`, `run_id fk`, `part_no`, `part_count`, `filename`, `size_bytes`, `sha256`, `discord_channel_id`, `discord_message_id`, `upload_status`, `uploaded_at`, `error` | split parts + upload state |
+| `backup_restores` | `id uuid pk`, `run_id fk`, `mode` (VERIFY/PROD), `target_db`, `status`, `verification jsonb`, `started_at`, `finished_at`, `error` | verification / restore history |
+
+- Indexes: `discord_jobs(status, run_after)`, `discord_snapshots(guild_id, captured_at desc)`,
+  `discord_apply_ops(run_id, seq)`, `backup_runs(finished_at desc)`, `backup_files(run_id)`.
+- Snowflakes stay **`text`** — never `bigint`/number (JS precision).
+- **None of these tables go into `server/src/tables.js`** (the `/rest/v1` allowlist).
+- Admin actions reuse `admin_audit_logs` (`action = 'discord.apply'`, `discord.backup.run`, …). Bot-initiated
+  rows use `employee_id = null`, `employee_name = 'discord:bot'`. No duplicate audit table.
+
+### F. API surface (`/api/discord/*` — covered by the existing `/api/(.*)` Vercel rewrite)
+
+| Endpoint | Permission | Purpose |
+| --- | --- | --- |
+| `GET /api/discord/status` | `discord.view` | bot online, gateway latency, queue depth, rate-limit headroom |
+| `GET /api/discord/guild` | `discord.view` | server settings (edit fields prefilled) |
+| `PATCH /api/discord/guild` | `discord.manage` | update server settings |
+| `GET /api/discord/channels` | `discord.view` | categories + channels tree with overwrites |
+| `POST/PATCH/DELETE /api/discord/channels[/:id]` | `discord.manage` | channel CRUD (draft-based) |
+| `GET/PUT/DELETE /api/discord/channels/:id/permissions/:overwriteId` | `discord.manage` | overwrites |
+| `GET /api/discord/roles` | `discord.view` | roles + permission bitfields decoded to names |
+| `POST/PATCH/DELETE /api/discord/roles[/:id]` | `discord.manage` | role CRUD |
+| `GET /api/discord/members?query=&role=` | `discord.view` | member list (paginated) |
+| `PATCH /api/discord/members/:userId` | `discord.member` / `discord.manage` | nickname, roles, timeout |
+| `POST /api/discord/members/:userId/{kick,ban}` / `DELETE .../ban` | `discord.manage` | kick / ban / unban |
+| `GET /api/discord/audit-logs` | `discord.view` | Discord audit log (paginated, filtered) |
+| `POST /api/discord/messages` / `DELETE /api/discord/messages/:id` | `discord.manage` | 공지/메시지 |
+| `GET/POST/DELETE /api/discord/invites` | `discord.manage` | invites |
+| `POST /api/discord/apply/preview` / `POST /api/discord/apply` | `discord.manage` | diff / execute |
+| `POST /api/discord/apply/:runId/rollback` | `discord.manage` | rollback last run |
+| `GET /api/discord/snapshots` + `/diff` | `discord.view` | structure history + diff |
+| `GET/POST /api/discord/backups`, `POST .../verify`, `GET .../download` | `discord.backup` | backups |
+| `PATCH /api/discord/settings` | `discord.settings` | channels, cron, retention |
+
+New permission codes in `server/src/auth/permissions.js`:
+
+| Code | Default roles | Covers |
+| --- | --- | --- |
+| `discord.view` | OWNER, MANAGER, STAFF | read-only status, structure, members, audit log, backup list |
+| `discord.member` | OWNER, MANAGER | nickname / role assign / timeout |
+| `discord.manage` | OWNER | structure edit + apply, kick/ban, messages, invites, settings |
+| `discord.backup` | OWNER | run backup, verify, download |
+
+### G. Web admin UX (`/admin/discord`)
+
+Tabs: **개요 · 채널 · 역할 · 멤버 · 공지 · 초대 · 감사로그 · 백업 · 설정**
+
+- 개요 — 봇 온라인/게이트웨이 지연, 큐 길이, 마지막 백업·마지막 스냅샷, 미해결 실패 작업.
+- 채널 — 트리 + 드래그 재정렬 → **초안(draft)** 상태로 보관. 상단에 `미리보기` / `초안 버리기` / `적용`.
+- 역할 — 목록 + 드래그 순서 + 권한 매트릭스(역할 × 권한). 위험 권한(`Administrator`, `Manage Guild`,
+  `Manage Roles`, `Ban Members`, `Manage Webhooks`)은 붉게 강조하고 확인을 한 번 더 받습니다.
+- 채널 권한 — 역할/멤버별 3-state(상속 / 허용 / 거부) 매트릭스, 카테고리 상속 표시.
+- 멤버 — 검색 + 역할 필터, 역할 칩 토글, 닉네임 변경, 타임아웃(사유 필수), 강퇴/차단(이름 입력 확인).
+- 감사로그 — Discord audit log를 그대로 읽어 표시(누가 무엇을 언제), 우리 `discord_apply_ops`와 나란히.
+- 백업 — 이력/부품 상태/다운로드/검증. `지금 백업` 버튼.
+- 파괴적 작업은 전부 **이름 입력 확인 + 사전 스냅샷 자동 생성**.
+
+**Slash commands** (모바일에서 사장님이 쓰는 빠른 경로 — 전체 편집은 웹이 담당):
+
+`/상태` · `/백업` · `/백업목록` · `/검증` · `/구조` · `/구조비교` · `/공지` · `/초대` · `/타임아웃` ·
+`/역할` · `/감사로그` · `/봇설정`
+
+Owner gate = `DISCORD_OWNER_USER_ID` **and** Discord's own `ManageGuild` check. Sensitive output is
+ephemeral (`flags: 64`) or DM.
+
+### H. Backup pipeline
+
+1. **Dump** — `pg_dump -Fc -h db -U postgres -d honjaya` (same command the existing script uses) plus
+   `row_counts` for `customers/orders/payments/points_*` so verification means something.
+2. **Compress** — gzip stream.
+3. **Encrypt** — Node `crypto` AES-256-GCM. Layout `HJBK1 | iv(12) | tag(16) | ciphertext`. Key =
+   `BACKUP_ENCRYPTION_KEY` (32 bytes base64) **host `.env` only** — never in the DB, never in Discord, never
+   in the browser bundle. A `key_id` column allows future rotation.
+4. **Checksum** — SHA-256 of the encrypted file → `backup_runs.sha256`.
+5. **Split** — if a part exceeds `max_upload_mb` (default **20**, the verified default limit; read
+   `attachment_size_limit` when available instead of hardcoding) → `part-001-of-NNN` + per-part SHA-256.
+6. **Upload** — fixed `backup_channel_id` (stored ID, never a name search). Message body: backup ID, 생성 시각,
+   DB, 파일명, 크기, 압축/암호화 여부, SHA-256, 업로드 상태, 검증 결과. **Never** a password, key,
+   connection string or env value.
+7. **Failure** — an upload failure never fails the backup: local file stays, `upload_status='PENDING'`, retry
+   job queued. A `413` re-splits with a smaller part size before retrying.
+8. **Retention** — default daily 14 / weekly 8 / monthly 12 (local + Discord message pruning), configurable.
+9. **Schedule** — `discord_settings.backup_cron` evaluated by the bot every minute against `next_backup_at`
+   (restart-safe). `deploy/backup-db.sh` stays as the pre-deploy safety net; it is not replaced.
+
+**Key custody:** if `BACKUP_ENCRYPTION_KEY` is lost, every uploaded backup is unrecoverable. One offline copy
+(password manager / printed, stored off-site) is mandatory. The key is never uploaded next to the backup.
+
+### I. Restore policy
+
+- **Automated (P12B):** verify-restore into a scratch database `honjaya_verify` — download/decrypt →
+  SHA-256 check → `pg_restore --list` sanity → restore into scratch → compare `row_counts` → report →
+  drop scratch.
+- **Production restore — never automated.** Runbook in `server/deploy/README.md`: maintenance mode → fresh
+  encrypted backup → `docker compose stop api bot` → restore → `migrate` → health check → start. Owner
+  confirmation required; prod overwrite is never a default action.
+
+### J. Rate limits & safety budget
+
+| Rule | Value | Source |
+| --- | --- | --- |
+| Global bot limit | **50 req/s** | https://docs.discord.com/developers/topics/rate-limits.md |
+| Our pacing | ≤ 10 req/s, **1 write chain** per guild | design choice |
+| Invalid-request ban threshold | **10,000 per 10 min** (`401`/`403`/`429` count) | same doc |
+| Per-route buckets | keyed by `X-RateLimit-Bucket`, never hardcode | same doc |
+| Upload size | 20 MiB default, higher with boost; read `attachment_size_limit` | https://docs.discord.com/developers/reference |
+| Privileged intent | ON in portal or gateway closes with `4014` | https://docs.discord.com/developers/events/gateway |
+| Unverified — measure in P12A | channel name/topic edits use a much stricter bucket; measure and batch behind a delay, report progress, keep the run resumable | — |
+
+Bot role: a dedicated **혼자야 관리봇** role placed directly below the owner's top role, with an explicit
+permission list (Manage Channels, Manage Roles, Manage Nicknames, Manage Messages, Manage Threads, Manage
+Guild, Manage Webhooks, Manage Events, Manage Expressions, View Audit Log, Kick/Ban/Moderate Members,
+Move/Mute/Deafen Members, Send Messages, Attach Files, Embed Links, Read History, Create Invite) —
+**`Administrator` deliberately NOT granted**, so the token cannot delete the guild or transfer ownership.
+
+### K. Risks
+
+| Risk | Mitigation |
+| --- | --- |
+| Bot token = full guild control | Token only in the non-exposed `bot` container; api proxies with `x-internal-token`; rotate in the portal on suspicion. |
+| Bad apply breaks the server | Draft → preview → approve, pre-snapshot, per-op logging, rollback from snapshot, `MAX_OPS_PER_RUN`. |
+| 403 storms → temporary API ban | Local permission pre-check before every mutating call; stop the run on first `403`. |
+| Channel rename bucket causes long waits | Renames batched last with visible progress; run is resumable. |
+| Backup contains customer phone numbers | Mandatory AES-256-GCM + owner-only channel; plaintext upload is impossible by construction. |
+| Key loss | Offline key copy + documented "backups unrecoverable" limit. |
+| Discord outage | Ordering/POS unaffected (separate container, separate code path); admin page shows `봇 오프라인`. |
+| Owner locks themselves out via role edit | Guardrail blocks edits to roles at/above the bot; `@everyone` identity immutable; password login stays available. |
+
+### L. Phases
+
+| Phase | Scope | Size | Depends on | Status |
+| --- | --- | --- | --- | --- |
+| **P12A** | Bot foundation: `bot` compose service, token isolation, internal API + api proxy + `BOT_INTERNAL_TOKEN`, `discord.sql`, gateway with GUILD_MEMBERS, `/상태`, job queue, snapshot capture, structured logging, graceful shutdown | M | Discord app + portal intents | **DONE (code) — 호스트 env + 배포 대기** |
+| **P12B** | Encrypted backup pipeline + Discord upload + retention + retry queue + verify-restore to scratch DB | M | P12A | PLANNED |
+| **P12C** | Read-only dashboard: `/admin/discord` 개요·채널 트리·역할·멤버·감사로그·스냅샷 diff·백업 이력 | M | P12B | PLANNED |
+| **P12D** | Live editing (non-structure): members (nickname/roles/timeout/kick/ban), messages & 공지, threads, invites, voice move | M | P12C | PLANNED |
+| **P12E** | Structure editing + apply engine: 채널·카테고리·역할 CRUD, 드래그 재정렬, 권한 매트릭스 편집, diff → 적용 → 롤백, 서버 설정 | L | P12D | PLANNED |
+| **P12F** | 자동화 & extras: webhook alerts (주문/예약 → Discord), AutoMod rules, scheduled events, emoji/sticker, reserved announcements; **optional** Discord OAuth2 web login | M | P12E | PLANNED |
+
+S/M/L are relative effort, not calendar estimates. P12A+P12B is the part with immediate operational value;
+P12E is the part with the highest risk and must not start before P12C/P12D are stable.
+
+### M. Env additions (host `server/.env` only, never committed)
+
+`DISCORD_BOT_TOKEN`, `DISCORD_APPLICATION_ID`, `DISCORD_GUILD_ID`, `DISCORD_OWNER_USER_ID`,
+`DISCORD_BACKUP_CHANNEL_ID`, `DISCORD_ANNOUNCE_CHANNEL_ID`, `BACKUP_ENCRYPTION_KEY`,
+`BACKUP_DIR=/backups`, `DISCORD_MAX_UPLOAD_MB=20`, `BOT_INTERNAL_TOKEN`, `BOT_API_URL=http://bot:4100`.
+
+### N. Out of scope
+
+Multi-guild / managing other servers, Discord billing & boost management, bot marketplace distribution,
+reading other members' message content (`MESSAGE_CONTENT`), and any operation that would delete the guild or
+transfer ownership.
+
+### O. P12A implementation notes (DONE)
+
+Files created:
+
+| Path | Role |
+| --- | --- |
+| `server/sql/discord.sql` | 12 tables (`discord_guilds`, `discord_settings` single row, `discord_snapshots`, `discord_struct_docs`, `discord_apply_runs`, `discord_apply_ops`, `discord_jobs`, `discord_messages`, `discord_mod_actions`, `backup_runs`, `backup_files`, `backup_restores`) |
+| `server/bot/package.json` + `package-lock.json` | separate package; `discord.js ^14.28.1`, `pg ^8.23.1` |
+| `server/bot/Dockerfile` | `node:22-alpine` + `postgresql-client` (pg_dump for P12B), `npm ci --omit=dev` |
+| `server/bot/src/config.js` | manual `.env` loader (same pattern as `server/src/config.js`) + `configProblems()` |
+| `server/bot/src/logger.js` | JSON-lines logger (`ts/level/service/msg`) |
+| `server/bot/src/db.js` | pg pool factory |
+| `server/bot/src/jobs.js` | `discord_jobs` queue (`FOR UPDATE SKIP LOCKED`), backoff `min(2^n*5, 300)`s, stale requeue, worker loop |
+| `server/bot/src/structure.js` | `readStructure()` (roles/channels/emojis/stickers/AutoMod/events), `stableStringify`, `hashStructure`, `summarizeStructure` |
+| `server/bot/src/snapshot.js` | `captureSnapshot()` + `SNAPSHOT` job handler |
+| `server/bot/src/discordService.js` | gateway client (Guilds + GuildMembers only), ready hooks, `requireGuild()`, `describe()` |
+| `server/bot/src/commands.js` | guild-scoped `/상태`, `/구조`, `/스냅샷`; owner gate = `DISCORD_OWNER_USER_ID` + `ManageGuild` |
+| `server/bot/src/internalApi.js` | `node:http` internal API on `bot:4100`; `x-internal-token` (timing-safe) |
+| `server/bot/src/index.js` | bootstrap, job worker, graceful shutdown |
+| `server/bot/README.md` | portal setup (SERVER MEMBERS INTENT ON, no Administrator), env table, commands |
+| `server/src/routes/api/discord.js` | `GET /api/discord/status`, `GET /api/discord/snapshots`, `GET /api/discord/snapshots/:id`, `POST /api/discord/snapshots` |
+
+Files edited: `server/src/app.js` (register + endpoint list), `server/src/auth/permissions.js`
+(`discord.view|member|manage|backup|settings` + labels + `discord` group), `server/src/config.js`
+(`config.discord{botUrl,internalToken,timeoutMs}`), `server/scripts/apply-schema.mjs` (`discord.sql` last),
+`server/docker-compose.yml` (`bot` service + `BOT_*` on api), `server/.env.example`, `server/.gitignore` (`backups/`).
+
+Key behaviours decided during implementation:
+
+- **Never crash on missing config.** No token → boot in unconfigured mode (`configured:false`, HTTP alive).
+  No `BOT_INTERNAL_TOKEN` → every authenticated internal route answers `503` (never an open door).
+- **`/internal/health` is the only unauthenticated route** and exposes only `ok/service/uptimeSec/configured/ready`.
+- **Commands are guild-scoped** (`guild.commands.set`) so changes apply instantly; replies are always ephemeral.
+- **Snapshots and the snapshot list are served differently on purpose**: `POST` needs the live gateway (→ bot),
+  but list/detail read `discord_snapshots` straight from the DB so the admin page still works when the bot is down.
+- **api never depends on bot** in compose; bot downtime only breaks `POST /api/discord/*`.
+- Verified locally: full `applySchema` on an ephemeral embedded Postgres (12/12 tables, settings defaults
+  20/14/8/12/60), snapshot insert, queue enqueue→claim→succeed, retry scheduling, dedupe, `depth()`,
+  `discord_settings` single-row check constraint, internal API auth matrix (health 200 / no token 401 /
+  bad token 401 / good token 200 / unknown route 404), and Fastify route registration for all 4 endpoints.
+
+---
+
 ## 4. Open questions
 
 1. ~~**₩30,000 point-redemption threshold**: before or after discount?~~ → **resolved in P5**: after discount, before point deduction.
@@ -889,6 +1212,18 @@ The recipient shows the code; staff redeems it at the tablet payment screen.
     (`issueGift`의 `buyer_customer_id`). `GIFT_CERT` 사용은 적립 대상 제외.
 17. **P11**: 기프티콘은 **회원 귀속이 아님**(코드 소지자 사용). 구매자/수령인은 기록용 메타데이터.
     회원과 연결되는 것은 "내가 구매한 내역"뿐이며 `AdminCustomerView`에서만 조회합니다.
+18. **P12**: Developer Portal에 봇 애플리케이션을 이미 만드셨나요? 필요한 값은 `DISCORD_BOT_TOKEN`,
+    `DISCORD_APPLICATION_ID`, `DISCORD_GUILD_ID`, `DISCORD_OWNER_USER_ID`, `DISCORD_BACKUP_CHANNEL_ID`,
+    `DISCORD_ANNOUNCE_CHANNEL_ID` 입니다. 포털에서 **GUILD_MEMBERS 특권 인텐트만 ON**으로 켜 주세요
+    (`MESSAGE_CONTENT`는 쓰지 않습니다).
+19. **P12**: 백업 보관 정책 기본값(일간 14 / 주간 8 / 월간 12)이 적절한가요? Discord 메시지도 같이 지울까요?
+20. **P12**: `/공지`는 즉시 전송만 할까요, 예약 전송까지 필요할까요?
+21. **P12**: **Discord OAuth2 웹 로그인** — 봇 생성에는 불필요합니다(개발자 포털 앱 + Bot 토큰이면 끝).
+    원하시면 P12F에서 "Discord로 관리자 로그인"으로 추가합니다(기존 비밀번호 로그인은 유지).
+22. **P12**: P12E(구조 편집·적용 엔진)까지 전부 진행할지, P12D(멤버·메시지 편집)에서 한 번 멈추고
+    실제 사용감을 본 뒤 진행할지 결정이 필요합니다.
+23. **P12**: 봇 역할을 사장님 역할 바로 아래에 두고 **Administrator 없이** 명시적 권한 목록으로 줄 계획입니다.
+    길드 삭제·소유권 이전은 원천 차단됩니다. 동의하시나요?
 
 ---
 
@@ -925,6 +1260,12 @@ done     p11-gift-redeem       결제 수단 GIFT_CERT 연동 + 1회 사용 처�
 done     p11-gift-card-page    공개 카드 페이지 /gift/:code (최소 필드만 노출)
 done     p11-gift-admin        /admin/gifts 관리 화면 (템플릿 / 발급 내역 / 재발송·취소)
 todo     p11-gift-smoke       smoke 스크립트에 P11 블록 추가 (발급/조회/재사용 409/만료/취소/public)
+done     p12a-bot-foundation   bot compose 서비스 + 토큰 격리 + 내부 API/api 프록시 + discord.sql + /상태·/구조·/스냅샷 + 스냅샷 API
+todo     p12b-backup-pipeline  pg_dump→gzip→AES-256-GCM→sha256→split→Discord 업로드 + 보관정책 + 검증복원
+todo     p12c-discord-readonly /admin/discord 읽기 전용: 개요·채널 트리·역할·멤버·감사로그·스냅샷 diff·백업 이력
+todo     p12d-discord-live     라이브 편집: 멤버(역할/닉네임/타임아웃/킥/밴)·메시지·스레드·초대·음성
+todo     p12e-discord-struct   구조 편집 + apply 엔진: 채널/카테고리/역할 CRUD·재정렬·권한 매트릭스·diff·적용·롤백
+todo     p12f-discord-extras   웹훅 알림·AutoMod·예약 이벤트·이모지·(선택) Discord OAuth2 로그인
 ```
 
 ---
@@ -936,7 +1277,7 @@ todo     p11-gift-smoke       smoke 스크립트에 P11 블록 추가 (발급/�
 - Fastify JSON parser accepts empty bodies (postgrest-js sends `content-type: application/json` on DELETEs).
 - CORS `allowedHeaders` must keep `accept-profile` / `content-profile` (supabase-js 2.116+).
 - `apply-schema.mjs` handles `do $$ ... $$` blocks; `staff.sql` is safe.
-- Do **not** add staff tables to `server/src/tables.js`.
+- Do **not** add staff tables to `server/src/tables.js` (same for `prepaid_*`, `gift_*`, and the future `discord_*` / `backup_*`).
 - `process.exit()` with embedded-postgres prints a benign termination notice and a non-zero exit code.
 - Console output of Korean text is CP949 mojibake; read files with `-Encoding UTF8`.
 - `order_sheets` doubles as the visit session (`active_order_sheets` unique index on `table_number`).
@@ -980,3 +1321,17 @@ todo     p11-gift-smoke       smoke 스크립트에 P11 블록 추가 (발급/�
   Vercel 정적 호스팅으로 흘러갑니다. 증상은 **GET 은 200 + `text/html`(index.html), POST 는 405**.
   지금은 `/api/(.*)` 단일 catch-all 로 통합했으니 새 API 를 추가해도 vercel.json 수정이 필요 없습니다.
   (SSE `/api/events` 는 버퍼링 때문에 절대 주소를 그대로 쓰므로 rewrite 대상이 아닙니다.)
+- **P12A:** `server/bot/` is its own npm package with its own `package-lock.json`. Run
+  `npm ci` **inside `server/bot`**, not `server/`; `docker compose build` uses `./bot` as the build context.
+- **P12A:** `DISCORD_BOT_TOKEN` must exist **only** in the `bot` service env. Never add it to the `api`
+  service or to any `VUE_APP_*` variable — the browser bundle is public.
+- **P12A:** `BOT_INTERNAL_TOKEN` empty ⇒ the bot answers `503` to every authenticated internal route by design.
+  Set it (`openssl rand -hex 32`) or `/api/discord/*` will always fail with `HJ503`.
+- **P12A:** the bot port (`4100`) is `expose`-only. Do not add it to `ports:` or to `vercel.json`; the api
+  container is the only client and it reaches the bot at `http://bot:4100`.
+- **P12A:** SERVER MEMBERS INTENT must be ON in the Developer Portal. If it is off the gateway closes with
+  `4014` and the bot logs `discord login failed` — this is a portal setting, not a code bug.
+- **P12A:** Korean slash-command names (`/상태`, `/구조`, `/스냅샷`) are valid; they are registered
+  **guild-scoped**, so they appear instantly and never need the 1-hour global propagation.
+- **P12A:** `discord.sql` must be applied (`docker compose run --rm --build migrate`) **before** `bot` starts,
+  otherwise the bot's snapshot/job inserts fail with `42P01`.
