@@ -1,7 +1,7 @@
 // P12 — Discord 관리봇 API 호출 도우미(읽기 전용 대시보드, P12C).
 //
 // 봇 토큰은 브라우저에 절대 내려오지 않습니다. 여기서는 우리 api(/api/discord/*)만 부릅니다.
-import { apiBlob, apiGet, apiPost } from "@/lib/api";
+import { apiBlob, apiGet, apiPost, apiRequest } from "@/lib/api";
 
 export const BACKUP_STATUS_LABELS = {
   RUNNING: "진행 중",
@@ -25,6 +25,23 @@ export const UPLOAD_STATUS_LABELS = {
   PENDING: "대기",
   UPLOADED: "업로드 완료",
   FAILED: "업로드 실패",
+};
+
+// discord_mod_actions.action (서버 CHECK 제약과 같은 목록)
+export const MOD_ACTION_LABELS = {
+  TIMEOUT: "타임아웃",
+  TIMEOUT_CLEAR: "타임아웃 해제",
+  KICK: "강퇴",
+  BAN: "차단",
+  UNBAN: "차단 해제",
+  NICK: "닉네임 변경",
+  ROLE_ADD: "역할 추가",
+  ROLE_REMOVE: "역할 제거",
+};
+
+export const MESSAGE_KIND_LABELS = {
+  ANNOUNCE: "공지",
+  MESSAGE: "일반 메시지",
 };
 
 export const CHANNEL_TYPE_LABELS = {
@@ -159,7 +176,12 @@ export function fetchDiscordGuild() {
   return apiGet("/api/discord/guild");
 }
 
-export function fetchDiscordMembers({ query = "", roleId = "", after = "", limit = 50 } = {}) {
+export function fetchDiscordMembers({
+  query = "",
+  roleId = "",
+  after = "",
+  limit = 50,
+} = {}) {
   const params = new URLSearchParams();
 
   params.set("limit", String(limit));
@@ -238,4 +260,151 @@ export async function downloadDiscordBackup(runId, filename) {
     // 클릭 직후 해제하면 Safari 에서 다운로드가 끊기는 경우가 있어 조금 늦춥니다.
     window.setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
+}
+
+// ── 라이브 편집(P12D) ────────────────────────────────────────────────────────
+
+export function getModActionLabel(action) {
+  return MOD_ACTION_LABELS[action] || action || "-";
+}
+
+export function getMessageKindLabel(kind) {
+  return MESSAGE_KIND_LABELS[kind] || kind || "-";
+}
+
+export function updateDiscordMember(userId, payload) {
+  return apiRequest(`/api/discord/members/${encodeURIComponent(userId)}`, {
+    method: "PATCH",
+    body: payload,
+  });
+}
+
+export function timeoutDiscordMember(
+  userId,
+  { minutes, reason, targetUserName = "" }
+) {
+  return apiPost(`/api/discord/members/${encodeURIComponent(userId)}/timeout`, {
+    minutes,
+    reason,
+    targetUserName,
+  });
+}
+
+export function clearDiscordMemberTimeout(
+  userId,
+  { reason = "", targetUserName = "" } = {}
+) {
+  return apiRequest(
+    `/api/discord/members/${encodeURIComponent(userId)}/timeout`,
+    {
+      method: "DELETE",
+      body: { reason, targetUserName },
+    }
+  );
+}
+
+export function kickDiscordMember(
+  userId,
+  { reason = "", confirmName = "", targetUserName = "" } = {}
+) {
+  return apiPost(`/api/discord/members/${encodeURIComponent(userId)}/kick`, {
+    reason,
+    confirmName,
+    targetUserName,
+  });
+}
+
+export function banDiscordMember(
+  userId,
+  {
+    reason = "",
+    confirmName = "",
+    targetUserName = "",
+    deleteMessageSeconds = 0,
+  } = {}
+) {
+  return apiPost(`/api/discord/members/${encodeURIComponent(userId)}/ban`, {
+    reason,
+    confirmName,
+    targetUserName,
+    deleteMessageSeconds,
+  });
+}
+
+export function unbanDiscordMember(
+  userId,
+  { reason = "", targetUserName = "" } = {}
+) {
+  return apiRequest(`/api/discord/members/${encodeURIComponent(userId)}/ban`, {
+    method: "DELETE",
+    body: { reason, targetUserName },
+  });
+}
+
+export function moveDiscordMemberVoice(userId, channelId = "") {
+  return apiPost(`/api/discord/members/${encodeURIComponent(userId)}/voice`, {
+    channelId: channelId || null,
+  });
+}
+
+export function fetchDiscordMemberHistory(userId, { limit = 30 } = {}) {
+  return apiGet(
+    `/api/discord/members/${encodeURIComponent(userId)}/history?limit=${limit}`
+  );
+}
+
+export function fetchDiscordMessages({ limit = 20 } = {}) {
+  return apiGet(`/api/discord/messages?limit=${limit}`);
+}
+
+export function sendDiscordMessage(payload) {
+  return apiPost("/api/discord/messages", payload);
+}
+
+export function deleteDiscordMessage({
+  messageId,
+  channelId,
+  recordId = null,
+  reason = "",
+}) {
+  return apiRequest(`/api/discord/messages/${encodeURIComponent(messageId)}`, {
+    method: "DELETE",
+    body: { channelId, recordId, reason },
+  });
+}
+
+export function fetchDiscordThreads({ channelId = "", limit = 25 } = {}) {
+  const params = new URLSearchParams();
+
+  params.set("limit", String(limit));
+
+  if (channelId) params.set("channelId", channelId);
+
+  return apiGet(`/api/discord/threads?${params.toString()}`);
+}
+
+export function createDiscordThread(payload) {
+  return apiPost("/api/discord/threads", payload);
+}
+
+export function archiveDiscordThread(threadId, archived = true) {
+  return apiPost(
+    `/api/discord/threads/${encodeURIComponent(threadId)}/archive`,
+    { archived }
+  );
+}
+
+export function fetchDiscordInvites() {
+  return apiGet("/api/discord/invites");
+}
+
+export function createDiscordInvite(payload) {
+  return apiPost("/api/discord/invites", payload);
+}
+
+export function deleteDiscordInvite(code, reason = "") {
+  return apiRequest(`/api/discord/invites/${encodeURIComponent(code)}`, {
+    method: "DELETE",
+    body: { reason },
+  });
 }

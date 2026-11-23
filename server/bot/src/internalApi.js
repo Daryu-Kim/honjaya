@@ -6,9 +6,40 @@ import { basename } from "node:path";
 
 import { config, configProblems } from "./config.js";
 import { listAuditLogs, listMembers, readGuildView } from "./guildView.js";
+import {
+  banMember,
+  clearTimeout as clearMemberTimeout,
+  kickMember,
+  moveMemberVoice,
+  recordModAction,
+  timeoutMember,
+  unbanMember,
+  updateMember,
+} from "./memberOps.js";
+import {
+  archiveThread,
+  createInvite,
+  createThread,
+  deleteInvite,
+  deleteMessage,
+  listInvites,
+  listThreads,
+  recordMessage,
+  sendMessage,
+} from "./publishOps.js";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** api 가 보내준 요청자 정보를 discord_mod_actions 컬럼 모양으로 맞춥니다. */
+function actorFields(body) {
+  const employeeId = String(body?.actorEmployeeId ?? "").trim();
+
+  return {
+    actorEmployeeId: UUID_RE.test(employeeId) ? employeeId : null,
+    actorName: String(body?.actorName ?? "").slice(0, 100),
+  };
+}
 
 function sendJson(res, status, body) {
   const payload = JSON.stringify(body ?? null);
@@ -366,6 +397,301 @@ export function startInternalApi({ log, deps }) {
           status: 200,
           stream: { path, filename: basename(run.filename || path), sizeBytes: info.size },
         };
+      },
+    ],
+
+    // ── 라이브 편집(P12D) ────────────────────────────────────────────────────
+    [
+      "PATCH",
+      "/internal/members/:userId",
+      async (req, { params }) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+        const result = await updateMember(guild, { ...body, userId: params.userId });
+        const actor = actorFields(body);
+        const changes = result.changes ?? {};
+
+        await recordModAction(
+          deps.pool,
+          [
+            changes.nickname
+              ? {
+                  ...actor,
+                  guildId: guild.id,
+                  targetUserId: params.userId,
+                  targetUserName: result.member?.displayName ?? "",
+                  action: "NICK",
+                  reason: body?.reason ?? "",
+                  detail: changes.nickname,
+                }
+              : null,
+            changes.roles
+              ? {
+                  ...actor,
+                  guildId: guild.id,
+                  targetUserId: params.userId,
+                  targetUserName: result.member?.displayName ?? "",
+                  action: (changes.roles.added ?? []).length > 0 ? "ROLE_ADD" : "ROLE_REMOVE",
+                  reason: body?.reason ?? "",
+                  detail: changes.roles,
+                }
+              : null,
+          ].filter(Boolean),
+          log,
+        );
+
+        return { status: 200, body: result };
+      },
+    ],
+
+    [
+      "POST",
+      "/internal/members/:userId/timeout",
+      async (req, { params }) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+        const result = await timeoutMember(guild, { ...body, userId: params.userId });
+
+        await recordModAction(
+          deps.pool,
+          {
+            ...actorFields(body),
+            guildId: guild.id,
+            targetUserId: params.userId,
+            targetUserName: result.member?.displayName ?? "",
+            action: "TIMEOUT",
+            reason: body?.reason ?? "",
+            detail: { minutes: result.minutes },
+            expiresAt: result.expiresAt,
+          },
+          log,
+        );
+
+        return { status: 200, body: result };
+      },
+    ],
+
+    [
+      "DELETE",
+      "/internal/members/:userId/timeout",
+      async (req, { params }) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+        const result = await clearMemberTimeout(guild, { ...body, userId: params.userId });
+
+        await recordModAction(
+          deps.pool,
+          {
+            ...actorFields(body),
+            guildId: guild.id,
+            targetUserId: params.userId,
+            targetUserName: result.member?.displayName ?? "",
+            action: "TIMEOUT_CLEAR",
+            reason: body?.reason ?? "",
+          },
+          log,
+        );
+
+        return { status: 200, body: result };
+      },
+    ],
+
+    [
+      "POST",
+      "/internal/members/:userId/kick",
+      async (req, { params }) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+        const result = await kickMember(guild, { ...body, userId: params.userId });
+
+        await recordModAction(
+          deps.pool,
+          {
+            ...actorFields(body),
+            guildId: guild.id,
+            targetUserId: params.userId,
+            targetUserName: result.member?.displayName ?? "",
+            action: "KICK",
+            reason: body?.reason ?? "",
+          },
+          log,
+        );
+
+        return { status: 200, body: result };
+      },
+    ],
+
+    [
+      "POST",
+      "/internal/members/:userId/ban",
+      async (req, { params }) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+        const result = await banMember(guild, { ...body, userId: params.userId });
+
+        await recordModAction(
+          deps.pool,
+          {
+            ...actorFields(body),
+            guildId: guild.id,
+            targetUserId: params.userId,
+            targetUserName: result.member?.displayName ?? "",
+            action: "BAN",
+            reason: body?.reason ?? "",
+            detail: { deleteMessageSeconds: result.deleteMessageSeconds },
+          },
+          log,
+        );
+
+        return { status: 200, body: result };
+      },
+    ],
+
+    [
+      "DELETE",
+      "/internal/members/:userId/ban",
+      async (req, { params }) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+        const result = await unbanMember(guild, { ...body, userId: params.userId });
+
+        await recordModAction(
+          deps.pool,
+          {
+            ...actorFields(body),
+            guildId: guild.id,
+            targetUserId: params.userId,
+            targetUserName: String(body?.targetUserName ?? ""),
+            action: "UNBAN",
+            reason: body?.reason ?? "",
+          },
+          log,
+        );
+
+        return { status: 200, body: result };
+      },
+    ],
+
+    [
+      "POST",
+      "/internal/members/:userId/voice",
+      async (req, { params }) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+
+        // discord_mod_actions 의 action CHECK 에 음성 이동이 없으므로 DB 기록은 api 의
+        // admin_audit_logs(discord.member.voice) 가 담당합니다.
+        return { status: 200, body: await moveMemberVoice(guild, { ...body, userId: params.userId }) };
+      },
+    ],
+
+    [
+      "POST",
+      "/internal/messages",
+      async (req) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+        const result = await sendMessage(guild, body, log);
+        const actor = String(body?.createdBy ?? "api");
+        const record = await recordMessage(
+          deps.pool,
+          { ...result, channelId: result.channel?.id, createdBy: actor },
+          log,
+        );
+
+        return { status: 201, body: { ...result, record } };
+      },
+    ],
+
+    [
+      "DELETE",
+      "/internal/messages/:messageId",
+      async (req, { params }) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+        const result = await deleteMessage(guild, { ...body, messageId: params.messageId });
+
+        if (body?.recordId && UUID_RE.test(String(body.recordId))) {
+          await deps.pool
+            .query(
+              `update public.discord_messages set deleted_at = now() where id = $1 and deleted_at is null`,
+              [String(body.recordId)],
+            )
+            .catch((error) => log.warn("discord_messages delete mark failed", { err: error }));
+        }
+
+        return { status: 200, body: result };
+      },
+    ],
+
+    [
+      "GET",
+      "/internal/threads",
+      async (req) => {
+        const url = new URL(req.url ?? "/", "http://bot.local");
+        const guild = await guildOr503();
+
+        return {
+          status: 200,
+          body: await listThreads(guild, {
+            channelId: url.searchParams.get("channelId"),
+            limit: url.searchParams.get("limit"),
+          }),
+        };
+      },
+    ],
+
+    [
+      "POST",
+      "/internal/threads",
+      async (req) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+
+        return { status: 201, body: await createThread(guild, body) };
+      },
+    ],
+
+    [
+      "POST",
+      "/internal/threads/:threadId/archive",
+      async (req, { params }) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+
+        return { status: 200, body: await archiveThread(guild, { ...body, threadId: params.threadId }) };
+      },
+    ],
+
+    [
+      "GET",
+      "/internal/invites",
+      async () => {
+        const guild = await guildOr503();
+
+        return { status: 200, body: await listInvites(guild) };
+      },
+    ],
+
+    [
+      "POST",
+      "/internal/invites",
+      async (req) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+
+        return { status: 201, body: await createInvite(guild, body) };
+      },
+    ],
+
+    [
+      "DELETE",
+      "/internal/invites/:code",
+      async (req, { params }) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+
+        return { status: 200, body: await deleteInvite(guild, { ...body, code: params.code }) };
       },
     ],
   ];

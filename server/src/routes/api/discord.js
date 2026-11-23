@@ -582,4 +582,437 @@ export function registerDiscordRoutes(app) {
       };
     },
   );
+
+  // ── 라이브 편집(P12D) ────────────────────────────────────────────────────
+  const requireMember = createStaffGuard(PERMISSIONS.DISCORD_MEMBER);
+  const SNOWFLAKE_RE = /^\d{15,25}$/;
+
+  function assertSnowflake(value, label) {
+    const id = String(value || "").trim();
+
+    if (!SNOWFLAKE_RE.test(id)) {
+      throw new HttpError(400, "HJ400", `${label} 형식이 올바르지 않아요.`);
+    }
+
+    return id;
+  }
+
+  /** 봇이 discord_mod_actions 에 기록할 요청자 정보. */
+  function actorPayload(request) {
+    const employee = request.staff?.employee || null;
+
+    return {
+      actorEmployeeId: employee?.id ?? null,
+      actorName: String(employee?.name || employee?.email || "").slice(0, 100),
+    };
+  }
+
+  function reasonText(value) {
+    return String(value ?? "").trim().slice(0, 512);
+  }
+
+  function auditAction(request, action, targetType, targetId, detail) {
+    return writeAuditLog({
+      employee: request.staff?.employee || null,
+      action,
+      targetType,
+      targetId,
+      detail,
+      ip: clientIp(request),
+      log: request.log,
+    });
+  }
+
+  app.get("/api/discord/members/:userId/history", { preHandler: requireView }, async (request) => {
+    const userId = assertSnowflake(request.params?.userId, "멤버 ID");
+    const limit = clampInt(request.query?.limit, 30, 1, 100);
+
+    const { rows } = await pool.query(
+      `select id, guild_id, target_user_id, target_user_name, action, reason, detail,
+              expires_at, actor_employee_id, actor_name, created_at
+         from public.discord_mod_actions
+        where target_user_id = $1
+        order by created_at desc
+        limit $2`,
+      [userId, limit],
+    );
+
+    return {
+      userId,
+      entries: rows.map((row) => ({
+        id: row.id,
+        guildId: row.guild_id,
+        targetUserId: row.target_user_id,
+        targetUserName: row.target_user_name,
+        action: row.action,
+        reason: row.reason,
+        detail: row.detail,
+        expiresAt: row.expires_at,
+        actorEmployeeId: row.actor_employee_id,
+        actorName: row.actor_name,
+        createdAt: row.created_at,
+      })),
+    };
+  });
+
+  app.patch("/api/discord/members/:userId", { preHandler: requireMember }, async (request) => {
+    const userId = assertSnowflake(request.params?.userId, "멤버 ID");
+    const body = readBody(request);
+    const reason = reasonText(body.reason);
+    const roleIds = Array.isArray(body.roleIds)
+      ? body.roleIds.map((value) => assertSnowflake(value, "역할 ID"))
+      : null;
+
+    const result = await callBot({
+      method: "PATCH",
+      path: `/internal/members/${userId}`,
+      body: {
+        nickname: typeof body.nickname === "string" ? body.nickname : undefined,
+        roleIds,
+        reason,
+        targetUserName: String(body.targetUserName ?? "").slice(0, 200),
+        ...actorPayload(request),
+      },
+      log: request.log,
+    });
+
+    await auditAction(request, "discord.member.update", "discord_member", userId, {
+      reason,
+      nickname: result?.changes?.nickname ?? null,
+      roles: result?.changes?.roles ?? null,
+    });
+
+    return result;
+  });
+
+  app.post("/api/discord/members/:userId/timeout", { preHandler: requireMember }, async (request) => {
+    const userId = assertSnowflake(request.params?.userId, "멤버 ID");
+    const body = readBody(request);
+    const minutes = clampInt(body.minutes, 0, 1, 40320);
+    const reason = reasonText(body.reason);
+
+    if (minutes < 1) {
+      throw new HttpError(400, "HJ400", "타임아웃 시간(분)을 입력해 주세요.");
+    }
+
+    if (!reason) {
+      throw new HttpError(400, "HJ400", "타임아웃 사유를 입력해 주세요.");
+    }
+
+    const result = await callBot({
+      method: "POST",
+      path: `/internal/members/${userId}/timeout`,
+      body: {
+        minutes,
+        reason,
+        targetUserName: String(body.targetUserName ?? "").slice(0, 200),
+        ...actorPayload(request),
+      },
+      log: request.log,
+    });
+
+    await auditAction(request, "discord.member.timeout", "discord_member", userId, {
+      minutes,
+      reason,
+      expiresAt: result?.expiresAt ?? null,
+    });
+
+    return result;
+  });
+
+  app.delete("/api/discord/members/:userId/timeout", { preHandler: requireMember }, async (request) => {
+    const userId = assertSnowflake(request.params?.userId, "멤버 ID");
+    const body = readBody(request);
+    const reason = reasonText(body.reason);
+
+    const result = await callBot({
+      method: "DELETE",
+      path: `/internal/members/${userId}/timeout`,
+      body: {
+        reason,
+        targetUserName: String(body.targetUserName ?? "").slice(0, 200),
+        ...actorPayload(request),
+      },
+      log: request.log,
+    });
+
+    await auditAction(request, "discord.member.timeout.clear", "discord_member", userId, { reason });
+
+    return result;
+  });
+
+  app.post("/api/discord/members/:userId/kick", { preHandler: requireManage }, async (request) => {
+    const userId = assertSnowflake(request.params?.userId, "멤버 ID");
+    const body = readBody(request);
+    const reason = reasonText(body.reason);
+
+    const result = await callBot({
+      method: "POST",
+      path: `/internal/members/${userId}/kick`,
+      body: {
+        reason,
+        confirmName: String(body.confirmName ?? ""),
+        targetUserName: String(body.targetUserName ?? "").slice(0, 200),
+        ...actorPayload(request),
+      },
+      log: request.log,
+    });
+
+    await auditAction(request, "discord.member.kick", "discord_member", userId, { reason });
+
+    return result;
+  });
+
+  app.post("/api/discord/members/:userId/ban", { preHandler: requireManage }, async (request) => {
+    const userId = assertSnowflake(request.params?.userId, "멤버 ID");
+    const body = readBody(request);
+    const reason = reasonText(body.reason);
+
+    const result = await callBot({
+      method: "POST",
+      path: `/internal/members/${userId}/ban`,
+      body: {
+        reason,
+        deleteMessageSeconds: clampInt(body.deleteMessageSeconds, 0, 0, 604800),
+        confirmName: String(body.confirmName ?? ""),
+        targetUserName: String(body.targetUserName ?? "").slice(0, 200),
+        ...actorPayload(request),
+      },
+      log: request.log,
+    });
+
+    await auditAction(request, "discord.member.ban", "discord_member", userId, {
+      reason,
+      deleteMessageSeconds: result?.deleteMessageSeconds ?? null,
+    });
+
+    return result;
+  });
+
+  app.delete("/api/discord/members/:userId/ban", { preHandler: requireManage }, async (request) => {
+    const userId = assertSnowflake(request.params?.userId, "멤버 ID");
+    const body = readBody(request);
+    const reason = reasonText(body.reason);
+
+    const result = await callBot({
+      method: "DELETE",
+      path: `/internal/members/${userId}/ban`,
+      body: {
+        reason,
+        targetUserName: String(body.targetUserName ?? "").slice(0, 200),
+        ...actorPayload(request),
+      },
+      log: request.log,
+    });
+
+    await auditAction(request, "discord.member.unban", "discord_member", userId, { reason });
+
+    return result;
+  });
+
+  app.post("/api/discord/members/:userId/voice", { preHandler: requireManage }, async (request) => {
+    const userId = assertSnowflake(request.params?.userId, "멤버 ID");
+    const body = readBody(request);
+
+    const result = await callBot({
+      method: "POST",
+      path: `/internal/members/${userId}/voice`,
+      body: {
+        channelId: body.channelId ? assertSnowflake(body.channelId, "음성 채널 ID") : null,
+        ...actorPayload(request),
+      },
+      log: request.log,
+    });
+
+    await auditAction(request, "discord.member.voice", "discord_member", userId, {
+      fromChannelId: result?.fromChannelId ?? null,
+      toChannelId: result?.toChannelId ?? null,
+      action: result?.action ?? null,
+    });
+
+    return result;
+  });
+
+  app.get("/api/discord/messages", { preHandler: requireView }, async (request) => {
+    const limit = clampInt(request.query?.limit, 20, 1, 50);
+
+    const { rows } = await pool.query(
+      `select id, channel_id, message_id, kind, embed, created_by, created_at, deleted_at
+         from public.discord_messages
+        order by created_at desc
+        limit $1`,
+      [limit],
+    );
+
+    return {
+      entries: rows.map((row) => ({
+        id: row.id,
+        channelId: row.channel_id,
+        messageId: row.message_id,
+        kind: row.kind,
+        embed: row.embed,
+        createdBy: row.created_by,
+        createdAt: row.created_at,
+        deletedAt: row.deleted_at,
+      })),
+    };
+  });
+
+  app.post("/api/discord/messages", { preHandler: requireManage }, async (request) => {
+    const body = readBody(request);
+    const employee = request.staff?.employee || null;
+
+    const result = await callBot({
+      method: "POST",
+      path: "/internal/messages",
+      body: {
+        channelId: assertSnowflake(body.channelId, "채널 ID"),
+        title: String(body.title ?? "").slice(0, 256),
+        body: String(body.body ?? "").slice(0, 4000),
+        content: String(body.content ?? "").slice(0, 2000),
+        pingEveryone: Boolean(body.pingEveryone),
+        createdBy: String(employee?.name || employee?.email || "api").slice(0, 100),
+      },
+      log: request.log,
+    });
+
+    await auditAction(request, "discord.message.send", "discord_message", result?.record?.id ?? null, {
+      channelId: result?.channel?.id ?? null,
+      messageId: result?.messageId ?? null,
+      kind: result?.kind ?? null,
+      pingEveryone: Boolean(body.pingEveryone),
+    });
+
+    return result;
+  });
+
+  app.delete("/api/discord/messages/:messageId", { preHandler: requireManage }, async (request) => {
+    const messageId = assertSnowflake(request.params?.messageId, "메시지 ID");
+    const body = readBody(request);
+    const reason = reasonText(body.reason);
+
+    const result = await callBot({
+      method: "DELETE",
+      path: `/internal/messages/${messageId}`,
+      body: {
+        channelId: assertSnowflake(body.channelId, "채널 ID"),
+        recordId: body.recordId ? assertUuid(body.recordId, "기록 ID") : null,
+        reason,
+      },
+      log: request.log,
+    });
+
+    await auditAction(request, "discord.message.delete", "discord_message", null, {
+      channelId: result?.channelId ?? null,
+      messageId,
+      reason,
+    });
+
+    return result;
+  });
+
+  app.get("/api/discord/threads", { preHandler: requireView }, async (request) => {
+    const params = new URLSearchParams();
+
+    params.set("limit", String(clampInt(request.query?.limit, 25, 1, 100)));
+
+    const channelId = String(request.query?.channelId ?? "").trim();
+
+    if (channelId) {
+      params.set("channelId", assertSnowflake(channelId, "채널 ID"));
+    }
+
+    return callBot({ path: `/internal/threads?${params.toString()}`, log: request.log });
+  });
+
+  app.post("/api/discord/threads", { preHandler: requireManage }, async (request) => {
+    const body = readBody(request);
+
+    const result = await callBot({
+      method: "POST",
+      path: "/internal/threads",
+      body: {
+        channelId: assertSnowflake(body.channelId, "채널 ID"),
+        name: String(body.name ?? "").slice(0, 100),
+        messageId: body.messageId ? assertSnowflake(body.messageId, "메시지 ID") : null,
+        archiveMinutes: clampInt(body.archiveMinutes, 1440, 60, 10080),
+      },
+      log: request.log,
+    });
+
+    await auditAction(request, "discord.thread.create", "discord_thread", result?.thread?.id ?? null, {
+      channelId: result?.thread?.parentId ?? null,
+      name: result?.thread?.name ?? null,
+    });
+
+    return result;
+  });
+
+  app.post(
+    "/api/discord/threads/:threadId/archive",
+    { preHandler: requireManage },
+    async (request) => {
+      const threadId = assertSnowflake(request.params?.threadId, "스레드 ID");
+
+      const result = await callBot({
+        method: "POST",
+        path: `/internal/threads/${threadId}/archive`,
+        body: { archived: readBody(request).archived !== false },
+        log: request.log,
+      });
+
+      await auditAction(request, "discord.thread.archive", "discord_thread", threadId, {
+        archived: result?.thread?.archived ?? null,
+      });
+
+      return result;
+    },
+  );
+
+  app.get("/api/discord/invites", { preHandler: requireManage }, async (request) =>
+    callBot({ path: "/internal/invites", log: request.log }),
+  );
+
+  app.post("/api/discord/invites", { preHandler: requireManage }, async (request) => {
+    const body = readBody(request);
+
+    const result = await callBot({
+      method: "POST",
+      path: "/internal/invites",
+      body: {
+        channelId: assertSnowflake(body.channelId, "채널 ID"),
+        maxAgeSeconds: clampInt(body.maxAgeSeconds, 86400, 0, 604800),
+        maxUses: clampInt(body.maxUses, 0, 0, 100),
+        reason: reasonText(body.reason) || "혼자야 관리자 페이지",
+      },
+      log: request.log,
+    });
+
+    await auditAction(request, "discord.invite.create", "discord_invite", result?.invite?.code ?? null, {
+      channelId: result?.invite?.channelId ?? null,
+      maxAgeSeconds: result?.invite?.maxAge ?? null,
+      maxUses: result?.invite?.maxUses ?? null,
+    });
+
+    return result;
+  });
+
+  app.delete("/api/discord/invites/:code", { preHandler: requireManage }, async (request) => {
+    const code = String(request.params?.code ?? "").trim();
+
+    if (!/^[A-Za-z0-9-]{2,32}$/.test(code)) {
+      throw new HttpError(400, "HJ400", "초대 코드 형식이 올바르지 않아요.");
+    }
+
+    const result = await callBot({
+      method: "DELETE",
+      path: `/internal/invites/${encodeURIComponent(code)}`,
+      body: { reason: reasonText(readBody(request).reason) || "혼자야 관리자 페이지" },
+      log: request.log,
+    });
+
+    await auditAction(request, "discord.invite.delete", "discord_invite", code, {});
+
+    return result;
+  });
 }

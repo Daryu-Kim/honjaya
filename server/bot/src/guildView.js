@@ -295,7 +295,7 @@ export async function readGuildView(guild, log) {
   };
 }
 
-function memberToPlain(member, guild) {
+export function memberToPlain(member, guild) {
   const roles = [...member.roles.cache.values()]
     .filter((role) => role.id !== guild.id)
     .sort((a, b) => b.position - a.position)

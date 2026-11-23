@@ -81,7 +81,7 @@ Guest phone / staff tablet
 | **P10** | 선불권 (member-bound balance, 다음 영업일부터 사용, 모든 조건을 관리자가 설정) | **DONE (lint/build 통과, 커밋·배포 완료 — 서버 마이그레이션 대기)** |
 | **P11** | 혼자야 기프티콘 (code-based single-use gift, 링크/문자 전달, 태블릿 사용) | **DONE (lint/build 통과, 커밋 완료 — 서버 마이그레이션 대기)** |
 | **Ops** | Cloudflare cutover (`api.honjaya-server.xyz` live, Tailscale → backup, `vercel.json` rewrite swapped) | **DONE** |
-| **P12** | Discord 통합 관리 시스템: 봇(서버 전체 관리) + 암호화 자동 백업 → Discord 업로드 + 웹 관리자 `/admin/discord` | **IN PROGRESS** — P12A·P12B·P12C 구현 완료(P12A/B 커밋됨, P12C 커밋 대기), see §3-13 |
+| **P12** | Discord 통합 관리 시스템: 봇(서버 전체 관리) + 암호화 자동 백업 → Discord 업로드 + 웹 관리자 `/admin/discord` | **IN PROGRESS** — P12A·P12B·P12C 커밋됨, P12D 코드 완료(커밋 대기), see §3-13 |
 
 ---
 
@@ -1038,7 +1038,7 @@ New permission codes in `server/src/auth/permissions.js`:
 Tabs: **개요 · 채널 · 역할 · 멤버 · 공지 · 초대 · 감사로그 · 백업 · 설정**
 
 > P12C ships the read-only subset: **개요 · 채널 · 역할 · 멤버 · 감사로그 · 백업 · 스냅샷**.
-> 공지 · 초대 land in P12D, 설정 in P12F.
+> P12D adds **공지 · 초대** plus inline member moderation. 설정 lands in P12F.
 
 - 개요 — 봇 온라인/게이트웨이 지연, 큐 길이, 마지막 백업·마지막 스냅샷, 미해결 실패 작업.
 - 채널 — 트리 + 드래그 재정렬 → **초안(draft)** 상태로 보관. 상단에 `미리보기` / `초안 버리기` / `적용`.
@@ -1128,7 +1128,7 @@ Move/Mute/Deafen Members, Send Messages, Attach Files, Embed Links, Read History
 | **P12A** | Bot foundation: `bot` compose service, token isolation, internal API + api proxy + `BOT_INTERNAL_TOKEN`, `discord.sql`, gateway with GUILD_MEMBERS, `/상태`, job queue, snapshot capture, structured logging, graceful shutdown | M | Discord app + portal intents | **DONE (code) — 호스트 env + 배포 대기** |
 | **P12B** | Encrypted backup pipeline + Discord upload + retention + retry queue + verify-restore to scratch DB | M | P12A | **DONE (code) — 검증 완료, 커밋 대기** |
 | **P12C** | Read-only dashboard: `/admin/discord` 개요·채널 트리·역할·멤버·감사로그·스냅샷 diff·백업 이력 | M | P12B | **DONE (code) — 검증 완료, 커밋 대기** |
-| **P12D** | Live editing (non-structure): members (nickname/roles/timeout/kick/ban), messages & 공지, threads, invites, voice move | M | P12C | PLANNED |
+| **P12D** | Live editing (non-structure): members (nickname/roles/timeout/kick/ban), messages & 공지, threads, invites, voice move | M | P12C | **DONE (code) — 검증 완료, 커밋 대기** |
 | **P12E** | Structure editing + apply engine: 채널·카테고리·역할 CRUD, 드래그 재정렬, 권한 매트릭스 편집, diff → 적용 → 롤백, 서버 설정 | L | P12D | PLANNED |
 | **P12F** | 자동화 & extras: webhook alerts (주문/예약 → Discord), AutoMod rules, scheduled events, emoji/sticker, reserved announcements; **optional** Discord OAuth2 web login | M | P12E | PLANNED |
 
@@ -1281,6 +1281,53 @@ Key behaviours decided during implementation:
 
 ---
 
+### R. P12D implementation notes (DONE — code)
+
+Three layers, all additive — no migration needed (`discord_mod_actions` / `discord_messages` already
+shipped in P12A's `server/sql/discord.sql`).
+
+| Path | Role |
+| --- | --- |
+| `server/bot/src/discordErrors.js` | **NEW.** `opError()` + `toKoreanDiscordError()` — maps 11 Discord JSON error codes to Korean messages and HTTP status (`403` when `httpStatus===403` **or** code ∈ `{50013,50001}`; `404` when `httpStatus===404` **or** code ∈ `{10007,10008,10013,10014}`; `429`; `>=500 → 502`; unknown → `502`) |
+| `server/bot/src/memberOps.js` | **NEW** (~394 lines). `updateMember`, `timeoutMember`, `clearTimeout`, `kickMember`, `banMember`, `unbanMember`, `moveMemberVoice`, `recordModAction`, `assertConfirmName`, `MAX_TIMEOUT_MINUTES`. Enforces role hierarchy (`assertCanActOn`), assignable-role check (`assertRoleAssignable`), bot permission check (`requireBotPermission`) and snowflake validation **in the bot**, not the api |
+| `server/bot/src/publishOps.js` | **NEW** (~388 lines). `sendMessage`, `deleteMessage`, `listThreads`, `createThread`, `archiveThread`, `listInvites`, `createInvite`, `deleteInvite`, `recordMessage` |
+| `server/bot/src/guildView.js` | `memberToPlain` is now `export function` so the member routes reuse the dashboard shape |
+| `server/bot/src/internalApi.js` | 15 new internal routes under `/internal/members/*`, `/internal/messages`, `/internal/threads*`, `/internal/invites*`; `actorFields()` casts `actorEmployeeId` to UUID |
+| `server/src/routes/api/discord.js` | 17 proxy routes + `requireMember` guard, `assertSnowflake()`, `actorPayload()`, `reasonText()`, `auditAction()` |
+| `src/lib/discord.js` | `MOD_ACTION_LABELS` (8 keys, matches the SQL CHECK), `MESSAGE_KIND_LABELS`, `getModActionLabel`, `getMessageKindLabel` + 17 API helpers |
+| `src/views/Admin/AdminDiscordView.vue` | 멤버 탭 관리 패널, 신규 **공지**·**초대** 탭, 관련 SCSS |
+
+Key behaviours decided during implementation:
+
+- **Discord rules stay in the bot.** The api only checks staff permissions; hierarchy, owner
+  protection, role assignability and name confirmation live next to the Discord client. The api is a
+  pure proxy and cannot be tricked into a privilege escalation that the bot would reject anyway.
+- **`discord_mod_actions.action` has no slot for voice/thread/invite actions** (CHECK allows only
+  `TIMEOUT, TIMEOUT_CLEAR, KICK, BAN, UNBAN, NICK, ROLE_ADD, ROLE_REMOVE`). So voice moves, thread
+  create/archive and invite create/delete are recorded **only** in `admin_audit_logs`
+  (`discord.member.voice`, `discord.thread.*`, `discord.invite.*`). This is a deliberate deviation
+  from §G.
+- **No auto-snapshot before member actions.** §G promised a pre-action snapshot for destructive edits,
+  but member actions never touch guild structure, so a snapshot would add nothing. Structure-affecting
+  changes in P12E will still snapshot first.
+- **Guard split:** `discord.view` → member history, message list, thread list; `discord.member` →
+  PATCH member, timeout apply/clear; `discord.manage` → kick/ban/unban/voice, message send/delete,
+  invite list/create/delete (invite listing is `discord.manage` because Discord's
+  `GET /invites` needs Manage Guild).
+- **Lazy tabs:** 공지 and 초대 load on first tab activation; 초대 is skipped entirely when the
+  employee lacks `discord.manage` (no pointless 403 toast).
+- Verified with throwaway harnesses (then deleted): `node --check` on 6 files; bot internal-API smoke
+  on port 4199 — all 18 route hits non-404 and all 3 unauthenticated probes 401; Fastify `onRoute`
+  hook — 45 routes registered, all 17 P12D routes present with the expected guards; Vue SFC compile
+  (`parse` → `compileScript` → `compileTemplate`) with 170 script bindings and 407 template
+  expressions, zero unresolved identifiers; the `scss` block compiles through `sass`; all 37
+  `@/lib/discord` imports resolve to real exports.
+- **Not verified here:** nothing has run against a live Discord gateway (no bot token on the dev
+  box). Response shapes were validated against `memberOps.js` / `publishOps.js` source. Must be
+  smoke-tested on the host after deploy.
+
+---
+
 ## 4. Open questions
 
 1. ~~**₩30,000 point-redemption threshold**: before or after discount?~~ → **resolved in P5**: after discount, before point deduction.
@@ -1357,7 +1404,7 @@ todo     p11-gift-smoke       smoke 스크립트에 P11 블록 추가 (발급/�
 done     p12a-bot-foundation   bot compose 서비스 + 토큰 격리 + 내부 API/api 프록시 + discord.sql + /상태·/구조·/스냅샷 + 스냅샷 API
 done     p12b-backup-pipeline  pg_dump→gzip→AES-256-GCM→sha256→split→Discord 업로드 + 보관정책 + 검증복원
 done     p12c-discord-readonly /admin/discord 읽기 전용: 개요·채널 트리·역할·멤버·감사로그·스냅샷 diff·백업 이력
-todo     p12d-discord-live     라이브 편집: 멤버(역할/닉네임/타임아웃/킥/밴)·메시지·스레드·초대·음성
+done     p12d-discord-live     라이브 편집: 멤버(역할/닉네임/타임아웃/킥/밴)·메시지·스레드·초대·음성
 todo     p12e-discord-struct   구조 편집 + apply 엔진: 채널/카테고리/역할 CRUD·재정렬·권한 매트릭스·diff·적용·롤백
 todo     p12f-discord-extras   웹훅 알림·AutoMod·예약 이벤트·이모지·(선택) Discord OAuth2 로그인
 ```
@@ -1455,3 +1502,19 @@ todo     p12f-discord-extras   웹훅 알림·AutoMod·예약 이벤트·이모�
   `discord.backup` (backup runs), `discord.member` (member edits), `discord.settings`. §3-13 F is the authority.
 - **P12C:** `embedded-postgres` (the wrapper, not `@embedded-postgres/windows-x64`) is the import that exposes
   a default `EmbeddedPostgres` class; the platform package only exports `initdb`/`pg_ctl`/`postgres`.
+- **P12D:** `clearTimeout` from `node:timers` shadows the member-ops export — import it as
+  `clearTimeout as clearMemberTimeout` in `internalApi.js`.
+- **P12D:** bot return shapes differ per op — `createThread`/`archiveThread` return `{ thread }` (no
+  `channel`), `createInvite` returns `{ invite: { code, url, channelId, maxAge, maxUses, … } }`,
+  `moveMemberVoice` returns `{ userId, action, fromChannelId, toChannelId }`. Audit `detail` must read
+  those exact paths.
+- **P12D:** `ChannelType.GuildForum === 15`, `GuildMedia === 16` — forum/media channels must be included
+  in the 공지 channel filter or announcements silently can't reach them.
+- **P12D:** PowerShell `(Get-Content f) -replace … | Set-Content -NoNewline` **destroys every newline**
+  and adds a UTF-8 BOM. Never use it on multi-line source files; use the `edit` tool or
+  `[System.IO.File]::WriteAllText($p,$t,(New-Object System.Text.UTF8Encoding($false)))`.
+- **P12D:** verify file integrity by **bytes**, not lines — `Measure-Object -Line` on a CRLF file
+  under-counts (1507 LF bytes vs 1393 reported lines). Check `LF == CR` and `bytes[0] -ne 239`.
+- **P12D:** the SFC identifier scan must strip object-literal keys before flagging unresolved names,
+  otherwise `:class="{ selected: x }"`, `{ disconnect: true }` and `{ backgroundColor: … }` produce
+  false positives.
