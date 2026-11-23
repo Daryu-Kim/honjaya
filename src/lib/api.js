@@ -108,6 +108,56 @@ export function apiPatch(path, body, options = {}) {
   return apiRequest(path, { ...options, method: "PATCH", body });
 }
 
+// 파일 내려받기처럼 바이너리 응답을 Blob 으로 받을 때 씁니다.
+// (apikey 헤더가 필요해서 <a href> 로는 내려받을 수 없습니다.)
+export async function apiBlob(path, options = {}) {
+  const { method = "GET", headers, signal } = options;
+  const requestHeaders = { ...(headers || {}) };
+
+  if (API_KEY) {
+    requestHeaders.apikey = API_KEY;
+  }
+
+  let response;
+
+  try {
+    response = await fetch(buildUrl(path), {
+      method,
+      headers: requestHeaders,
+      credentials: "include",
+      signal,
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw error;
+    }
+
+    throw new ApiError(
+      "서버에 연결하지 못했어요. 네트워크 상태를 확인해 주세요.",
+      { code: "NETWORK_ERROR" }
+    );
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    let data = null;
+
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+
+    throw new ApiError(data?.message || "파일을 내려받지 못했어요.", {
+      status: response.status,
+      code: data?.code || "",
+      details: data?.details ?? null,
+    });
+  }
+
+  return response.blob();
+}
+
 // CSV 내려받기처럼 JSON 이 아닌 응답을 그대로 받을 때 씁니다.
 export async function apiText(path, options = {}) {
   const { method = "GET", headers, signal } = options;

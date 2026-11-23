@@ -10,6 +10,7 @@ import { PERMISSIONS } from "../../auth/permissions.js";
 import { createStaffGuard } from "../../auth/sessions.js";
 import { config } from "../../config.js";
 import { pool } from "../../db.js";
+import { diffStructures } from "../../discordDiff.js";
 import { HttpError } from "../../http/errors.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -200,6 +201,8 @@ async function loadSettings() {
 export function registerDiscordRoutes(app) {
   const requireView = createStaffGuard(PERMISSIONS.DISCORD_VIEW);
   const requireManage = createStaffGuard(PERMISSIONS.DISCORD_MANAGE);
+  // 백업 실행/검증/내려받기는 plan.md §3-13 기준 discord.backup 입니다(현재 OWNER 전용).
+  const requireBackup = createStaffGuard(PERMISSIONS.DISCORD_BACKUP);
 
   app.get("/api/discord/status", { preHandler: requireView }, async (request) => {
     const [bot, settings] = await Promise.all([
@@ -369,7 +372,7 @@ export function registerDiscordRoutes(app) {
     return { run: { ...rows[0], files: files.rows, restores: restores.rows } };
   });
 
-  app.post("/api/discord/backups", { preHandler: requireManage }, async (request) => {
+  app.post("/api/discord/backups", { preHandler: requireBackup }, async (request) => {
     const employee = request.staff?.employee || null;
     const actor = employee?.email || employee?.name || "api";
 
@@ -393,7 +396,7 @@ export function registerDiscordRoutes(app) {
     return result;
   });
 
-  app.post("/api/discord/backups/:runId/verify", { preHandler: requireManage }, async (request) => {
+  app.post("/api/discord/backups/:runId/verify", { preHandler: requireBackup }, async (request) => {
     const runId = assertUuid(request.params?.runId, "백업 ID");
     const employee = request.staff?.employee || null;
     const actor = employee?.email || employee?.name || "api";
@@ -418,7 +421,7 @@ export function registerDiscordRoutes(app) {
     return result;
   });
 
-  app.post("/api/discord/backups/:runId/upload", { preHandler: requireManage }, async (request) => {
+  app.post("/api/discord/backups/:runId/upload", { preHandler: requireBackup }, async (request) => {
     const runId = assertUuid(request.params?.runId, "백업 ID");
     const employee = request.staff?.employee || null;
     const actor = employee?.email || employee?.name || "api";
@@ -443,7 +446,7 @@ export function registerDiscordRoutes(app) {
     return result;
   });
 
-  app.get("/api/discord/backups/:runId/download", { preHandler: requireView }, async (request, reply) => {
+  app.get("/api/discord/backups/:runId/download", { preHandler: requireBackup }, async (request, reply) => {
     const runId = assertUuid(request.params?.runId, "백업 ID");
     const employee = request.staff?.employee || null;
 
@@ -475,4 +478,108 @@ export function registerDiscordRoutes(app) {
 
     return reply.send(file.stream);
   });
+
+  // ── 읽기 전용 대시보드(P12C) ──────────────────────────────────────────────
+  app.get("/api/discord/guild", { preHandler: requireView }, async (request) => {
+    const guild = await callBot({ path: "/internal/guild", log: request.log });
+
+    return guild;
+  });
+
+  app.get("/api/discord/members", { preHandler: requireView }, async (request) => {
+    const query = request.query || {};
+    const params = new URLSearchParams();
+
+    params.set("limit", String(clampInt(query.limit, 50, 1, 100)));
+
+    for (const key of ["query", "roleId", "after"]) {
+      const value = String(query[key] ?? "").trim();
+
+      if (value) {
+        params.set(key, value.slice(0, 100));
+      }
+    }
+
+    return callBot({ path: `/internal/members?${params.toString()}`, log: request.log });
+  });
+
+  app.get("/api/discord/audit-logs", { preHandler: requireView }, async (request) => {
+    const query = request.query || {};
+    const params = new URLSearchParams();
+
+    params.set("limit", String(clampInt(query.limit, 40, 1, 100)));
+
+    const before = String(query.before ?? "").trim();
+
+    if (before) {
+      params.set("before", before);
+    }
+
+    return callBot({ path: `/internal/audit-logs?${params.toString()}`, log: request.log });
+  });
+
+  app.get(
+    "/api/discord/snapshots/:snapshotId/diff",
+    { preHandler: requireView },
+    async (request) => {
+      const snapshotId = assertUuid(request.params?.snapshotId, "스냅샷 ID");
+      const againstParam = String(request.query?.against ?? "").trim();
+
+      const target = await pool.query(
+        `select id, reason, structure, structure_hash, captured_at
+           from public.discord_snapshots
+          where id = $1`,
+        [snapshotId],
+      );
+
+      if (target.rows.length === 0) {
+        throw new HttpError(404, "HJ404", "스냅샷을 찾을 수 없어요.");
+      }
+
+      const targetRow = target.rows[0];
+
+      // 기준 스냅샷을 지정하지 않으면 "이 스냅샷 바로 이전"과 비교합니다.
+      const base = againstParam
+        ? await pool.query(
+            `select id, reason, structure, structure_hash, captured_at
+               from public.discord_snapshots
+              where id = $1`,
+            [assertUuid(againstParam, "비교 스냅샷 ID")],
+          )
+        : await pool.query(
+            `select id, reason, structure, structure_hash, captured_at
+               from public.discord_snapshots
+              where captured_at < $1
+              order by captured_at desc
+              limit 1`,
+            [targetRow.captured_at],
+          );
+
+      if (base.rows.length === 0) {
+        throw new HttpError(
+          404,
+          "HJ404",
+          "비교할 이전 스냅샷이 없어요. 스냅샷을 한 번 더 찍은 뒤 비교해 주세요.",
+        );
+      }
+
+      const baseRow = base.rows[0];
+
+      return {
+        base: {
+          id: baseRow.id,
+          reason: baseRow.reason,
+          structureHash: baseRow.structure_hash,
+          capturedAt: baseRow.captured_at,
+        },
+        target: {
+          id: targetRow.id,
+          reason: targetRow.reason,
+          structureHash: targetRow.structure_hash,
+          capturedAt: targetRow.captured_at,
+        },
+        diff: diffStructures(baseRow.structure, targetRow.structure),
+      };
+    },
+  );
 }

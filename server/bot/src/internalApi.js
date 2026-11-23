@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import { basename } from "node:path";
 
 import { config, configProblems } from "./config.js";
+import { listAuditLogs, listMembers, readGuildView } from "./guildView.js";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -112,6 +113,15 @@ function compile(pattern) {
 export function startInternalApi({ log, deps }) {
   const startedAt = Date.now();
 
+  // 봇이 설정되지 않았거나 길드를 못 찾은 경우는 5xx 가 아니라 503(일시적 사용 불가)로 알립니다.
+  async function guildOr503() {
+    try {
+      return await deps.service.requireGuild();
+    } catch (error) {
+      throw httpError(503, error instanceof Error ? error.message : String(error));
+    }
+  }
+
   const definitions = [
     [
       "GET",
@@ -153,6 +163,53 @@ export function startInternalApi({ log, deps }) {
       "GET",
       "/internal/structure",
       async () => ({ status: 200, body: { summary: await deps.service.getStructureSummary() } }),
+    ],
+
+    // ── 읽기 전용 대시보드(P12C) ─────────────────────────────────────────────
+    [
+      "GET",
+      "/internal/guild",
+      async () => {
+        const guild = await guildOr503();
+
+        return { status: 200, body: await readGuildView(guild, log) };
+      },
+    ],
+
+    [
+      "GET",
+      "/internal/members",
+      async (req) => {
+        const url = new URL(req.url ?? "/", "http://bot.local");
+        const guild = await guildOr503();
+
+        return {
+          status: 200,
+          body: await listMembers(guild, {
+            query: url.searchParams.get("query"),
+            roleId: url.searchParams.get("roleId"),
+            after: url.searchParams.get("after"),
+            limit: url.searchParams.get("limit"),
+          }),
+        };
+      },
+    ],
+
+    [
+      "GET",
+      "/internal/audit-logs",
+      async (req) => {
+        const url = new URL(req.url ?? "/", "http://bot.local");
+        const guild = await guildOr503();
+
+        return {
+          status: 200,
+          body: await listAuditLogs(guild, {
+            before: url.searchParams.get("before"),
+            limit: url.searchParams.get("limit"),
+          }),
+        };
+      },
     ],
 
     [

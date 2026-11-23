@@ -198,6 +198,13 @@ const menuList = [
     permission: "employee.manage",
   },
   {
+    to: "/admin/discord",
+    label: "Discord 관리",
+    description: "서버 현황·백업",
+    matchStartsWith: "/admin/discord",
+    permission: "discord.view",
+  },
+  {
     to: "/tablet",
     label: "태블릿 운영판",
     description: "매장 현장용 화면",

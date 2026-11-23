@@ -20,6 +20,7 @@ import AdminGiftView from "@/views/Admin/AdminGiftView.vue";
 import AdminCustomerView from "@/views/Admin/AdminCustomerView.vue";
 import AdminMarketingView from "@/views/Admin/AdminMarketingView.vue";
 import AdminEmployeeView from "@/views/Admin/AdminEmployeeView.vue";
+import AdminDiscordView from "@/views/Admin/AdminDiscordView.vue";
 import UnsubscribeView from "@/views/User/UnsubscribeView.vue";
 import GiftCardView from "@/views/User/GiftCardView.vue";
 import StaffLoginView from "@/views/Staff/StaffLoginView.vue";
@@ -172,6 +173,13 @@ const routes = [
         name: "admin-employees",
         component: AdminEmployeeView,
         meta: { permission: "employee.manage" },
+      },
+      {
+        // 봇이 꺼져 있어도 화면 자체는 열립니다(백업 이력은 DB 에 남아 있음).
+        path: "discord",
+        name: "admin-discord",
+        component: AdminDiscordView,
+        meta: { permission: "discord.view" },
       },
     ],
   },

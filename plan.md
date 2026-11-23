@@ -81,7 +81,7 @@ Guest phone / staff tablet
 | **P10** | 선불권 (member-bound balance, 다음 영업일부터 사용, 모든 조건을 관리자가 설정) | **DONE (lint/build 통과, 커밋·배포 완료 — 서버 마이그레이션 대기)** |
 | **P11** | 혼자야 기프티콘 (code-based single-use gift, 링크/문자 전달, 태블릿 사용) | **DONE (lint/build 통과, 커밋 완료 — 서버 마이그레이션 대기)** |
 | **Ops** | Cloudflare cutover (`api.honjaya-server.xyz` live, Tailscale → backup, `vercel.json` rewrite swapped) | **DONE** |
-| **P12** | Discord 통합 관리 시스템: 봇(서버 전체 관리) + 암호화 자동 백업 → Discord 업로드 + 웹 관리자 `/admin/discord` | **IN PROGRESS** — P12A·P12B 구현 완료(커밋/배포 대기), see §3-13 |
+| **P12** | Discord 통합 관리 시스템: 봇(서버 전체 관리) + 암호화 자동 백업 → Discord 업로드 + 웹 관리자 `/admin/discord` | **IN PROGRESS** — P12A·P12B·P12C 구현 완료(P12A/B 커밋됨, P12C 커밋 대기), see §3-13 |
 
 ---
 
@@ -865,7 +865,7 @@ The recipient shows the code; staff redeems it at the tablet payment screen.
 
 ---
 
-## 3-13. P12 — Discord 통합 관리 시스템 (PLANNED)
+## 3-13. P12 — Discord 통합 관리 시스템 (IN PROGRESS)
 
 Source: ChatGPT-authored spec ("혼자야 Discord 통합 관리 시스템", 16 sections) + owner direction
 (2026-11-23): *"이 봇은 서버에 관한 전체적인 관리를 대신 해주기 위해 만들려는 거야. 그냥 그 디스코드 내에
@@ -1037,6 +1037,9 @@ New permission codes in `server/src/auth/permissions.js`:
 
 Tabs: **개요 · 채널 · 역할 · 멤버 · 공지 · 초대 · 감사로그 · 백업 · 설정**
 
+> P12C ships the read-only subset: **개요 · 채널 · 역할 · 멤버 · 감사로그 · 백업 · 스냅샷**.
+> 공지 · 초대 land in P12D, 설정 in P12F.
+
 - 개요 — 봇 온라인/게이트웨이 지연, 큐 길이, 마지막 백업·마지막 스냅샷, 미해결 실패 작업.
 - 채널 — 트리 + 드래그 재정렬 → **초안(draft)** 상태로 보관. 상단에 `미리보기` / `초안 버리기` / `적용`.
 - 역할 — 목록 + 드래그 순서 + 권한 매트릭스(역할 × 권한). 위험 권한(`Administrator`, `Manage Guild`,
@@ -1124,7 +1127,7 @@ Move/Mute/Deafen Members, Send Messages, Attach Files, Embed Links, Read History
 | --- | --- | --- | --- | --- |
 | **P12A** | Bot foundation: `bot` compose service, token isolation, internal API + api proxy + `BOT_INTERNAL_TOKEN`, `discord.sql`, gateway with GUILD_MEMBERS, `/상태`, job queue, snapshot capture, structured logging, graceful shutdown | M | Discord app + portal intents | **DONE (code) — 호스트 env + 배포 대기** |
 | **P12B** | Encrypted backup pipeline + Discord upload + retention + retry queue + verify-restore to scratch DB | M | P12A | **DONE (code) — 검증 완료, 커밋 대기** |
-| **P12C** | Read-only dashboard: `/admin/discord` 개요·채널 트리·역할·멤버·감사로그·스냅샷 diff·백업 이력 | M | P12B | PLANNED |
+| **P12C** | Read-only dashboard: `/admin/discord` 개요·채널 트리·역할·멤버·감사로그·스냅샷 diff·백업 이력 | M | P12B | **DONE (code) — 검증 완료, 커밋 대기** |
 | **P12D** | Live editing (non-structure): members (nickname/roles/timeout/kick/ban), messages & 공지, threads, invites, voice move | M | P12C | PLANNED |
 | **P12E** | Structure editing + apply engine: 채널·카테고리·역할 CRUD, 드래그 재정렬, 권한 매트릭스 편집, diff → 적용 → 롤백, 서버 설정 | L | P12D | PLANNED |
 | **P12F** | 자동화 & extras: webhook alerts (주문/예약 → Discord), AutoMod rules, scheduled events, emoji/sticker, reserved announcements; **optional** Discord OAuth2 web login | M | P12E | PLANNED |
@@ -1231,6 +1234,53 @@ Key behaviours decided during implementation:
 
 ---
 
+### Q. P12C implementation notes (DONE — code)
+
+Files created:
+
+| Path | Role |
+| --- | --- |
+| `server/bot/src/guildView.js` | bot-side read layer (~410 lines) that **consumes** `readStructure()` without changing its byte-stable output: `decodePermissions`, `permissionLabelKo`, `readGuildView(guild,log)` (guild meta + roles/channels/overwrites + emojis/stickers/automod/events), `listMembers`, `listAuditLogs`, Korean `PERMISSION_LABELS_KO` / `AUDIT_LABELS_KO`, `DANGEROUS` set |
+| `server/src/discordDiff.js` | `diffStructures(before, after)` → `{same, totalChanges, guild[], roles/channels/emojis/stickers/autoModeration/scheduledEvents{added,removed,changed,counts}, channelKinds}` |
+| `src/lib/discord.js` | label maps (`BACKUP_STATUS_LABELS`, `VERIFY_STATUS_LABELS`, `SNAPSHOT_REASON_LABELS`, `UPLOAD_STATUS_LABELS`, `CHANNEL_TYPE_LABELS`, `DIFF_FIELD_LABELS`), formatters (`formatDiscordDateTime`, `formatBytes`, `roleColorStyle`), ~14 API helpers, `downloadDiscordBackup` |
+| `src/views/Admin/AdminDiscordView.vue` | 7-tab read-only dashboard (개요·채널·역할·멤버·감사로그·백업·스냅샷), reuses AdminGiftView's dark card CSS vocabulary |
+
+Files edited: `server/bot/src/internalApi.js` (`GET /internal/guild`, `/internal/members`,
+`/internal/audit-logs` + `guildOr503()`), `server/src/routes/api/discord.js` (4 read routes:
+`/guild`, `/members`, `/audit-logs`, `/snapshots/:snapshotId/diff`, plus a `requireBackup` guard),
+`src/lib/api.js` (`apiBlob()`), `src/router/index.js` (`/admin/discord`, `meta.permission = "discord.view"`),
+`src/layouts/AdminLayout.vue` (`Discord 관리` menu entry).
+
+Key behaviours decided during implementation:
+
+- **View layer is strictly additive.** `readStructure()` output is SHA-256 hashed into
+  `discord_snapshots.structure_hash`, so enrichment (member counts, permission labels, parent names,
+  overwrite kinds) lives in `guildView.js` and is only used by the dashboard routes.
+- **Diff runs server-side.** `/snapshots/:snapshotId/diff` loads two `structure` JSONB docs by
+  `captured_at` (default base = previous snapshot) and returns only the diff, so the browser never
+  receives two full structure documents.
+- **`apiBlob()` instead of `<a href>`** for backup download: the global apikey guard rejects plain
+  navigations, so the download goes through `fetch` with the `apikey` header + `credentials:"include"`,
+  then creates an object URL for the anchor click (revoked after 2 s).
+- **Guard alignment:** backup mutating routes now use `discord.backup` (§3-13 F), snapshots use
+  `discord.manage`, and all read routes use `discord.view`. All three are OWNER/MANAGER/STAFF-appropriate
+  and were changed before P12B ever shipped, so there is no compatibility risk.
+- Members list and audit log are loaded **lazily** on tab activation (they are the two Discord endpoints
+  with real rate-limit cost); status/snapshots/backups load on mount.
+- Verified with a throwaway harness (then deleted): Vue SFC compile (`vue/compiler-sfc` parse →
+  compileScript → compileTemplate) on the new view, `node --check` on 5 JS files, `diffStructures`
+  unit probe, `decodePermissions('8')` → `['Administrator']` + 41 flags decoded, `guildView`
+  Korean label resolution, bot internal-API live smoke test on a random port (`/internal/health` 200
+  without token; `/internal/guild|members|audit-logs` 503 with Korean message when the guild is
+  unavailable; 401 without token), real embedded-Postgres run of the snapshot diff SQL
+  (two snapshots → guild name changed + role changed + channel removed), and Fastify's route tree
+  confirming all 6 `/api/discord/*` groups registered.
+- **Not verified here:** the three new bot endpoints have never run against a live Discord gateway
+  (no token on the dev box), so response shapes were validated against `guildView.js` source and a
+  fake-guild 503 path only. Must be smoke-tested on the host after deploy.
+
+---
+
 ## 4. Open questions
 
 1. ~~**₩30,000 point-redemption threshold**: before or after discount?~~ → **resolved in P5**: after discount, before point deduction.
@@ -1306,7 +1356,7 @@ done     p11-gift-admin        /admin/gifts 관리 화면 (템플릿 / 발급 �
 todo     p11-gift-smoke       smoke 스크립트에 P11 블록 추가 (발급/조회/재사용 409/만료/취소/public)
 done     p12a-bot-foundation   bot compose 서비스 + 토큰 격리 + 내부 API/api 프록시 + discord.sql + /상태·/구조·/스냅샷 + 스냅샷 API
 done     p12b-backup-pipeline  pg_dump→gzip→AES-256-GCM→sha256→split→Discord 업로드 + 보관정책 + 검증복원
-todo     p12c-discord-readonly /admin/discord 읽기 전용: 개요·채널 트리·역할·멤버·감사로그·스냅샷 diff·백업 이력
+done     p12c-discord-readonly /admin/discord 읽기 전용: 개요·채널 트리·역할·멤버·감사로그·스냅샷 diff·백업 이력
 todo     p12d-discord-live     라이브 편집: 멤버(역할/닉네임/타임아웃/킥/밴)·메시지·스레드·초대·음성
 todo     p12e-discord-struct   구조 편집 + apply 엔진: 채널/카테고리/역할 CRUD·재정렬·권한 매트릭스·diff·적용·롤백
 todo     p12f-discord-extras   웹훅 알림·AutoMod·예약 이벤트·이모지·(선택) Discord OAuth2 로그인
@@ -1393,3 +1443,15 @@ todo     p12f-discord-extras   웹훅 알림·AutoMod·예약 이벤트·이모�
   a Discord outage leaves `backup_runs.status = SUCCEEDED` with `backup_files.upload_status = PENDING`.
 - **P12B:** local `server/bot/.env` is loaded before `process.env` reads, so ad-hoc test scripts must set
   `ENV_FILE` to a nonexistent path and assign `process.env.*` **before** dynamically importing bot modules.
+- **P12C:** validate Vue SFC syntax locally without a build:
+  `require('vue/compiler-sfc')` → `parse()` → `compileScript()` → `compileTemplate({compilerOptions:{bindingMetadata}})`.
+  Vue 3.5 has **no** top-level `@vue/compiler-sfc` package — it lives at `node_modules/vue/compiler-sfc`.
+- **P12C:** Fastify `printRoutes({commonPrefix:false})` prints a tree **without** a leading `/` and nests
+  children, so full-path substring assertions falsely fail. Assert on individual segments (`verify`,
+  `download`, `diff`) or print the whole tree.
+- **P12C:** the global apikey guard also applies to downloads. Binary fetches must use `apiBlob()` in
+  `src/lib/api.js`; an `<a href>`/`window.open` to `/api/discord/backups/:runId/download` returns 401.
+- **P12C:** guard names are not interchangeable — `discord.view` (read), `discord.manage` (snapshots),
+  `discord.backup` (backup runs), `discord.member` (member edits), `discord.settings`. §3-13 F is the authority.
+- **P12C:** `embedded-postgres` (the wrapper, not `@embedded-postgres/windows-x64`) is the import that exposes
+  a default `EmbeddedPostgres` class; the platform package only exports `initdb`/`pg_ctl`/`postgres`.
