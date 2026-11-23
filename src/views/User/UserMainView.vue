@@ -82,13 +82,13 @@
         </a>
 
         <a
-          href="https://open.kakao.com/o/pwJYvVMi"
+          href="https://discord.gg/FhzvsApZgB"
           target="_blank"
           rel="noopener noreferrer"
-          class="external-link-button kakao"
+          class="external-link-button discord"
         >
-          <span class="link-icon">💛</span>
-          <span class="link-text">카카오톡 오픈채팅</span>
+          <span class="link-icon">💬</span>
+          <span class="link-text">디스코드 참여하기</span>
           <span class="link-description">
             가게 소식과 기존 이용자들과의 친목을 위한 공간이에요.
           </span>
@@ -527,12 +527,12 @@ onMounted(async () => {
   text-align: center;
 }
 
-.external-link-button.kakao {
+.external-link-button.discord {
   grid-column: 1 / -1;
-  background: rgba(254, 229, 0, 0.12);
+  background: rgba(88, 101, 242, 0.18);
 
   &:hover {
-    background: rgba(254, 229, 0, 0.2);
+    background: rgba(88, 101, 242, 0.3);
   }
 }
 
