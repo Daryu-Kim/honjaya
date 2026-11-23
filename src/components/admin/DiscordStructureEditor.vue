@@ -46,6 +46,14 @@
         </button>
         <button
           type="button"
+          class="preset-button"
+          :disabled="loading || saving || !canEdit || !desired"
+          @click="openPreset"
+        >
+          혼자야 기본 구조
+        </button>
+        <button
+          type="button"
           class="primary-button"
           :disabled="loading || saving || !desired"
           @click="runPreview"
@@ -885,6 +893,78 @@
       </div>
     </div>
 
+    <!-- 혼자야 기본 구조 프리셋 -->
+    <div v-if="presetDialog" class="modal-backdrop">
+      <div class="modal">
+        <h3>혼자야 기본 구조</h3>
+        <p class="hint">
+          우리 가게에 맞는 역할·카테고리·채널을 초안에 채워 넣습니다. 이미 있는
+          항목은 이름으로 찾아 그대로 두고, 없는 것만 새로 만듭니다(삭제·이름
+          변경 없음). 확인을 누르면 미리보기로 넘어갑니다.
+        </p>
+
+        <div v-if="presetSummary" class="preset-summary">
+          <div class="preset-block">
+            <strong>역할</strong>
+            <p v-if="presetSummary.createdRoles.length">
+              새로 만들 역할: {{ presetSummary.createdRoles.join(", ") }}
+            </p>
+            <p v-else>새로 만들 역할이 없습니다.</p>
+            <p v-if="presetSummary.reusedRoles.length" class="muted">
+              이미 있어서 그대로 두는 역할:
+              {{ presetSummary.reusedRoles.join(", ") }}
+            </p>
+          </div>
+
+          <div class="preset-block">
+            <strong>카테고리</strong>
+            <p v-if="presetSummary.createdCategories.length">
+              새로 만들 카테고리:
+              {{ presetSummary.createdCategories.join(", ") }}
+            </p>
+            <p v-else>새로 만들 카테고리가 없습니다.</p>
+          </div>
+
+          <div class="preset-block">
+            <strong>채널</strong>
+            <p v-if="presetSummary.createdChannels.length">
+              새로 만들 채널 {{ presetSummary.createdChannels.length }}개:
+              {{ presetSummary.createdChannels.join(", ") }}
+            </p>
+            <p v-else>새로 만들 채널이 없습니다.</p>
+          </div>
+
+          <p v-if="presetSummary.missingPermissions.length" class="hint warn">
+            권한 목록에서 찾지 못한 항목이 있어요:
+            {{ presetSummary.missingPermissions.join(", ") }}
+          </p>
+        </div>
+
+        <p class="hint">
+          기존 역할·채널의 권한은 건드리지 않습니다. 실제 반영은 미리보기를
+          확인하고 ‘적용’을 눌렀을 때만 이뤄집니다.
+        </p>
+
+        <div class="modal-actions">
+          <button
+            type="button"
+            class="preset-button"
+            @click="presetDialog = false"
+          >
+            취소
+          </button>
+          <button
+            type="button"
+            class="primary-button"
+            :disabled="previewing"
+            @click="applyPreset"
+          >
+            확인 후 미리보기
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- 롤백 확인 -->
     <div v-if="rollbackDialog" class="modal-backdrop">
       <div class="modal">
@@ -931,6 +1011,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import {
   STRUCT_PHASE_LABELS,
   applyDiscordStructure,
+  buildHonjayaPreset,
   clearDiscordDraft,
   decodePermissionNames,
   desiredFromStructure,
@@ -1042,6 +1123,9 @@ const rollingBack = ref(false);
 const rollbackError = ref("");
 const rollbackTarget = ref(null);
 const rollbackForm = ref({ confirmName: "" });
+
+const presetDialog = ref(false);
+const presetResult = ref(null);
 
 const botHighestPosition = computed(() => {
   const value = Number(bot.value?.highestPosition);
@@ -1614,6 +1698,55 @@ function setOverwriteState(overwrite, name, state) {
 
 const guildDraft = computed(() => desired.value?.guild || {});
 
+// ── 혼자야 기본 구조 프리셋 ─────────────────────────────────────────────────
+
+const presetSummary = computed(() => presetResult.value?.summary || null);
+
+function openPreset() {
+  if (!catalog.value.length) {
+    notice.value =
+      "권한 목록을 불러오지 못해 기본 구조를 만들 수 없어요. 새로고침 후 다시 시도해 주세요.";
+
+    return;
+  }
+
+  const result = buildHonjayaPreset({
+    desired: payloadDesired(),
+    catalog: catalog.value,
+    everyoneRoleId: guild.value?.id || "",
+    botHighestPosition: botHighestPosition.value,
+  });
+
+  if (!result) {
+    notice.value = "초안을 읽지 못해 기본 구조를 만들 수 없어요.";
+
+    return;
+  }
+
+  presetResult.value = result;
+  presetDialog.value = true;
+}
+
+async function applyPreset() {
+  const result = presetResult.value;
+
+  if (!result) {
+    return;
+  }
+
+  const { summary } = result;
+
+  desired.value = result.desired;
+  presetDialog.value = false;
+  presetResult.value = null;
+
+  await runPreview();
+
+  if (planLoaded.value) {
+    notice.value = `혼자야 기본 구조를 초안에 채웠어요 · 역할 ${summary.createdRoles.length}개 · 카테고리 ${summary.createdCategories.length}개 · 채널 ${summary.createdChannels.length}개 추가. 미리보기를 확인한 뒤 적용하세요.`;
+  }
+}
+
 // ── 미리보기 / 적용 ─────────────────────────────────────────────────────────
 
 async function runPreview() {
@@ -1944,6 +2077,36 @@ onBeforeUnmount(() => {
   font-size: 12px;
   line-height: 1.55;
   color: rgba(255, 255, 255, 0.55);
+}
+.hint.warn {
+  color: #fcd34d;
+}
+.preset-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.preset-block {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.preset-block strong {
+  font-size: 13px;
+  color: #ffffff;
+}
+.preset-block p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.72);
+}
+.preset-block p.muted {
+  color: rgba(255, 255, 255, 0.5);
 }
 .row-card {
   display: flex;

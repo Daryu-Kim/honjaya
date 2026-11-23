@@ -303,10 +303,23 @@ SOLAPI_API_SECRET=
 ```
 
 > - `dryrun` / `none` / `solapi` 외의 값은 `dryrun` 으로 처리됩니다.
-> - **`solapi` 연동은 아직 스텁 상태**입니다. 키를 넣어도 실제 발송 대신 503 오류를 돌려줍니다.
->   업체를 계약하면 `server/src/messaging.js` 의 `sendViaSolapi()` 하나만 채우면 됩니다.
-> - 문자(LMS)는 발신번호 사전 등록만 하면 되지만, **알림톡**은 카카오 채널 + 발신 프로필 + 템플릿
->   검수가 필요합니다. 알림톡 템플릿은 `#{이름}`, `#{포인트}` 치환 변수를 그대로 등록하면 됩니다.
+> - **실제 발송(실사용 모드)으로 바꾸는 방법**: `MESSAGING_PROVIDER=solapi` + 아래 3개를 채운 뒤
+>   `docker compose up -d api` 로 컨테이너를 **다시 만들어야** 반영됩니다(환경변수는 컨테이너 생성 시 고정).
+>   ```bash
+>   cd /opt/honjaya/server
+>   # .env 에 MESSAGING_PROVIDER=solapi, MESSAGING_SENDER, SOLAPI_API_KEY, SOLAPI_API_SECRET 입력
+>   docker compose up -d api
+>   docker compose logs --tail=20 api | grep messaging   # 실사용 모드 로그 확인
+>   ```
+> - `server/.env` 는 `.dockerignore` 로 이미지에 들어가지 않습니다. 값이 컨테이너로 전달되는 통로는
+>   `docker-compose.yml` 의 `api` 서비스 `environment`(MESSAGING_* / SOLAPI_* 4줄)뿐입니다.
+>   이 4줄이 없으면 `.env` 에 키를 넣어도 계속 `dryrun`(검수용 모드)으로 보입니다.
+> - 관리자 `마케팅` 화면 상단 배너가 현재 모드와 **비어 있는 환경변수 이름**을 보여 줍니다.
+> - 문자(SMS/LMS)는 발신번호 사전 등록만 하면 되고, **알림톡**은 카카오 채널 + 발신 프로필 + 템플릿
+>   검수가 필요합니다. 템플릿 승인 전까지 알림톡 발송은 503 으로 막힙니다(문자는 정상 발송).
+>   알림톡 템플릿은 `#{이름}`, `#{포인트}` 치환 변수를 그대로 등록하면 됩니다.
+> - 솔라피 콘솔의 **IP 허용 목록**에 서버 공인 IP(또는 Cloudflare egress 대역)를 등록해야 발송이 성공합니다.
+> - 실제 문자는 **건당 과금**됩니다. 처음에는 본인 번호 1명 세그먼트로 한 번만 테스트하세요.
 > - 수신거부 링크(`https://honjaya.vercel.app/unsubscribe?token=...`)가 본문에 자동으로 붙습니다.
 
 ---
@@ -668,6 +681,13 @@ docker compose exec -T db pg_restore -U postgres -d honjaya --clean --if-exists 
 * **이 키를 잃으면 백업을 복호화할 수 없습니다.** 오프라인 사본(암호 관리자/종이)을 반드시 보관하세요.
 * 업로드가 실패해도 백업 자체는 `SUCCEEDED` 로 남고 `BACKUP_UPLOAD` 잡이 최대 6회 재시도합니다.
 * 보관 정책은 GFS(`keep_daily 14 / keep_weekly 8 / keep_monthly 12`). 정리된 백업은 Discord 메시지와 로컬 파일이 함께 삭제됩니다.
+* **P12B-1: 메인 서버(코드·설정)도 함께 백업합니다.** `/백업` 한 번이면 DB 덤프 다음에 저장소 코드·설정을
+  `tar -czf` → AES-256-GCM → 조각 분할 → 같은 백업 채널로 올립니다. `backup_runs.kind` 가 `SERVER` 인 run 으로
+  따로 남고, 보관 정책도 종류별로 셉니다(서버 번들이 DB 백업 슬롯을 잡아먹지 않음).
+  포함: `server/`(compose·Dockerfile·sql·deploy), `src/`, `package*.json`, `vercel.json`, `.env.example` 등.
+  제외: **`.env` / `.env.*`(`.env.example` 제외), `*.local.json`(VAPID 개인키), `migration-data/`(고객 PII)**,
+  `csv/`, `recipes-*`, `node_modules`, `.git`, `dist`, `backups/`, `pgdata/`. `.env` 는 백업에 없으니 따로 보관하세요.
+  복원: `decrypt-backup.mjs --out server.tar.gz` → `tar -xzf server.tar.gz -C /opt/honjaya`.
 
 준비:
 
@@ -677,9 +697,14 @@ cd /opt/honjaya/server
 #   BOT_INTERNAL_TOKEN=$(openssl rand -hex 32)
 #   BACKUP_ENCRYPTION_KEY=$(openssl rand -base64 32)   ← 오프라인에 사본 보관
 #   DISCORD_BACKUP_CHANNEL_ID=백업 채널 ID
+# compose 가 BACKUP_SOURCE_DIR=/src 와 읽기 전용 마운트 ../:/src:ro 를 기본으로 넣습니다(바꿀 때만 조정).
+docker compose run --rm --build migrate      # kind CHECK 제약(SERVER) 확장 — 최초 1회
 docker compose up -d --build bot
 docker compose logs -f bot | head -40        # "internal api listening", "bot started" 확인
 ```
+
+> `SERVER` 종류는 `backup_runs_kind_check` 확장이 필요합니다. 마이그레이션을 건너뛰면 서버 백업 run 만 실패하고
+> DB 백업은 정상 동작합니다. `auto-deploy.sh` 는 migrate 를 실행하지 않으므로 위 명령을 직접 한 번 돌리세요.
 
 수동 실행(Discord 슬래시 명령):
 

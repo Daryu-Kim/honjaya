@@ -9,6 +9,7 @@
 //   - 업로드 실패는 백업 실패가 아닙니다(로컬 파일 유지 + 재시도 큐).
 //   - 운영 DB 덮어쓰기는 절대 자동화하지 않습니다. 검증은 honjaya_verify 스크래치 DB 에서만.
 import { spawn } from "node:child_process";
+import { createReadStream } from "node:fs";
 import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
@@ -16,6 +17,7 @@ import { config } from "./config.js";
 import { nextCronTime } from "./cron.js";
 import {
   BACKUP_FILE_SUFFIX,
+  SERVER_FILE_SUFFIX,
   decryptToDumpFile,
   encryptToFile,
   parseKey,
@@ -23,6 +25,7 @@ import {
   sha256File,
   splitFile,
 } from "./backupFiles.js";
+import { bundleSource } from "./serverBundle.js";
 
 // 복원 후 행 수를 비교할 의미 있는 테이블들. 존재하는 것만 사용합니다.
 const COUNT_TABLES = [
@@ -71,6 +74,55 @@ function errorText(error) {
   const message = error instanceof Error ? error.message : String(error);
 
   return message.slice(0, 2000);
+}
+
+function mib(bytes) {
+  return `${(Number(bytes || 0) / 1024 / 1024).toFixed(2)} MiB`;
+}
+
+/** 백업 종류별 Discord 안내 embed. DB 백업과 서버 번들은 복원 방법이 달라 문구를 나눕니다. */
+function backupEmbed(run) {
+  const common = {
+    timestamp: new Date(run.started_at ?? Date.now()).toISOString(),
+    footer: { text: "honjaya-backup" },
+  };
+
+  if (run.kind === "SERVER") {
+    const counts = run.row_counts ?? {};
+
+    return {
+      ...common,
+      title: "혼자야 서버 백업",
+      color: 0x1565c0,
+      description: [
+        `**종류** 서버 코드·설정 (${counts.files ?? "-"}개 파일)`,
+        `**파일** ${run.filename}`,
+        `**크기** ${mib(run.size_bytes)} · 조각 ${run.part_count}`,
+        `**SHA-256** \`${String(run.sha256 ?? "").slice(0, 32)}…\``,
+        `**암호화** AES-256-GCM (키는 서버에만 있음)`,
+        DIVIDER,
+        "`.env` 등 비밀값은 이 파일에 포함되지 않습니다.",
+        "복원: 복호화한 뒤 tar 로 풀고, DB 는 DB 백업 파일로 따로 되돌립니다.",
+        `run \`${run.id}\``,
+      ].join("\n"),
+    };
+  }
+
+  return {
+    ...common,
+    title: "혼자야 백업",
+    color: 0x2e7d32,
+    description: [
+      `**DB** ${run.db_name}`,
+      `**파일** ${run.filename}`,
+      `**크기** ${mib(run.size_bytes)} · 조각 ${run.part_count}`,
+      `**SHA-256** \`${String(run.sha256 ?? "").slice(0, 32)}…\``,
+      `**암호화** AES-256-GCM (키는 서버에만 있음)`,
+      DIVIDER,
+      "복원은 서버에서 암호화 키로 복호화한 뒤 진행해야 합니다.",
+      `run \`${run.id}\``,
+    ].join("\n"),
+  };
 }
 
 function databaseTarget() {
@@ -292,10 +344,33 @@ export function createBackupService({ pool, log, service, queue }) {
     );
   }
 
+  // 설정이 비어 있으면 길드에서 이름으로 백업 채널을 찾습니다.
+  // P12E 프리셋이 만드는 `#백업` 채널을 그대로 쓰기 위해서입니다.
+  const BACKUP_CHANNEL_PATTERN = /백업|backup/i;
+
+  function findBackupChannelIdByName() {
+    try {
+      const guild = client().guilds.cache.get(config.discord.guildId);
+      const channels = guild ? [...guild.channels.cache.values()] : [];
+      const found = channels.find(
+        (channel) => channel.type === 0 && BACKUP_CHANNEL_PATTERN.test(String(channel.name ?? "")),
+      );
+
+      return found?.id ?? "";
+    } catch {
+      return "";
+    }
+  }
+
   async function backupChannelId() {
     const settings = await readSettings();
+    const configured = String(settings.backup_channel_id || config.discord.backupChannelId || "").trim();
 
-    return String(settings.backup_channel_id || config.discord.backupChannelId || "").trim();
+    if (configured) {
+      return configured;
+    }
+
+    return findBackupChannelIdByName();
   }
 
   async function rowCounts() {
@@ -432,6 +507,28 @@ export function createBackupService({ pool, log, service, queue }) {
     }
   }
 
+  // 암호화 파일을 조각으로 나눠 DB 에 기록하고 run 을 SUCCEEDED 로 마감합니다.
+  // DB 백업과 서버 번들 백업이 같은 마무리 절차를 씁니다.
+  async function persistEncryptedRun({ runId, filename, localPath, encrypted, partSizeBytes, rowCounts }) {
+    const run = { id: runId, local_path: localPath, filename };
+    const partCount = await writeParts(run, filename, partSizeBytes);
+
+    await pool.query(
+      `update public.backup_runs
+          set status = 'SUCCEEDED',
+              size_bytes = $2,
+              sha256 = $3,
+              part_count = $4,
+              local_path = $5,
+              row_counts = $6::jsonb,
+              finished_at = now()
+        where id = $1`,
+      [runId, encrypted.sizeBytes, encrypted.sha256, partCount, localPath, JSON.stringify(rowCounts)],
+    );
+
+    return partCount;
+  }
+
   // ── 1단계: 덤프 → 암호화 → 분할 ────────────────────────────────────────────
   async function runBackup({ triggeredBy = "system", jobId = null } = {}) {
     const key = parseKey(config.backup.encryptionKey);
@@ -471,21 +568,14 @@ export function createBackupService({ pool, log, service, queue }) {
 
       const counts = await rowCounts();
       const partSizeBytes = Math.max(1, Number(settings.max_upload_mb) || 20) * 1024 * 1024;
-      const run = { id: runId, local_path: localPath };
-      const partCount = await writeParts(run, filename, partSizeBytes);
-
-      await pool.query(
-        `update public.backup_runs
-            set status = 'SUCCEEDED',
-                size_bytes = $2,
-                sha256 = $3,
-                part_count = $4,
-                local_path = $5,
-                row_counts = $6::jsonb,
-                finished_at = now()
-          where id = $1`,
-        [runId, encrypted.sizeBytes, encrypted.sha256, partCount, localPath, JSON.stringify(counts)],
-      );
+      const partCount = await persistEncryptedRun({
+        runId,
+        filename,
+        localPath,
+        encrypted,
+        partSizeBytes,
+        rowCounts: counts,
+      });
 
       log.info("backup completed", {
         runId,
@@ -513,6 +603,92 @@ export function createBackupService({ pool, log, service, queue }) {
 
       log.error("backup failed", { runId, err: error });
       throw error;
+    }
+  }
+
+  // ── 1-b단계: 서버(코드·설정) 번들 백업 ─────────────────────────────────────
+  // DB 백업과 같은 암호화·분할·업로드 파이프라인을 타되 run 종류만 SERVER 입니다.
+  // 소스가 없거나 tar 가 실패해도 DB 백업은 그대로 성공해야 하므로 별도 잡으로 돕니다.
+  async function runServerBackup({ triggeredBy = "system", jobId = null } = {}) {
+    const sourceDir = String(config.backup.sourceDir || "").trim();
+
+    if (!sourceDir) {
+      log.warn("server backup skipped: BACKUP_SOURCE_DIR 미설정");
+
+      return { skipped: "NO_SOURCE_DIR" };
+    }
+
+    const key = parseKey(config.backup.encryptionKey);
+    const settings = await readSettings();
+    const filename = `server-${stamp()}${SERVER_FILE_SUFFIX}`;
+    const localPath = join(config.backup.dir, filename);
+    const archivePath = `${localPath}.tar.gz`;
+    const listPath = `${archivePath}.list`;
+
+    await mkdir(config.backup.dir, { recursive: true });
+
+    const created = await pool.query(
+      `insert into public.backup_runs (kind, status, db_name, filename, key_id, encrypted,
+                                       triggered_by, job_id, app_version, app_commit)
+       values ('SERVER', 'RUNNING', 'honjaya-app', $1, 'v1', true, $2, $3, $4, $5)
+       returning id, started_at`,
+      [filename, triggeredBy, jobId, process.env.APP_VERSION || "", process.env.APP_COMMIT || ""],
+    );
+
+    const runId = created.rows[0].id;
+
+    log.info("server backup started", { runId, filename, sourceDir });
+
+    try {
+      const bundle = await bundleSource({ root: sourceDir, targetPath: archivePath, listPath });
+      const encrypted = await encryptToFile({
+        source: createReadStream(archivePath),
+        targetPath: localPath,
+        key,
+      });
+      const partSizeBytes = Math.max(1, Number(settings.max_upload_mb) || 20) * 1024 * 1024;
+      const rowCounts = {
+        files: bundle.fileCount,
+        sourceBytes: bundle.sourceBytes,
+        archiveBytes: bundle.archiveBytes,
+      };
+      const partCount = await persistEncryptedRun({
+        runId,
+        filename,
+        localPath,
+        encrypted,
+        partSizeBytes,
+        rowCounts,
+      });
+
+      log.info("server backup completed", {
+        runId,
+        fileCount: bundle.fileCount,
+        sizeBytes: encrypted.sizeBytes,
+        partCount,
+      });
+
+      return {
+        runId,
+        sizeBytes: encrypted.sizeBytes,
+        sha256: encrypted.sha256,
+        partCount,
+        ...rowCounts,
+      };
+    } catch (error) {
+      await rm(localPath, { force: true }).catch(() => {});
+      await pool
+        .query(
+          `update public.backup_runs set status = 'FAILED', error = $2, finished_at = now() where id = $1`,
+          [runId, errorText(error)],
+        )
+        .catch(() => {});
+
+      log.error("server backup failed", { runId, err: error });
+      throw error;
+    } finally {
+      await rm(archivePath, { force: true }).catch(() => {});
+      await rm(listPath, { force: true }).catch(() => {});
     }
   }
 
@@ -552,22 +728,7 @@ export function createBackupService({ pool, log, service, queue }) {
       return { uploaded: 0, skipped: "ALREADY_UPLOADED" };
     }
 
-    const embed = {
-      title: "혼자야 백업",
-      color: 0x2e7d32,
-      description: [
-        `**DB** ${run.db_name}`,
-        `**파일** ${run.filename}`,
-        `**크기** ${(Number(run.size_bytes) / 1024 / 1024).toFixed(2)} MiB · 조각 ${run.part_count}`,
-        `**SHA-256** \`${run.sha256.slice(0, 32)}…\``,
-        `**암호화** AES-256-GCM (키는 서버에만 있음)`,
-        DIVIDER,
-        "복원은 서버에서 암호화 키로 복호화한 뒤 진행해야 합니다.",
-        `run \`${run.id}\``,
-      ].join("\n"),
-      timestamp: new Date(run.started_at ?? Date.now()).toISOString(),
-      footer: { text: "honjaya-backup" },
-    };
+    const embed = backupEmbed(run);
 
     let uploaded = 0;
     const batches = [];
@@ -650,13 +811,22 @@ export function createBackupService({ pool, log, service, queue }) {
   async function prune() {
     const settings = await readSettings();
     const { rows } = await pool.query(
-      `select id, started_at, filename, local_path, status from public.backup_runs order by started_at desc`,
+      `select id, kind, started_at, filename, local_path, status
+         from public.backup_runs
+        order by started_at desc`,
     );
-    const keep = pickRunIdsToKeep(rows, {
+    const retention = {
       keepDaily: Number(settings.keep_daily) || 0,
       keepWeekly: Number(settings.keep_weekly) || 0,
       keepMonthly: Number(settings.keep_monthly) || 0,
-    });
+    };
+    // 종류별로 따로 셉니다. 서버 번들이 DB 백업 보관 개수를 잡아먹지 않게 하기 위해서입니다.
+    const dbRows = rows.filter((run) => run.kind !== "SERVER");
+    const serverRows = rows.filter((run) => run.kind === "SERVER");
+    const keep = new Set([
+      ...pickRunIdsToKeep(dbRows, retention),
+      ...pickRunIdsToKeep(serverRows, retention),
+    ]);
     const drop = rows.filter((run) => !keep.has(run.id));
     let deletedMessages = 0;
 
@@ -707,6 +877,12 @@ export function createBackupService({ pool, log, service, queue }) {
 
     if (!run) {
       throw new Error("백업 실행을 찾을 수 없습니다.");
+    }
+
+    if (run.kind === "SERVER") {
+      throw new Error(
+        "서버 코드 백업은 DB 검증 대상이 아닙니다. 복호화한 뒤 tar 로 풀어 내용을 확인해 주세요.",
+      );
     }
 
     const target = databaseTarget();
@@ -966,6 +1142,7 @@ export function createBackupService({ pool, log, service, queue }) {
     partPath,
     prune,
     runBackup,
+    runServerBackup,
     tick,
     uploadRun,
     verifyRun,
@@ -987,6 +1164,15 @@ export function registerBackupJobs(handlers, { backups, queue, log }) {
       createdBy: "backup",
       dedupe: true,
     });
+    // DB 백업과 별개 잡으로 돌려, 서버 번들이 실패해도 DB 백업 성공은 유지합니다.
+    // dedupe 를 쓰지 않는 이유: dedupe 는 payload 를 무시하고 QUEUED 잡 1건으로 합치므로
+    // 백업을 연달아 돌리면 두 번째 백업의 서버 번들이 조용히 사라집니다.
+    await queue.enqueue({
+      kind: "BACKUP_SERVER",
+      payload: { triggeredBy: job.payload?.triggeredBy || "backup" },
+      maxAttempts: 2,
+      createdBy: "backup",
+    });
     await queue.enqueue({
       kind: "BACKUP_PRUNE",
       payload: {},
@@ -994,6 +1180,25 @@ export function registerBackupJobs(handlers, { backups, queue, log }) {
       createdBy: "backup",
       dedupe: true,
     });
+
+    return result;
+  };
+
+  handlers.BACKUP_SERVER = async (job) => {
+    const result = await backups.runServerBackup({
+      triggeredBy: job.payload?.triggeredBy || job.created_by || "system",
+      jobId: job.id,
+    });
+
+    if (result?.runId) {
+      await queue.enqueue({
+        kind: "BACKUP_UPLOAD",
+        payload: { runId: result.runId, triggeredBy: "backup" },
+        maxAttempts: 6,
+        createdBy: "backup",
+        dedupe: true,
+      });
+    }
 
     return result;
   };
@@ -1021,6 +1226,6 @@ export function registerBackupJobs(handlers, { backups, queue, log }) {
   };
 
   log.info("backup job handlers registered", {
-    kinds: ["BACKUP", "BACKUP_UPLOAD", "BACKUP_PRUNE", "BACKUP_VERIFY"],
+    kinds: ["BACKUP", "BACKUP_SERVER", "BACKUP_UPLOAD", "BACKUP_PRUNE", "BACKUP_VERIFY"],
   });
 }

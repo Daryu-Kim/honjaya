@@ -170,7 +170,8 @@ create index if not exists discord_mod_actions_target_idx
 -- 덤프 1회 = 1행. Discord 업로드가 실패해도 이 행은 남습니다.
 create table if not exists public.backup_runs (
   id          uuid primary key default gen_random_uuid(),
-  kind        text not null default 'FULL' check (kind in ('FULL', 'SCHEMA', 'DATA')),
+  kind        text not null default 'FULL'
+                check (kind in ('FULL', 'SCHEMA', 'DATA', 'SERVER')),
   status      text not null default 'RUNNING'
                 check (status in ('RUNNING', 'SUCCEEDED', 'FAILED')),
   db_name     text not null default 'honjaya',
@@ -193,6 +194,13 @@ create table if not exists public.backup_runs (
 
 create index if not exists backup_runs_time_idx
   on public.backup_runs (started_at desc);
+
+-- P12B-1: 이미 만들어진 DB 는 create table if not exists 로 제약이 바뀌지 않습니다.
+-- 서버(코드·설정) 번들 백업을 같은 파이프라인에 넣기 위해 제약을 다시 겁니다(재실행 안전).
+alter table public.backup_runs drop constraint if exists backup_runs_kind_check;
+alter table public.backup_runs
+  add constraint backup_runs_kind_check
+  check (kind in ('FULL', 'SCHEMA', 'DATA', 'SERVER'));
 
 -- 분할 업로드된 조각. part_no 순서로 재조립합니다.
 create table if not exists public.backup_files (

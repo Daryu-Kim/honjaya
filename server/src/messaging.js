@@ -33,6 +33,24 @@ export function isDryRun() {
   return messagingProvider() !== "solapi";
 }
 
+// 발송 준비 상태. 어떤 환경변수가 비어 있는지 "이름만" 돌려줍니다(값은 노출하지 않음).
+// 관리자 화면 배너와 기동 로그가 같은 판단을 쓰도록 한 곳에 모읍니다.
+export function messagingReadiness() {
+  const provider = messagingProvider();
+  const missing = [];
+
+  if (!config.messaging?.solapiApiKey) missing.push("SOLAPI_API_KEY");
+  if (!config.messaging?.solapiApiSecret) missing.push("SOLAPI_API_SECRET");
+  if (!messagingSender()) missing.push("MESSAGING_SENDER");
+
+  return {
+    provider,
+    dryRun: provider !== "solapi",
+    credentialsReady: missing.length === 0,
+    missing,
+  };
+}
+
 function normalizePhone(phone) {
   const digits = String(phone || "").replace(/[^0-9]/g, "");
 

@@ -541,6 +541,23 @@ identity; Kakao is only a delivery channel for 알림톡.
   `/api/marketing/segments` 200, `/api/kakao/status` 404, 잘못된 수신거부 토큰 404,
   `https://honjaya.vercel.app/api/marketing/*` rewrite 동작 + `/unsubscribe` 페이지 200.
 
+### 실사용 모드 전환 (dry-run → real send)
+
+- **Root cause of "still 검수용 모드"**: `server/docker-compose.yml` listed each api env var explicitly and
+  never forwarded `MESSAGING_*` / `SOLAPI_*`; `server/.env` is `.dockerignore`d so it never lands in the
+  image. Keys added to `.env` were therefore invisible and the container kept falling back to `dryrun`.
+- Fix: `api.environment` now passes `MESSAGING_PROVIDER` / `MESSAGING_SENDER` / `SOLAPI_API_KEY` /
+  `SOLAPI_API_SECRET` (plus `LOG_LEVEL`, which was documented but never forwarded either).
+- `messagingReadiness()` in `server/src/messaging.js` → `{provider, dryRun, credentialsReady, missing[]}`
+  with **env names only** (never values). `GET /api/marketing/settings` exposes `provider`, `sender`,
+  `senderText`, `credentialsReady`, `missing`; `server/src/index.js` logs the same verdict at boot
+  (`[messaging] 실사용 모드` / `검수용 모드` / `발송 설정 누락: …`).
+- Admin banner now has 4 states: dry-run + keys present (⇒ flip `MESSAGING_PROVIDER`), dry-run + missing
+  names listed, real mode but missing names (error), real mode ready (shows the sender number).
+- **Vercel needs no change** — sending is server-side. Verified against the live bundle
+  `app.*.js`: `VUE_APP_SUPABASE_URL=https://api.honjaya-server.xyz`, discord invite present, `supabase.co`
+  and `*.ts.net` absent.
+
 ---
 
 ## 3-8. P8 — Revisit coupons (DONE)
@@ -1134,9 +1151,11 @@ Move/Mute/Deafen Members, Send Messages, Attach Files, Embed Links, Read History
 | --- | --- | --- | --- | --- |
 | **P12A** | Bot foundation: `bot` compose service, token isolation, internal API + api proxy + `BOT_INTERNAL_TOKEN`, `discord.sql`, gateway with GUILD_MEMBERS, `/상태`, job queue, snapshot capture, structured logging, graceful shutdown | M | Discord app + portal intents | **DONE (code) — 호스트 env + 배포 대기** |
 | **P12B** | Encrypted backup pipeline + Discord upload + retention + retry queue + verify-restore to scratch DB | M | P12A | **DONE — 커밋 `aa3d831`** |
+| **P12B-1** | 메인 서버 백업: 저장소 코드·설정을 tar.gz 로 묶어 같은 AES-256-GCM 파이프라인으로 암호화·분할·업로드. `kind='SERVER'` run 을 DB 백업과 분리(보존 정책·검증 대상도 종류별) | S | P12B | **DONE (code)** — 마이그레이션·배포 대기 |
 | **P12C** | Read-only dashboard: `/admin/discord` 개요·채널 트리·역할·멤버·감사로그·스냅샷 diff·백업 이력 | M | P12B | **DONE — 커밋 `540bb39`** |
 | **P12D** | Live editing (non-structure): members (nickname/roles/timeout/kick/ban), messages & 공지, threads, invites, voice move | M | P12C | **DONE — 커밋 `8988084`** |
 | **P12E** | Structure editing + apply engine: 채널·카테고리·역할 CRUD, 순서 변경, 권한 편집, diff → 적용 → 롤백, 서버 설정 | L | P12D | **DONE — lint/build 통과, 커밋 `333dafa`** |
+| **P12E-1** | 혼자야 기본 구조 프리셋: 서버 구조를 한 번에 채우는 원클릭 초안 생성(역할 4 · 카테고리 4 · 채널 14, 운영진 카테고리에 `#백업` 포함). 이름 매칭으로 멱등 · 추가 전용(기존 항목 수정/삭제 없음) | S | P12E | **DONE (code)** — lint/build 대기 |
 | **P12F** | 자동화 & extras: webhook alerts (주문/예약 → Discord), AutoMod rules, scheduled events, emoji/sticker, reserved announcements; **optional** Discord OAuth2 web login | M | P12E | PLANNED |
 
 S/M/L are relative effort, not calendar estimates. P12A+P12B is the part with immediate operational value;
@@ -1383,6 +1402,31 @@ Key behaviours decided during implementation:
 - **Post-apply snapshot uses `reason='MANUAL'` with `created_by='discord:apply'`** because the
   `discord_snapshots.reason` CHECK has no `POST_APPLY`. This snapshot becomes the 3-way "last synced"
   baseline for the conflicts warning.
+- **P12E-1 혼자야 기본 구조 프리셋** (`buildHonjayaPreset()` in `src/lib/discord.js`, button + confirm
+  modal in `DiscordStructureEditor.vue`). Frontend-only: it fills the *draft* (roles 4 / categories 4 /
+  channels 14, including `#백업` under 운영진), then reuses `preview`/`apply` unchanged — no new
+  endpoint, no new op type.
+  Additive and idempotent: existing roles/channels are matched by normalized name + alias list
+  (emoji/punctuation stripped), never renamed, re-permissioned or deleted, so a second run creates 0
+  ops. New roles are positioned under the bot role (`botHighestPosition - 1 - index`) and are skipped
+  when the position is unknown. `Administrator` is deliberately not granted (`allowAdministrator` would
+  otherwise be required). Baseline plan on a clean guild: 26 ops, 0 destructive, 0 blocked
+  (cap is 60). Live validation still must go through `미리보기`.
+- **P12B-1 서버(코드·설정) 백업** — `runServerBackup()` in `server/bot/src/backup.js` +
+  `server/bot/src/serverBundle.js`. The `BACKUP` job enqueues a separate `BACKUP_SERVER` job
+  between the DB upload and prune (single sequential worker ⇒ order is guaranteed), so a failing
+  or missing source dir can never fail the DB backup. The bundle is `tar -czf` over an explicit
+  file list, with a blocklist applied *before* tar: `.env`/`.env.*` (except `.env.example`),
+  `*.local.json` (VAPID private key), `recipes-*`, logs, `node_modules`, `.git`, `dist`,
+  `coverage`, `backups`, `pgdata`, `csv`, `migration-data` (Firestore export = customer PII).
+  `BACKUP_SOURCE_DIR=/src` with a read-only `../:/src:ro` mount; ~1,530 files → ~11.7 MiB
+  archive → 1 Discord part. Runs are `kind='SERVER'` (filename `server-<stamp>.tar.gz.enc`),
+  so `uploadRun`/`prune`/the admin table keep working; retention is bucketed **per kind** and
+  `verifyRun` refuses SERVER runs (no `pg_restore` target). Restore = `decrypt-backup.mjs --out
+  server.tar.gz` → `tar -xzf`; the DB still comes from its own dump. Requires the widened
+  `backup_runs_kind_check` constraint, i.e. `docker compose run --rm --build migrate` (auto-deploy
+  does not migrate). `backupChannelId()` also falls back to the first text channel named
+  `*백업*`/`*backup*`, which is the preset's `#백업`.
 - **서버 설정 edits the draft's `desired.guild`** (preview/apply like everything else) instead of
   calling `PATCH /api/discord/guild` immediately — an immediate patch would let a stale draft revert
   a manual Discord rename later. `PATCH /api/discord/guild` stays registered as an ops/script-level

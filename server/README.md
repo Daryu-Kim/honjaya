@@ -127,6 +127,10 @@ VUE_APP_SUPABASE_PUBLISHABLE_KEY=<server/.env 의 ANON_KEY 값>
 | `SOLAPI_API_KEY` / `SOLAPI_API_SECRET` | (빈 값) | `MESSAGING_PROVIDER=solapi` 일 때만 사용 |
 | `STAFF_OWNER_PASSWORD` | (빈 값) | `staff:seed` 실행 시 사용할 초기 비밀번호. 비우면 무작위 생성 |
 
+> 위 `MESSAGING_*` / `SOLAPI_*` 4개는 `docker-compose.yml` 의 `api` 서비스 `environment` 에도 있어야 컨테이너로 전달됩니다
+> (`server/.env` 는 `.dockerignore` 로 이미지에 들어가지 않습니다). 값을 바꾼 뒤에는 `docker compose up -d api` 로 컨테이너를 다시 만드세요.
+> 키만 넣고 `MESSAGING_PROVIDER` 를 `dryrun` 으로 두면 계속 **검수용 모드**입니다.
+
 ---
 
 ## 4. 노트북을 서버로 쓰기 (권장 구성)
@@ -282,6 +286,7 @@ psql "$DATABASE_URL" -f supabase_data.sql
 > **마케팅(P7)**: 대상은 "마케팅 수신 동의 + 번호가 살아 있는 고객" 뿐입니다(`message_campaigns` / `message_logs`).
 > 발송은 손님 카카오 계정이 필요 없고, 가게가 계약한 업체 API 로 나갑니다(`src/messaging.js`).
 > `MESSAGING_PROVIDER` 가 없으면 `dryrun`(실제 발송 없음)이고, 캠페인 발송은 `marketing.manage`(사장)만 가능합니다.
+> 관리자 `마케팅` 화면 상단 배너가 현재 모드(검수용/실사용)와 **비어 있는 환경변수 이름**을 그대로 보여 줍니다.
 > 같은 캠페인에서 같은 고객에게 두 번 쌓이지 않도록 `message_logs(campaign_id, customer_id)` 에 유니크 인덱스가 있습니다.
 
 지원 필터: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `is`, `like`, `ilike`, `cs`(contains), `cd`, `ov`.

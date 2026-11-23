@@ -11,9 +11,28 @@
       </div>
     </header>
 
-    <p v-if="settings.dryRun" class="notice-box">
+    <p v-if="settings.dryRun && settings.credentialsReady" class="notice-box">
+      발송 키는 모두 들어가 있는데 <code>MESSAGING_PROVIDER</code> 가
+      <code>dryrun</code> 이라 검수용 모드예요. 서버 <code>.env</code> 에
+      <code>MESSAGING_PROVIDER=solapi</code> 를 넣고 api 컨테이너를 다시
+      시작하면 실제 발송으로 바뀝니다.
+    </p>
+    <p v-else-if="settings.dryRun" class="notice-box">
       검수용 모드예요. 지금은 실제로 발송되지 않고, 누구에게 몇 건 나갈지만
       확인할 수 있어요.
+      <template v-if="settings.missing.length">
+        실발송에 필요한 설정이 비어 있어요:
+        <code v-for="name in settings.missing" :key="name">{{ name }}</code>
+      </template>
+    </p>
+    <p v-else-if="settings.missing.length" class="notice-box error">
+      실사용 모드지만 발송 설정이 비어 있어요:
+      <code v-for="name in settings.missing" :key="name">{{ name }}</code>
+      — 이대로 보내면 실패합니다.
+    </p>
+    <p v-else class="notice-box ok">
+      실사용 모드예요. 발신번호 {{ settings.senderText }} 로 실제 문자가
+      발송됩니다. 알림톡은 카카오 템플릿 승인 전까지 발송되지 않아요.
     </p>
 
     <section class="summary-grid">
@@ -324,7 +343,12 @@ import { hasPermission } from "@/lib/staffAuth";
 const canManage = computed(() => hasPermission("marketing.manage"));
 
 const settings = ref({
+  provider: "",
   dryRun: true,
+  sender: "",
+  senderText: "",
+  credentialsReady: false,
+  missing: [],
   channels: [],
   segments: [],
   maxTitle: 60,
@@ -369,7 +393,12 @@ async function loadSettings() {
     const result = await fetchMarketingSettings();
 
     settings.value = {
+      provider: String(result?.provider || ""),
       dryRun: Boolean(result?.dryRun),
+      sender: String(result?.sender || ""),
+      senderText: String(result?.senderText || ""),
+      credentialsReady: Boolean(result?.credentialsReady),
+      missing: Array.isArray(result?.missing) ? result.missing : [],
       channels: Array.isArray(result?.channels) ? result.channels : [],
       segments: Array.isArray(result?.segments) ? result.segments : [],
       maxTitle: Number(result?.maxTitle || 60),
@@ -624,6 +653,16 @@ onMounted(async () => {
 .notice-box.small {
   margin-bottom: 12px;
   font-weight: 600;
+}
+.notice-box.error {
+  background: rgba(248, 113, 113, 0.16);
+  border-color: rgba(248, 113, 113, 0.42);
+  color: #fecaca;
+}
+.notice-box.ok {
+  background: rgba(52, 211, 153, 0.14);
+  border-color: rgba(52, 211, 153, 0.4);
+  color: #a7f3d0;
 }
 .summary-grid {
   display: grid;

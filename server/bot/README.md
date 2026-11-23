@@ -49,6 +49,7 @@ Discord 서버(길드)의 구조·멤버·공지·백업을 관리하는 봇입�
 | `DISCORD_ANNOUNCE_CHANNEL_ID` | – | 공지 기본 채널 (P12D) |
 | `BACKUP_ENCRYPTION_KEY` | ✅ | 백업 암호화 키 (`openssl rand -base64 32`). 없으면 백업 불가 |
 | `BACKUP_DIR` | – | 암호화 파일 보관 경로(기본 `/backups`, compose 볼륨 `./backups`) |
+| `BACKUP_SOURCE_DIR` | – | 서버 코드·설정 백업 원본(compose 기본 `/src` = 저장소 루트 읽기 전용). 비우면 서버 백업을 건너뜁니다 |
 | `DISCORD_MAX_UPLOAD_MB` | – | 조각 1개 최대 크기(기본 20) |
 | `BACKUP_SCRATCH_DB` | – | 검증 복원용 임시 DB(기본 `honjaya_verify`). 운영 DB 이름과 같으면 거부 |
 | `BACKUP_VERIFY_TIMEOUT_MS` | – | 검증 1회 제한 시간(기본 600000) |
@@ -112,6 +113,7 @@ pg_dump -Fc ──▶ gzip ──▶ AES-256-GCM ──▶ 파일 1개 ──▶
 | --- | --- | --- |
 | `BACKUP` | `/백업`, 스케줄(`discord_settings.backup_cron`, 기본 `0 5 * * *`), `POST /api/discord/backups` | 5 |
 | `BACKUP_UPLOAD` | `BACKUP` 성공 직후 자동 | 6 |
+| `BACKUP_SERVER` | `BACKUP` 성공 직후 자동 (`BACKUP_SOURCE_DIR` 없으면 건너뜀) | 2 |
 | `BACKUP_PRUNE` | `BACKUP` 성공 직후 자동 | 2 |
 | `BACKUP_VERIFY` | `/검증`, `POST /api/discord/backups/:id/verify` | 2 |
 
@@ -122,6 +124,29 @@ pg_dump -Fc ──▶ gzip ──▶ AES-256-GCM ──▶ 파일 1개 ──▶
 * **키는 절대 밖으로 나가지 않습니다.** `BACKUP_ENCRYPTION_KEY` 는 봇 env 에만 있고, Discord 메시지·DB·API 응답 어디에도 넣지 않습니다.
 * **운영 DB 덮어쓰기는 자동화하지 않습니다.** `BACKUP_VERIFY` 는 `BACKUP_SCRATCH_DB`(기본 `honjaya_verify`)에만 복원합니다. `BACKUP_SCRATCH_DB` 가 운영 DB 이름과 같으면 즉시 거부합니다.
 * 검증 절차: 조각 재조립 → `sha256` 대조 → 복호화 → `pg_restore --list` 항목 수 → `dropdb/createdb` → `pg_restore --exit-on-error` → 테이블별 행 수 대조 → 스크래치 DB 삭제. 결과는 `backup_restores.verification` 에 JSON 으로 남습니다.
+
+### 7-1. 서버(코드·설정) 백업 (P12B-1)
+
+DB 백업과 **같은 잡 흐름 안에서 별도 run**(`backup_runs.kind = 'SERVER'`)으로 만들어집니다.
+DB 백업이 실패해도, 서버 백업이 실패해도 서로를 막지 않습니다.
+
+```
+저장소 루트 ──▶ tar -czf (파일 목록 -T 사용) ──▶ encryptToFile(gzip 재적용) ──▶ AES-256-GCM
+      └─▶ backup_runs(kind='SERVER', db_name='honjaya-app') ──▶ Discord 업로드 ──▶ 보관 정책
+```
+
+* 대상은 **코드·설정**입니다: `server/`(compose·Dockerfile·sql·deploy 스크립트), `src/`, `package*.json`, `vercel.json`, `.env.example` 등.
+* **절대 포함하지 않는 것**: `.env` / `.env.*`(`.env.example` 제외), `*.local.json`(VAPID 개인키), `migration-data/`(고객 PII), `csv/`, `recipes-*`, `node_modules`, `.git`, `dist`, `coverage`, `backups/`, `pgdata/`, 로그.
+  제외는 tar 의 `--exclude` 추측이 아니라 **먼저 만든 파일 목록**으로 강제합니다.
+* 보관 정책은 **종류별로 따로** 셉니다(`kind` 별 최신 N개 유지) — 서버 백업이 DB 백업 슬롯을 잡아먹지 않습니다.
+* `/검증`(pg_restore)은 DB 백업 전용이라 `SERVER` run 에서는 거부합니다. 무결성은 조각별 `sha256` 으로 확인합니다.
+* 복원:
+
+  ```bash
+  node scripts/decrypt-backup.mjs <server-...tar.gz.enc> --out server.tar.gz   # 조각이면 먼저 이어붙이기
+  tar -xzf server.tar.gz -C /opt/honjaya                                       # 코드·설정 복원
+  # DB 는 DB 백업(.dump.enc)으로 따로 복원합니다. .env 는 백업에 없으니 직접 보관하세요.
+  ```
 
 파일 형식: `HJBK1 | iv(12) | tag(16) | ciphertext(gzip)`. 조각 이름 규칙은 `<filename>.part-001-of-004` 입니다.
 
@@ -138,6 +163,7 @@ docker compose run --rm bot node scripts/decrypt-backup.mjs \
 | --- | --- | --- |
 | P12A | 봇 부팅·슬래시 명령·스냅샷·작업 큐 | 완료 |
 | P12B | 백업·암호화·Discord 업로드·보관 정책·검증 복원 | 완료 |
+| P12B-1 | 서버 코드·설정 번들 백업(`kind='SERVER'`) | 완료 (마이그레이션·배포 대기) |
 | P12C | `/admin/discord` 읽기 전용 대시보드 | 예정 |
 | P12D | 멤버/메시지/스레드/초대 실시간 관리 | 예정 |
 | P12E | 구조 편집기 + 3-way diff 적용(apply) 엔진 | 예정 |

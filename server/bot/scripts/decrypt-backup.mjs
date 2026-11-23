@@ -9,6 +9,7 @@
 //
 // 키는 --key 또는 BACKUP_ENCRYPTION_KEY 환경변수로 받습니다(base64 또는 64자리 hex).
 // 결과물은 `pg_restore` 로 바로 복원할 수 있는 custom-format 덤프입니다.
+// P12B-1 서버 번들은 --out 을 server.tar.gz 로 주면 tar 로 풀 수 있는 파일이 나옵니다.
 import { readdir, rm, stat } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 
@@ -182,9 +183,18 @@ async function main() {
     const dump = await decryptToDumpFile({ sourcePath: joinedPath, targetPath: out, key });
 
     process.stdout.write(`완료: ${out} (${dump.sizeBytes} bytes)\n`);
-    process.stdout.write(
-      `복원 예시: pg_restore --no-owner --no-privileges --exit-on-error -d <db> ${basename(out)}\n`,
-    );
+
+    if (/\.(tar\.gz|tgz)$/i.test(out)) {
+      // P12B-1 서버 번들: DB 덤프가 아니라 저장소 tar.gz 입니다.
+      process.stdout.write(
+        `복원 예시: tar -xzf ${basename(out)} -C <복원할 경로>\n` +
+          "(DB 는 같은 시각의 DB 백업 파일로 따로 되돌리세요. .env 는 백업에 없으니 서버에서 직접 준비해야 합니다.)\n",
+      );
+    } else {
+      process.stdout.write(
+        `복원 예시: pg_restore --no-owner --no-privileges --exit-on-error -d <db> ${basename(out)}\n`,
+      );
+    }
   } finally {
     if (!options.keep) {
       await rm(joinedPath, { force: true }).catch(() => {});

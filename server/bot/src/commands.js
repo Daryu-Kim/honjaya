@@ -191,7 +191,7 @@ const commands = [
   {
     data: new SlashCommandBuilder()
       .setName("백업")
-      .setDescription("지금 DB 를 암호화 백업해 Discord 백업 채널로 올립니다."),
+      .setDescription("지금 DB 와 서버 설정을 암호화 백업해 Discord 백업 채널로 올립니다."),
     async execute({ interaction, deps }) {
       const job = await deps.queue.enqueue({
         kind: "BACKUP",
@@ -207,7 +207,9 @@ const commands = [
           { name: "작업 ID", value: `\`${job.id}\`` },
           {
             name: "진행 상황",
-            value: "덤프 → 암호화 → 분할 → 업로드 순서로 진행합니다.\n`/백업목록` 으로 결과를 확인하세요.",
+            value:
+              "DB 덤프 → 암호화 → 분할 → 업로드 후 서버 코드·설정 번들도 같은 방식으로 올립니다.\n" +
+              "`/백업목록` 으로 결과를 확인하세요.",
           },
         )
         .setTimestamp(new Date());
@@ -242,7 +244,9 @@ const commands = [
 
               return [
                 `**${kst(run.started_at)}** · ${RUN_STATUS_LABEL[run.status] ?? run.status}`,
-                `${mb(run.size_bytes)} · ${upload}${verify}`,
+                `${
+                  run.kind === "SERVER" ? "서버 코드·설정" : `DB ${run.db_name || ""}`.trim()
+                } · ${mb(run.size_bytes)} · ${upload}${verify}`,
                 `\`${run.id}\``,
               ].join("\n");
             })

@@ -9,6 +9,14 @@ export const BACKUP_STATUS_LABELS = {
   FAILED: "실패",
 };
 
+// P12B-1 — 백업 종류. SERVER 는 DB 덤프가 아니라 코드·설정 tar.gz 입니다.
+export const BACKUP_KIND_LABELS = {
+  FULL: "DB 전체",
+  SCHEMA: "DB 스키마",
+  DATA: "DB 데이터",
+  SERVER: "서버 코드·설정",
+};
+
 export const VERIFY_STATUS_LABELS = {
   RUNNING: "검증 중",
   SUCCEEDED: "검증 통과",
@@ -100,6 +108,15 @@ const DIFF_FIELD_LABELS = {
 
 export function getBackupStatusLabel(status) {
   return BACKUP_STATUS_LABELS[status] || status || "-";
+}
+
+export function getBackupKindLabel(kind) {
+  return BACKUP_KIND_LABELS[kind] || kind || "-";
+}
+
+// 서버 코드 백업은 pg_restore 검증 대상이 아니라 다른 복원 절차를 씁니다.
+export function isServerBackup(run) {
+  return run?.kind === "SERVER";
 }
 
 export function getVerifyStatusLabel(status) {
@@ -585,6 +602,406 @@ export function desiredFromStructure(structure) {
       ),
     })),
   };
+}
+
+// ── 혼자야 기본 구조 프리셋 ─────────────────────────────────────────────────
+// 빈 서버(또는 정리가 안 된 서버)에 우리 가게 구조를 한 번에 깔아 줍니다.
+// 이미 있는 역할/카테고리/채널은 이름(별칭 포함)으로 찾아 그대로 두고, 없는 것만
+// 새로 만듭니다. 기존 항목의 이름·권한은 건드리지 않습니다.
+const PRESET_TEXTUAL_TYPES = new Set([
+  "GuildText",
+  "GuildAnnouncement",
+  "GuildForum",
+  "GuildMedia",
+]);
+const PRESET_VOICE_TYPES = new Set(["GuildVoice", "GuildStageVoice"]);
+
+const PRESET_ROLES = [
+  {
+    key: "owner",
+    name: "사장",
+    aliases: ["사장님", "점장", "owner"],
+    color: 0xc9a227,
+    hoist: true,
+    mentionable: false,
+    // Administrator 는 일부러 넣지 않습니다(적용 시 추가 확인이 필요한 권한).
+    permissions: [
+      "ManageGuild",
+      "ManageRoles",
+      "ManageChannels",
+      "ViewAuditLog",
+      "ManageWebhooks",
+      "ManageEvents",
+      "ManageNicknames",
+      "KickMembers",
+      "BanMembers",
+      "ModerateMembers",
+      "ManageMessages",
+      "ManageThreads",
+      "MuteMembers",
+      "DeafenMembers",
+      "MoveMembers",
+    ],
+  },
+  {
+    key: "manager",
+    name: "매니저",
+    aliases: ["매니져", "관리자", "manager"],
+    color: 0x7b68ee,
+    hoist: true,
+    mentionable: true,
+    permissions: [
+      "ManageMessages",
+      "ManageThreads",
+      "ManageNicknames",
+      "KickMembers",
+      "ModerateMembers",
+      "MuteMembers",
+      "DeafenMembers",
+      "MoveMembers",
+      "ViewAuditLog",
+    ],
+  },
+  {
+    key: "staff",
+    name: "직원",
+    aliases: ["알바", "스태프", "staff", "employee"],
+    color: 0x3ba55d,
+    hoist: true,
+    mentionable: true,
+    permissions: [
+      "ManageMessages",
+      "ManageThreads",
+      "MuteMembers",
+      "DeafenMembers",
+      "MoveMembers",
+    ],
+  },
+  {
+    key: "guest",
+    name: "손님",
+    aliases: ["단골", "멤버", "guest", "customer"],
+    color: 0x99aab5,
+    hoist: false,
+    mentionable: true,
+    permissions: [],
+  },
+];
+
+const READ_ONLY = {
+  allow: ["ViewChannel", "ReadMessageHistory", "AddReactions"],
+  deny: ["SendMessages"],
+};
+const STAFF_WRITE = {
+  allow: ["SendMessages", "EmbedLinks", "AttachFiles"],
+  deny: [],
+};
+const STAFF_ONLY = {
+  allow: ["ViewChannel", "SendMessages", "ReadMessageHistory", "AttachFiles"],
+  deny: [],
+};
+const HIDDEN = { allow: [], deny: ["ViewChannel"] };
+// P12B-1 — 백업 파일이 쌓이는 곳. 운영진은 읽을 수만 있고 글은 봇만 남깁니다.
+const STAFF_READ = {
+  allow: ["ViewChannel", "ReadMessageHistory", "AddReactions"],
+  deny: ["SendMessages"],
+};
+
+const PRESET_CATEGORIES = [
+  {
+    name: "📢 공지",
+    aliases: ["공지", "공지사항", "notice", "announcements"],
+    channels: [
+      {
+        name: "공지사항",
+        aliases: ["공지", "notice", "announcements"],
+        topic: "혼자야 공지 · 영업시간·휴무·이벤트 안내",
+        overwrites: {
+          everyone: READ_ONLY,
+          staff: STAFF_WRITE,
+          manager: STAFF_WRITE,
+        },
+      },
+      {
+        name: "이벤트",
+        aliases: ["event"],
+        topic: "이벤트·공연·시즌 메뉴 소식",
+        overwrites: {
+          everyone: READ_ONLY,
+          staff: STAFF_WRITE,
+          manager: STAFF_WRITE,
+        },
+      },
+      {
+        name: "혼자야-규칙",
+        aliases: ["규칙", "rules"],
+        topic: "혼자야 이용 규칙 · 처음 오셨다면 꼭 읽어 주세요",
+        overwrites: { everyone: READ_ONLY },
+      },
+    ],
+  },
+  {
+    name: "🍶 혼자야",
+    aliases: ["혼자야", "일반", "general"],
+    channels: [
+      {
+        name: "잡담",
+        aliases: ["수다", "general", "chat"],
+        topic: "자유롭게 이야기해요",
+      },
+      {
+        name: "메뉴-리뷰",
+        aliases: ["리뷰", "후기", "review"],
+        topic: "오늘 마신 메뉴 후기 남겨 주세요",
+      },
+      {
+        name: "신청곡",
+        aliases: ["노래신청", "music"],
+        topic: "듣고 싶은 노래를 신청해 주세요",
+      },
+      {
+        name: "방문-인증",
+        aliases: ["인증", "사진"],
+        topic: "방문 인증샷 · 테이블 번호를 함께 남겨 주세요",
+      },
+    ],
+  },
+  {
+    name: "🛠 운영진",
+    aliases: ["운영진", "스태프", "staff"],
+    channels: [
+      { name: "운영-잡담", aliases: ["운영"], topic: "근무 중 공유할 내용" },
+      { name: "업무일지", aliases: ["일지"], topic: "근무 일지·인수인계" },
+      { name: "재고-체크", aliases: ["재고"], topic: "재고·발주 체크" },
+      {
+        name: "백업",
+        aliases: ["backup", "서버-백업"],
+        topic:
+          "자동 백업 파일(DB·서버 코드). 봇만 올리고 사람은 읽기만 합니다.",
+        overwrites: {
+          everyone: HIDDEN,
+          staff: STAFF_READ,
+          manager: STAFF_READ,
+        },
+      },
+    ],
+    overwrites: { everyone: HIDDEN, staff: STAFF_ONLY, manager: STAFF_ONLY },
+  },
+  {
+    name: "🎧 음성",
+    aliases: ["음성", "보이스", "voice"],
+    channels: [
+      { name: "라운지", typeName: "GuildVoice" },
+      { name: "노래방", typeName: "GuildVoice" },
+      { name: "음악감상", typeName: "GuildVoice" },
+    ],
+  },
+];
+
+// 이모지·공백·기호를 모두 지워 비교합니다("📢 공지" == "공지").
+function presetKey(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+function cloneOverwrites(list) {
+  return (list || []).map((item) => ({ ...item }));
+}
+
+function matchesPresetName(name, spec) {
+  const key = presetKey(name);
+
+  if (!key) {
+    return false;
+  }
+
+  if (key === presetKey(spec.name)) {
+    return true;
+  }
+
+  return (spec.aliases || []).some((alias) => presetKey(alias) === key);
+}
+
+function findPresetCategory(list, spec) {
+  return list.find(
+    (item) =>
+      item.typeName === "GuildCategory" && matchesPresetName(item.name, spec)
+  );
+}
+
+function findPresetChannel(list, spec) {
+  return list.find(
+    (item) =>
+      item.typeName !== "GuildCategory" && matchesPresetName(item.name, spec)
+  );
+}
+
+/**
+ * 현재 초안(desired) 위에 혼자야 기본 구조를 얹습니다.
+ * 없는 역할 → 카테고리 → 채널 순서로 임시 id 를 붙여 추가하고, 이미 있는 항목은
+ * 그대로 복사만 합니다. 반환값의 summary 로 화면에서 미리 보여 줍니다.
+ */
+export function buildHonjayaPreset({
+  desired,
+  catalog = [],
+  everyoneRoleId = "",
+  botHighestPosition = -1,
+} = {}) {
+  if (!desired) {
+    return null;
+  }
+
+  const next = {
+    guild: { ...(desired.guild || {}) },
+    roles: (desired.roles || []).map((role) => ({ ...role })),
+    channels: (desired.channels || []).map((channel) => ({
+      ...channel,
+      permissionOverwrites: cloneOverwrites(channel.permissionOverwrites),
+    })),
+  };
+
+  const summary = {
+    createdRoles: [],
+    createdCategories: [],
+    createdChannels: [],
+    reusedRoles: [],
+    reusedChannels: [],
+    missingPermissions: [],
+  };
+
+  const catalogNames = new Set((catalog || []).map((item) => item.name));
+  const usedPermissions = new Set();
+
+  function bits(names) {
+    (names || []).forEach((name) => usedPermissions.add(name));
+
+    return encodePermissionNames(catalog, names || []);
+  }
+
+  const roleIdByKey = new Map();
+
+  if (everyoneRoleId) {
+    roleIdByKey.set("everyone", String(everyoneRoleId));
+  }
+
+  // 새 역할은 봇 역할 바로 아래에 위에서부터 차례로 놓습니다.
+  const basePosition =
+    Number(botHighestPosition) > 0 ? Number(botHighestPosition) - 1 : null;
+
+  PRESET_ROLES.forEach((spec, index) => {
+    const existing = next.roles.find((role) =>
+      matchesPresetName(role.name, spec)
+    );
+
+    if (existing) {
+      roleIdByKey.set(spec.key, String(existing.id));
+      summary.reusedRoles.push(existing.name);
+
+      return;
+    }
+
+    const id = newTempId("role");
+
+    next.roles.push({
+      id,
+      name: spec.name,
+      color: spec.color,
+      hoist: Boolean(spec.hoist),
+      mentionable: Boolean(spec.mentionable),
+      permissions: bits(spec.permissions),
+      position:
+        basePosition === null ? null : Math.max(basePosition - index, 0),
+    });
+
+    roleIdByKey.set(spec.key, id);
+    summary.createdRoles.push(spec.name);
+  });
+
+  function overwritesFor(spec) {
+    return Object.entries(spec.overwrites || {})
+      .map(([key, value]) => {
+        const id = roleIdByKey.get(key);
+
+        if (!id) {
+          return null;
+        }
+
+        return {
+          id,
+          type: 0,
+          allow: bits(value.allow),
+          deny: bits(value.deny),
+        };
+      })
+      .filter(Boolean);
+  }
+
+  PRESET_CATEGORIES.forEach((category, categoryIndex) => {
+    const existingCategory = findPresetCategory(next.channels, category);
+
+    let categoryId;
+
+    if (existingCategory) {
+      categoryId = String(existingCategory.id);
+      summary.reusedChannels.push(existingCategory.name);
+    } else {
+      categoryId = newTempId("channel");
+      next.channels.push({
+        id: categoryId,
+        typeName: "GuildCategory",
+        name: category.name,
+        parentId: null,
+        position: categoryIndex,
+        topic: null,
+        nsfw: null,
+        rateLimitPerUser: null,
+        bitrate: null,
+        userLimit: null,
+        permissionOverwrites: overwritesFor(category),
+      });
+      summary.createdCategories.push(category.name);
+    }
+
+    category.channels.forEach((spec, index) => {
+      const existingChannel = findPresetChannel(next.channels, spec);
+
+      if (existingChannel) {
+        summary.reusedChannels.push(existingChannel.name);
+
+        return;
+      }
+
+      const typeName = PRESET_VOICE_TYPES.has(spec.typeName)
+        ? spec.typeName
+        : "GuildText";
+      const isText = PRESET_TEXTUAL_TYPES.has(typeName);
+      const isVoice = PRESET_VOICE_TYPES.has(typeName);
+      // 채널에 따로 지정이 없으면 카테고리 설정을 그대로 물려받습니다.
+      const overwriteSpec = spec.overwrites ? spec : category;
+
+      next.channels.push({
+        id: newTempId("channel"),
+        typeName,
+        name: spec.name,
+        parentId: categoryId,
+        position: index,
+        topic: isText ? spec.topic ?? "" : null,
+        nsfw: isText ? false : null,
+        rateLimitPerUser: isText ? 0 : null,
+        bitrate: isVoice ? 64000 : null,
+        userLimit: isVoice ? 0 : null,
+        permissionOverwrites: isText ? overwritesFor(overwriteSpec) : [],
+      });
+      summary.createdChannels.push(spec.name);
+    });
+  });
+
+  summary.missingPermissions = [...usedPermissions].filter(
+    (name) => !catalogNames.has(name)
+  );
+
+  return { desired: next, summary };
 }
 
 export function fetchDiscordStructure() {

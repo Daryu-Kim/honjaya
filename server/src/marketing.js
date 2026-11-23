@@ -11,6 +11,7 @@ import {
   channelLabel,
   isDryRun,
   messagingProvider,
+  messagingReadiness,
   messagingSender,
   sendOne,
 } from "./messaging.js";
@@ -139,11 +140,17 @@ function mapLog(row) {
 
 export function getMarketingSettings() {
   const provider = messagingProvider();
+  const readiness = messagingReadiness();
+  const sender = messagingSender();
 
   return {
     provider,
-    dryRun: isDryRun(),
-    sender: messagingSender(),
+    dryRun: readiness.dryRun,
+    sender,
+    senderText: sender ? formatPhone(sender) : "",
+    // 실제 발송에 필요한데 비어 있는 환경변수 이름만 내려 줍니다(키 값은 내려 보내지 않음).
+    credentialsReady: readiness.credentialsReady,
+    missing: readiness.missing,
     channels: CHANNELS.map((value) => ({ value, label: channelLabel(value) })),
     segments: Object.entries(SEGMENTS).map(([value, meta]) => ({
       value,

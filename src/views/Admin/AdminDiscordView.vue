@@ -1000,6 +1000,7 @@
           <thead>
             <tr>
               <th>시작</th>
+              <th>종류</th>
               <th>상태</th>
               <th>크기</th>
               <th>파일</th>
@@ -1011,6 +1012,7 @@
           <tbody>
             <tr v-for="run in backupList" :key="run.id">
               <td>{{ formatDiscordDateTime(run.started_at) }}</td>
+              <td>{{ getBackupKindLabel(run.kind) }}</td>
               <td>
                 <span
                   :class="
@@ -1048,7 +1050,16 @@
                 <button
                   type="button"
                   class="preset-button"
-                  :disabled="!canBackup || run.status !== 'SUCCEEDED'"
+                  :disabled="
+                    !canBackup ||
+                    run.status !== 'SUCCEEDED' ||
+                    isServerBackup(run)
+                  "
+                  :title="
+                    isServerBackup(run)
+                      ? '서버 코드 백업은 DB 검증 대상이 아닙니다. 내려받아 tar 로 확인하세요.'
+                      : ''
+                  "
                   @click="verifyRun(run.id)"
                 >
                   검증
@@ -1075,9 +1086,17 @@
         </div>
         <p class="sub-text mono">{{ selectedRun.filename }}</p>
         <p class="sub-text">
-          sha256 {{ selectedRun.sha256 || "-" }} · 키
-          {{ selectedRun.key_id || "-" }} · 암호화
+          {{ getBackupKindLabel(selectedRun.kind) }} · sha256
+          {{ selectedRun.sha256 || "-" }} · 키 {{ selectedRun.key_id || "-" }} ·
+          암호화
           {{ selectedRun.encrypted ? "적용" : "없음" }}
+        </p>
+        <p v-if="isServerBackup(selectedRun)" class="sub-text">
+          서버 코드·설정 번들이에요. `.env` 등 비밀값은 포함되지 않으며, 복원은
+          복호화 후 tar 로 풀고 DB 는 DB 백업으로 따로 되돌립니다.
+        </p>
+        <p v-if="isServerBackup(selectedRun)" class="sub-text">
+          {{ describeServerBundle(selectedRun) }}
         </p>
         <div class="table-wrap">
           <table class="admin-table">
@@ -1310,6 +1329,7 @@ import {
   timeoutDiscordMember,
   unbanDiscordMember,
   updateDiscordMember,
+  getBackupKindLabel,
   getBackupStatusLabel,
   getChannelTypeLabel,
   getDiffFieldLabel,
@@ -1322,6 +1342,7 @@ import {
   formatDiscordDateTime,
   roleColorStyle,
   runDiscordBackup,
+  isServerBackup,
   verifyDiscordBackup,
 } from "@/lib/discord";
 import { hasPermission } from "@/lib/staffAuth";
@@ -2052,6 +2073,14 @@ async function downloadRun(run) {
   } catch (error) {
     alert(error?.message || "백업 파일을 내려받지 못했어요.");
   }
+}
+
+function describeServerBundle(run) {
+  const counts = run?.row_counts || {};
+
+  return `파일 ${counts.files ?? "-"}개 · 원본 ${formatBytes(
+    counts.sourceBytes
+  )}`;
 }
 
 // ── 스냅샷 ──────────────────────────────────────────────────────────────────

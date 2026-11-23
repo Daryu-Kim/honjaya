@@ -69,6 +69,8 @@ export const config = {
   backup: {
     dir: text("BACKUP_DIR", "/backups"),
     encryptionKey: text("BACKUP_ENCRYPTION_KEY"),
+    // 서버(코드·설정) 백업 대상. 비어 있으면 서버 백업만 건너뜁니다.
+    sourceDir: text("BACKUP_SOURCE_DIR", ""),
     maxUploadMb: num("DISCORD_MAX_UPLOAD_MB", 20),
     scratchDb: text("BACKUP_SCRATCH_DB", "honjaya_verify"),
     verifyTimeoutMs: num("BACKUP_VERIFY_TIMEOUT_MS", 600_000),

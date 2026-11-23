@@ -20,6 +20,8 @@ const HEADER_BYTES = MAGIC.length + IV_BYTES + TAG_BYTES;
 const ALGORITHM = "aes-256-gcm";
 
 export const BACKUP_FILE_SUFFIX = ".dump.gz.enc";
+// P12B-1: DB 덤프 대신 서버 코드·설정 tar.gz 를 같은 방식으로 암호화합니다.
+export const SERVER_FILE_SUFFIX = ".tar.gz.enc";
 
 /** BACKUP_ENCRYPTION_KEY(base64 32바이트 또는 64자 hex)를 Buffer 로 변환합니다. */
 export function parseKey(raw) {
