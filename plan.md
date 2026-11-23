@@ -81,7 +81,7 @@ Guest phone / staff tablet
 | **P10** | 선불권 (member-bound balance, 다음 영업일부터 사용, 모든 조건을 관리자가 설정) | **DONE (lint/build 통과, 커밋·배포 완료 — 서버 마이그레이션 대기)** |
 | **P11** | 혼자야 기프티콘 (code-based single-use gift, 링크/문자 전달, 태블릿 사용) | **DONE (lint/build 통과, 커밋 완료 — 서버 마이그레이션 대기)** |
 | **Ops** | Cloudflare cutover (`api.honjaya-server.xyz` live, Tailscale → backup, `vercel.json` rewrite swapped) | **DONE** |
-| **P12** | Discord 통합 관리 시스템: 봇(서버 전체 관리) + 암호화 자동 백업 → Discord 업로드 + 웹 관리자 `/admin/discord` | **IN PROGRESS** — P12A·P12B·P12C 커밋됨, P12D·P12E 코드 완료(커밋 대기), see §3-13 |
+| **P12** | Discord 통합 관리 시스템: 봇(서버 전체 관리) + 암호화 자동 백업 → Discord 업로드 + 웹 관리자 `/admin/discord` | **IN PROGRESS** — P12A~P12E 커밋 완료(`333dafa`), see §3-13 |
 
 ---
 
@@ -1133,10 +1133,10 @@ Move/Mute/Deafen Members, Send Messages, Attach Files, Embed Links, Read History
 | Phase | Scope | Size | Depends on | Status |
 | --- | --- | --- | --- | --- |
 | **P12A** | Bot foundation: `bot` compose service, token isolation, internal API + api proxy + `BOT_INTERNAL_TOKEN`, `discord.sql`, gateway with GUILD_MEMBERS, `/상태`, job queue, snapshot capture, structured logging, graceful shutdown | M | Discord app + portal intents | **DONE (code) — 호스트 env + 배포 대기** |
-| **P12B** | Encrypted backup pipeline + Discord upload + retention + retry queue + verify-restore to scratch DB | M | P12A | **DONE (code) — 검증 완료, 커밋 대기** |
-| **P12C** | Read-only dashboard: `/admin/discord` 개요·채널 트리·역할·멤버·감사로그·스냅샷 diff·백업 이력 | M | P12B | **DONE (code) — 검증 완료, 커밋 대기** |
-| **P12D** | Live editing (non-structure): members (nickname/roles/timeout/kick/ban), messages & 공지, threads, invites, voice move | M | P12C | **DONE (code) — 검증 완료, 커밋 대기** |
-| **P12E** | Structure editing + apply engine: 채널·카테고리·역할 CRUD, 순서 변경, 권한 편집, diff → 적용 → 롤백, 서버 설정 | L | P12D | **DONE (code) — 검증 완료, 커밋 대기** |
+| **P12B** | Encrypted backup pipeline + Discord upload + retention + retry queue + verify-restore to scratch DB | M | P12A | **DONE — 커밋 `aa3d831`** |
+| **P12C** | Read-only dashboard: `/admin/discord` 개요·채널 트리·역할·멤버·감사로그·스냅샷 diff·백업 이력 | M | P12B | **DONE — 커밋 `540bb39`** |
+| **P12D** | Live editing (non-structure): members (nickname/roles/timeout/kick/ban), messages & 공지, threads, invites, voice move | M | P12C | **DONE — 커밋 `8988084`** |
+| **P12E** | Structure editing + apply engine: 채널·카테고리·역할 CRUD, 순서 변경, 권한 편집, diff → 적용 → 롤백, 서버 설정 | L | P12D | **DONE — lint/build 통과, 커밋 `333dafa`** |
 | **P12F** | 자동화 & extras: webhook alerts (주문/예약 → Discord), AutoMod rules, scheduled events, emoji/sticker, reserved announcements; **optional** Discord OAuth2 web login | M | P12E | PLANNED |
 
 S/M/L are relative effort, not calendar estimates. P12A+P12B is the part with immediate operational value;
@@ -1333,7 +1333,7 @@ Key behaviours decided during implementation:
   box). Response shapes were validated against `memberOps.js` / `publishOps.js` source. Must be
   smoke-tested on the host after deploy.
 
-### S. P12E implementation notes (DONE — code)
+### S. P12E implementation notes (DONE — lint/build 통과, 커밋 `333dafa`)
 
 The apply engine is **draft → preview → apply → rollback**, not per-resource CRUD endpoints. The
 browser holds one editable `desired` document, the server diffs it against the live guild and turns
