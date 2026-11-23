@@ -81,7 +81,7 @@ Guest phone / staff tablet
 | **P10** | 선불권 (member-bound balance, 다음 영업일부터 사용, 모든 조건을 관리자가 설정) | **DONE (lint/build 통과, 커밋·배포 완료 — 서버 마이그레이션 대기)** |
 | **P11** | 혼자야 기프티콘 (code-based single-use gift, 링크/문자 전달, 태블릿 사용) | **DONE (lint/build 통과, 커밋 완료 — 서버 마이그레이션 대기)** |
 | **Ops** | Cloudflare cutover (`api.honjaya-server.xyz` live, Tailscale → backup, `vercel.json` rewrite swapped) | **DONE** |
-| **P12** | Discord 통합 관리 시스템: 봇(서버 전체 관리) + 암호화 자동 백업 → Discord 업로드 + 웹 관리자 `/admin/discord` | **IN PROGRESS** — P12A·P12B·P12C 커밋됨, P12D 코드 완료(커밋 대기), see §3-13 |
+| **P12** | Discord 통합 관리 시스템: 봇(서버 전체 관리) + 암호화 자동 백업 → Discord 업로드 + 웹 관리자 `/admin/discord` | **IN PROGRESS** — P12A·P12B·P12C 커밋됨, P12D·P12E 코드 완료(커밋 대기), see §3-13 |
 
 ---
 
@@ -1018,8 +1018,15 @@ Editing Discord *is* the risky part; the design exists to make it boring.
 | `GET /api/discord/audit-logs` | `discord.view` | Discord audit log (paginated, filtered) |
 | `POST /api/discord/messages` / `DELETE /api/discord/messages/:id` | `discord.manage` | 공지/메시지 |
 | `GET/POST/DELETE /api/discord/invites` | `discord.manage` | invites |
-| `POST /api/discord/apply/preview` / `POST /api/discord/apply` | `discord.manage` | diff / execute |
-| `POST /api/discord/apply/:runId/rollback` | `discord.manage` | rollback last run |
+| `GET /api/discord/structure` | `discord.view` | full live structure + hash + bot position + permission catalog + saved draft |
+| `GET /api/discord/draft` | `discord.view` | latest saved draft (`{draft}` or `{draft:null}`) |
+| `PUT`/`POST` `/api/discord/draft` | `discord.manage` | save draft (`{desired, note}`) — versions capped at 5 |
+| `DELETE /api/discord/draft` | `discord.manage` | drop every draft version for the guild |
+| `POST /api/discord/apply/preview` | `discord.view` | diff / execute plan (`{desired?}` → ops, blocked, warnings, conflicts, counts) |
+| `POST /api/discord/apply` | `discord.manage` | run plan (`{desired?, confirmName, allowAdministrator, allowDangerous, allowDeletes}`) |
+| `POST /api/discord/apply/:runId/rollback` | `discord.manage` | build inverse ops of a finished run and execute them |
+| `GET /api/discord/apply/runs` | `discord.view` | apply history (`{total, limit, offset, runs}`) |
+| `GET /api/discord/apply/runs/:runId` | `discord.view` | run + per-op rows |
 | `GET /api/discord/snapshots` + `/diff` | `discord.view` | structure history + diff |
 | `GET/POST /api/discord/backups`, `POST .../verify`, `GET .../download` | `discord.backup` | backups |
 | `PATCH /api/discord/settings` | `discord.settings` | channels, cron, retention |
@@ -1129,7 +1136,7 @@ Move/Mute/Deafen Members, Send Messages, Attach Files, Embed Links, Read History
 | **P12B** | Encrypted backup pipeline + Discord upload + retention + retry queue + verify-restore to scratch DB | M | P12A | **DONE (code) — 검증 완료, 커밋 대기** |
 | **P12C** | Read-only dashboard: `/admin/discord` 개요·채널 트리·역할·멤버·감사로그·스냅샷 diff·백업 이력 | M | P12B | **DONE (code) — 검증 완료, 커밋 대기** |
 | **P12D** | Live editing (non-structure): members (nickname/roles/timeout/kick/ban), messages & 공지, threads, invites, voice move | M | P12C | **DONE (code) — 검증 완료, 커밋 대기** |
-| **P12E** | Structure editing + apply engine: 채널·카테고리·역할 CRUD, 드래그 재정렬, 권한 매트릭스 편집, diff → 적용 → 롤백, 서버 설정 | L | P12D | PLANNED |
+| **P12E** | Structure editing + apply engine: 채널·카테고리·역할 CRUD, 순서 변경, 권한 편집, diff → 적용 → 롤백, 서버 설정 | L | P12D | **DONE (code) — 검증 완료, 커밋 대기** |
 | **P12F** | 자동화 & extras: webhook alerts (주문/예약 → Discord), AutoMod rules, scheduled events, emoji/sticker, reserved announcements; **optional** Discord OAuth2 web login | M | P12E | PLANNED |
 
 S/M/L are relative effort, not calendar estimates. P12A+P12B is the part with immediate operational value;
@@ -1326,6 +1333,72 @@ Key behaviours decided during implementation:
   box). Response shapes were validated against `memberOps.js` / `publishOps.js` source. Must be
   smoke-tested on the host after deploy.
 
+### S. P12E implementation notes (DONE — code)
+
+The apply engine is **draft → preview → apply → rollback**, not per-resource CRUD endpoints. The
+browser holds one editable `desired` document, the server diffs it against the live guild and turns
+the diff into an ordered op list.
+
+| Path | Role |
+| --- | --- |
+| `server/src/discordApply.js` | **NEW** (~1300 lines, pure). `normalizeDesired()` validates the draft; `planApply()` produces `{ops, blocked, warnings, conflicts, requiresAdministratorConfirm, dangerousOverwrite, requiresDeleteConfirm, counts}`; `buildRollbackOps()` builds the inverse plan; `resolveTempIds()` rewrites `new:*` ids to real ones |
+| `server/src/discordRunner.js` | **NEW** (~640 lines). `readLiveStructure`, `loadDraft`/`saveDraft`/`clearDraft` (5 versions), `buildPlan`, `captureSnapshot`, `insertRun`/`insertOps`, `runOps`, `executeApply`, `loadRun`, `rollbackRun`, `listRuns`, `markStaleRuns` |
+| `server/bot/src/structOps.js` | **NEW.** The only place that mutates Discord. 11 op handlers + guardrails (`assertRoleWritable`, `botTopPosition`, `requireChannel`, `overwriteTypeOf`) |
+| `server/bot/src/structure.js` | `NON_STRUCTURE_CHANNEL_TYPES` filter in `readStructure()` — see gotcha below |
+| `server/bot/src/guildView.js` | `permissionCatalog()` (~53 permissions, memoized) served through `/internal/permissions` |
+| `server/bot/src/internalApi.js` | `GET /internal/permissions`, `POST /internal/struct/op`, `PATCH /internal/guild` |
+| `server/src/routes/api/discord.js` | the 10 P12E endpoints listed in §F |
+| `src/lib/discord.js` | label maps for ops/phases/statuses/blocked reasons, temp-id helpers, `decodePermissionNames`/`encodePermissionNames`, `desiredFromStructure()` (live → draft), 11 API helpers |
+| `src/components/admin/DiscordStructureEditor.vue` | **NEW.** 5 sub-tabs (역할 / 채널 / 서버 설정 / 미리보기 / 적용 이력) mounted from the `구조 편집` tab of `AdminDiscordView.vue` |
+
+Key behaviours decided during implementation:
+
+- **Ops run inline, not through `discord_jobs`.** This deviates from §D.6. The job queue is for
+  background work with retry; an apply is a foreground transaction whose result the admin must see
+  immediately, and `runOps` stops at the first failure (remaining ops are `SKIPPED`) so a retry would
+  need the whole plan rebuilt anyway. The queue stays for backups (P12B) and scheduled jobs.
+- **Threads and directory channels are excluded from `readStructure()`.** Discord returns
+  `PublicThread` / `PrivateThread` / `AnnouncementThread` / `GuildDirectory` in the same cache.
+  Snapshots, diffs and drafts must only contain real structure — otherwise seeding a draft from live
+  throws `지원하지 않는 채널 종류예요`, and a "delete what is not in the draft" plan would target
+  conversation threads. The dashboard channel tab inherits the same filtering.
+- **Managed (bot-owned) roles stay in the draft.** Dropping them makes `planApply` treat them as
+  delete candidates → `ROLE_MANAGED` blocked entry → apply impossible. They are rendered read-only
+  in the editor instead.
+- **Null numeric guild settings mean "leave unchanged".** `normalizeGuild` skips `null`, so the
+  frontend may send `verificationLevel: null` for values the bot did not report.
+- **Temp ids.** The browser mints `new:role-<uuid>` / `new:channel-<uuid>`. Roles are created before
+  channels; `resolveTempIds()` rewrites `targetId`, `payload.parentId`, `payload.overwriteId` and
+  `payload.permissionOverwrites[].id` from `tempMap`.
+- **Guard flags are explicit.** `allowAdministrator` (any `Administrator` bit delta),
+  `allowDangerous` (dangerous permission added by a channel overwrite) and `allowDeletes`
+  (`counts.destructive > 0`) are separate booleans; `confirmName` must equal the live guild name. All
+  guards fire before anything executes.
+- **Deletion semantics.** Anything live that is absent from the draft is a delete candidate;
+  `@everyone`, managed roles and the protected channels (`backup_channel_id`, `announce_channel_id`,
+  `log_channel_id`) are blocked instead.
+- **Rollback limits.** Recreated channels/roles get new snowflakes and lose member role assignments.
+  Rollback refuses `RUNNING` runs, runs that are themselves a rollback, and runs already rolled back;
+  the original is marked `ROLLED_BACK` only when 0 ops fail.
+- **Post-apply snapshot uses `reason='MANUAL'` with `created_by='discord:apply'`** because the
+  `discord_snapshots.reason` CHECK has no `POST_APPLY`. This snapshot becomes the 3-way "last synced"
+  baseline for the conflicts warning.
+- **서버 설정 edits the draft's `desired.guild`** (preview/apply like everything else) instead of
+  calling `PATCH /api/discord/guild` immediately — an immediate patch would let a stale draft revert
+  a manual Discord rename later. `PATCH /api/discord/guild` stays registered as an ops/script-level
+  endpoint.
+- **Known gap:** nothing prevents two admins from running applies concurrently. It relies on
+  `discord.manage` being owner-only. Guarding it needs a `guild_id`-scoped advisory lock or a
+  "one RUNNING run per guild" unique index — deferred to P12F.
+- Verified with throwaway harnesses (then deleted): planner smoke (13 ops in phase order, rollback
+  13 inverse ops, delete scenario `{total:4, destructive:2, remove:3}`); bot guardrail smoke (53
+  permissions, 11 op types, 6 rejection paths, 5 happy paths); route probe via Fastify `onRoute`
+  (60 discord routes, no conflicts); `node --check` on 7 files; Vue SFC compile (`parse` →
+  `compileScript` → `compileTemplate`) with 125 script bindings and zero unresolved template
+  identifiers; `sass` compiles the style block.
+- **Not verified here:** the whole flow has never touched a real guild. Must be smoke-tested on the
+  host: seed a draft, preview it, apply a 1-role rename, then roll it back.
+
 ---
 
 ## 4. Open questions
@@ -1361,8 +1434,8 @@ Key behaviours decided during implementation:
 20. **P12**: `/공지`는 즉시 전송만 할까요, 예약 전송까지 필요할까요?
 21. **P12**: **Discord OAuth2 웹 로그인** — 봇 생성에는 불필요합니다(개발자 포털 앱 + Bot 토큰이면 끝).
     원하시면 P12F에서 "Discord로 관리자 로그인"으로 추가합니다(기존 비밀번호 로그인은 유지).
-22. **P12**: P12E(구조 편집·적용 엔진)까지 전부 진행할지, P12D(멤버·메시지 편집)에서 한 번 멈추고
-    실제 사용감을 본 뒤 진행할지 결정이 필요합니다.
+22. ~~**P12**: P12E(구조 편집·적용 엔진)까지 전부 진행할지, P12D(멤버·메시지 편집)에서 한 번 멈추고
+    실제 사용감을 본 뒤 진행할지 결정이 필요합니다.~~ → **resolved**: P12E 까지 연속 진행 (코드 완료).
 23. **P12**: 봇 역할을 사장님 역할 바로 아래에 두고 **Administrator 없이** 명시적 권한 목록으로 줄 계획입니다.
     길드 삭제·소유권 이전은 원천 차단됩니다. 동의하시나요?
 
@@ -1405,7 +1478,8 @@ done     p12a-bot-foundation   bot compose 서비스 + 토큰 격리 + 내부 AP
 done     p12b-backup-pipeline  pg_dump→gzip→AES-256-GCM→sha256→split→Discord 업로드 + 보관정책 + 검증복원
 done     p12c-discord-readonly /admin/discord 읽기 전용: 개요·채널 트리·역할·멤버·감사로그·스냅샷 diff·백업 이력
 done     p12d-discord-live     라이브 편집: 멤버(역할/닉네임/타임아웃/킥/밴)·메시지·스레드·초대·음성
-todo     p12e-discord-struct   구조 편집 + apply 엔진: 채널/카테고리/역할 CRUD·재정렬·권한 매트릭스·diff·적용·롤백
+done     p12e-discord-struct   구조 편집 + apply 엔진: 채널/카테고리/역할 CRUD·재정렬·권한 매트릭스·diff·적용·롤백
+                              → 코드 완료 (discordApply/discordRunner/structOps + 구조 편집 탭). 실 서버 스모크 대기
 todo     p12f-discord-extras   웹훅 알림·AutoMod·예약 이벤트·이모지·(선택) Discord OAuth2 로그인
 ```
 
@@ -1518,3 +1592,23 @@ todo     p12f-discord-extras   웹훅 알림·AutoMod·예약 이벤트·이모�
 - **P12D:** the SFC identifier scan must strip object-literal keys before flagging unresolved names,
   otherwise `:class="{ selected: x }"`, `{ disconnect: true }` and `{ backgroundColor: … }` produce
   false positives.
+- **P12E:** `readStructure()` returns **every** `guild.channels.cache` entry, including threads
+  (`PublicThread`/`PrivateThread`/`AnnouncementThread`) and `GuildDirectory`. `structure.js` filters
+  them with `NON_STRUCTURE_CHANNEL_TYPES` — remove that filter and seeding a draft from live throws
+  `지원하지 않는 채널 종류예요`, and a delete plan starts targeting conversation threads.
+- **P12E:** managed (bot-owned) roles must stay in the draft. Removing one makes `planApply` see a
+  live role that the draft lacks → `ROLE_MANAGED` **blocked** entry → apply refuses to run. Render
+  them read-only instead.
+- **P12E:** any live role/channel the draft omits is a **delete candidate**. Do not build the draft by
+  listing only the rows the admin touched; always start from `desiredFromStructure(structure)`.
+- **P12E:** `null` numeric guild settings mean "leave unchanged" in `normalizeGuild`, so a bot that
+  reports `afkTimeout: null` will not break preview.
+- **P12E:** `discord_snapshots.reason` CHECK has no `POST_APPLY`; the post-apply snapshot is `MANUAL`
+  with `created_by = 'discord:apply'`. It is what `collectConflicts()` uses as the 3-way baseline.
+- **P12E:** `saveDraft()` returns a **snake_case** row (`updated_at`), `loadDraft()` returns camelCase
+  (`updatedAt`). The editor reads both.
+- **P12E:** `PATCH /api/discord/guild` bypasses the draft/apply engine. Only use it from scripts/ops;
+  UI edits go through `desired.guild` so preview and rollback still cover them.
+- **P12E:** no concurrency guard on `discord_apply_runs` — two admins can apply at the same time.
+  Acceptable only while `discord.manage` is OWNER-only; add a guild-scoped advisory lock before
+  granting it to MANAGER.

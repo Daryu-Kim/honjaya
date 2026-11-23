@@ -1276,12 +1276,15 @@
         </template>
       </div>
     </section>
+
+    <DiscordStructureEditor v-else-if="activeTab === 'structure'" />
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from "vue";
 
+import DiscordStructureEditor from "@/components/admin/DiscordStructureEditor.vue";
 import {
   banDiscordMember,
   clearDiscordMemberTimeout,
@@ -1333,6 +1336,7 @@ const TABS = [
   { value: "audit", label: "감사로그" },
   { value: "backups", label: "백업" },
   { value: "snapshots", label: "스냅샷" },
+  { value: "structure", label: "구조 편집" },
 ];
 
 const canManage = computed(() => hasPermission("discord.manage"));

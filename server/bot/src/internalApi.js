@@ -5,7 +5,13 @@ import { createServer } from "node:http";
 import { basename } from "node:path";
 
 import { config, configProblems } from "./config.js";
-import { listAuditLogs, listMembers, readGuildView } from "./guildView.js";
+import {
+  listAuditLogs,
+  listMembers,
+  memberToPlain,
+  permissionCatalog,
+  readGuildView,
+} from "./guildView.js";
 import {
   banMember,
   clearTimeout as clearMemberTimeout,
@@ -27,6 +33,8 @@ import {
   recordMessage,
   sendMessage,
 } from "./publishOps.js";
+import { hashStructure, readStructure } from "./structure.js";
+import { applyStructureOp } from "./structOps.js";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -194,6 +202,77 @@ export function startInternalApi({ log, deps }) {
       "GET",
       "/internal/structure",
       async () => ({ status: 200, body: { summary: await deps.service.getStructureSummary() } }),
+    ],
+
+    // ── 구조 편집(P12E) ─────────────────────────────────────────────────────
+    // 편집기와 미리보기는 요약이 아니라 스냅샷과 같은 전체 구조가 필요합니다.
+    [
+      "GET",
+      "/internal/structure/full",
+      async () => {
+        const guild = await guildOr503();
+        const structure = await readStructure(guild, log);
+        const me = guild.members?.me;
+        const highest = me?.roles?.highest;
+
+        return {
+          status: 200,
+          body: {
+            structure,
+            structureHash: hashStructure(structure),
+            bot: {
+              userId: me?.id ?? null,
+              displayName: me?.displayName ?? null,
+              highestRoleId: highest?.id ?? null,
+              highestPosition: Number.isFinite(highest?.position) ? highest.position : -1,
+            },
+          },
+        };
+      },
+    ],
+
+    // 권한 체크박스를 그리기 위한 전체 권한 목록(이름/한글 라벨/비트/위험 여부).
+    [
+      "GET",
+      "/internal/permissions",
+      async () => ({ status: 200, body: { permissions: permissionCatalog() } }),
+    ],
+
+    [
+      "POST",
+      "/internal/struct/op",
+      async (req) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+
+        const result = await applyStructureOp({
+          guild,
+          op: body?.op,
+          targetId: body?.targetId ?? null,
+          payload: body?.payload ?? {},
+          log,
+        });
+
+        return { status: 200, body: { ok: true, op: body?.op, result } };
+      },
+    ],
+
+    [
+      "PATCH",
+      "/internal/guild",
+      async (req) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+
+        const result = await applyStructureOp({
+          guild,
+          op: "guild:patch",
+          payload: body?.payload && typeof body.payload === "object" ? body.payload : body,
+          log,
+        });
+
+        return { status: 200, body: { ok: true, result } };
+      },
     ],
 
     // ── 읽기 전용 대시보드(P12C) ─────────────────────────────────────────────
@@ -787,6 +866,7 @@ export function startInternalApi({ log, deps }) {
       sendJson(res, status, {
         error: status >= 500 ? "internal_error" : "bad_request",
         message: error instanceof Error ? error.message : String(error),
+        discordCode: Number(error?.discordCode) || null,
       });
     }
   });

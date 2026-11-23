@@ -2,6 +2,16 @@ import { createHash } from "node:crypto";
 
 import { ChannelType } from "discord.js";
 
+// 구조(스냅샷·편집) 대상이 아닌 채널 종류. 스레드는 대화 기록이고, 디렉터리는 Discord 가
+// 관리하는 탐색 채널이라 만들거나 고칠 수 없습니다. 이 둘을 구조에 넣으면 초안에 담을 수
+// 없어서 "전부 삭제" 계획이 만들어집니다.
+const NON_STRUCTURE_CHANNEL_TYPES = new Set([
+  ChannelType.AnnouncementThread,
+  ChannelType.PublicThread,
+  ChannelType.PrivateThread,
+  ChannelType.GuildDirectory,
+]);
+
 // 키 정렬 + BigInt 문자열화. 같은 구조는 언제나 같은 문자열 → 같은 해시가 나옵니다.
 function normalize(value) {
   if (value === null || value === undefined) {
@@ -169,6 +179,7 @@ export async function readStructure(guild, log) {
     .map(roleToPlain);
 
   const channels = [...guild.channels.cache.values()]
+    .filter((channel) => !NON_STRUCTURE_CHANNEL_TYPES.has(channel.type))
     .map(channelToPlain)
     .sort(
       (a, b) =>

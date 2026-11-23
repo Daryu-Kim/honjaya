@@ -264,8 +264,6 @@ export function toTime(value) {
   return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
 }
 
-/* global globalThis */
-
 // Firestore addDoc() used to generate ids server side; the app now generates
 // them client side (crypto.randomUUID is unavailable over plain http, so the
 // fallback keeps working on LAN/tablet access).

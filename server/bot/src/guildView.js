@@ -190,6 +190,35 @@ export function permissionLabelKo(name) {
   return PERMISSION_LABELS_KO[name] ?? name;
 }
 
+// P12E 구조 편집기의 권한 체크박스 목록. discord.js 의 이름→비트 정의를 그대로 씁니다.
+let catalogCache = null;
+
+export function permissionCatalog() {
+  if (catalogCache) {
+    return catalogCache;
+  }
+
+  const items = [];
+
+  for (const [name, bit] of Object.entries(PermissionsBitField.Flags)) {
+    if (typeof bit !== "bigint" || bit === 0n) {
+      continue;
+    }
+
+    items.push({
+      name,
+      label: permissionLabelKo(name),
+      bit: bit.toString(),
+      dangerous: DANGEROUS.has(name),
+    });
+  }
+
+  items.sort((a, b) => a.label.localeCompare(b.label, "ko"));
+  catalogCache = items;
+
+  return catalogCache;
+}
+
 function permissionEntries(bitfield) {
   return decodePermissions(bitfield).map((name) => ({
     name,

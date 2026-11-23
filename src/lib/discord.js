@@ -408,3 +408,243 @@ export function deleteDiscordInvite(code, reason = "") {
     body: { reason },
   });
 }
+
+// ── 구조 편집(P12E) ──────────────────────────────────────────────────────────
+
+export const STRUCT_OP_LABELS = {
+  "guild:patch": "서버 설정 변경",
+  "role:create": "역할 생성",
+  "role:patch": "역할 수정",
+  "role:position": "역할 순서 변경",
+  "role:delete": "역할 삭제",
+  "channel:create": "채널 생성",
+  "channel:patch": "채널 설정 변경",
+  "channel:position": "채널 이동",
+  "channel:overwrite:put": "권한 변경",
+  "channel:overwrite:delete": "권한 삭제",
+  "channel:delete": "채널 삭제",
+};
+
+// 서버가 만드는 op 순서(plan.md §D.4)와 같은 묶음입니다.
+export const STRUCT_PHASE_LABELS = {
+  guild: "서버 설정",
+  "roles:create": "역할 생성",
+  "roles:patch": "역할 수정",
+  "roles:position": "역할 순서",
+  "channels:create": "채널 생성",
+  "channels:patch": "채널 설정",
+  "channels:position": "채널 이동",
+  overwrites: "채널 권한",
+  renames: "이름 변경",
+  deletes: "삭제",
+};
+
+export const APPLY_STATUS_LABELS = {
+  QUEUED: "대기",
+  RUNNING: "진행 중",
+  SUCCEEDED: "완료",
+  FAILED: "실패",
+  ROLLED_BACK: "되돌림",
+  CANCELLED: "취소",
+};
+
+export const APPLY_OP_STATUS_LABELS = {
+  QUEUED: "대기",
+  RUNNING: "진행 중",
+  SUCCEEDED: "완료",
+  FAILED: "실패",
+  SKIPPED: "건너뜀",
+};
+
+export const BLOCKED_REASON_LABELS = {
+  PROTECTED_CHANNEL: "보호된 채널",
+  ROLE_MANAGED: "앱 관리 역할",
+  ROLE_ABOVE_BOT: "봇보다 위 역할",
+  EVERYONE: "@everyone",
+  MISSING_PARENT: "상위 카테고리 없음",
+  TOO_MANY_OPS: "변경이 너무 많음",
+  UNKNOWN_ROLE: "알 수 없는 역할",
+  UNKNOWN_CHANNEL: "알 수 없는 채널",
+};
+
+export function getStructOpLabel(op) {
+  return STRUCT_OP_LABELS[op] || op || "-";
+}
+
+export function getApplyStatusLabel(status) {
+  return APPLY_STATUS_LABELS[status] || status || "-";
+}
+
+export function getApplyOpStatusLabel(status) {
+  return APPLY_OP_STATUS_LABELS[status] || status || "-";
+}
+
+export function getBlockedReasonLabel(code) {
+  return BLOCKED_REASON_LABELS[code] || code || "-";
+}
+
+// 새 역할/채널은 실제 id 가 없으므로 "new:role-<uuid>" 임시 id 로 초안에 담습니다.
+export function newTempId(kind) {
+  const uuid =
+    globalThis.crypto?.randomUUID?.() ||
+    `${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 10)}`;
+
+  return `new:${kind === "channel" ? "channel" : "role"}-${uuid}`;
+}
+
+export function isTempId(id) {
+  return String(id ?? "").startsWith("new:");
+}
+
+// 권한 카탈로그(서버 /api/discord/structure)로 10진 비트필드 ↔ 이름 목록을 변환합니다.
+export function decodePermissionNames(catalog, bitfield) {
+  let bits = 0n;
+
+  try {
+    bits = BigInt(String(bitfield ?? "0") || "0");
+  } catch {
+    bits = 0n;
+  }
+
+  return (catalog || [])
+    .filter((item) => {
+      try {
+        return (bits & BigInt(item.bit)) !== 0n;
+      } catch {
+        return false;
+      }
+    })
+    .map((item) => item.name);
+}
+
+export function encodePermissionNames(catalog, names) {
+  const picked = new Set(names || []);
+  let bits = 0n;
+
+  for (const item of catalog || []) {
+    if (picked.has(item.name)) {
+      bits |= BigInt(item.bit);
+    }
+  }
+
+  return bits.toString();
+}
+
+// 라이브 구조를 편집 가능한 초안 모양으로 바꿉니다(적용 전 미리보기의 기준).
+export function desiredFromStructure(structure) {
+  if (!structure) {
+    return { guild: {}, roles: [], channels: [] };
+  }
+
+  const guild = structure.guild || {};
+  const numberOrNull = (value) =>
+    typeof value === "number" && Number.isFinite(value) ? value : null;
+
+  return {
+    guild: {
+      id: guild.id,
+      name: guild.name,
+      verificationLevel: numberOrNull(guild.verificationLevel),
+      explicitContentFilter: numberOrNull(guild.explicitContentFilter),
+      defaultMessageNotifications: numberOrNull(
+        guild.defaultMessageNotifications
+      ),
+      afkChannelId: guild.afkChannelId ?? null,
+      afkTimeout: numberOrNull(guild.afkTimeout),
+      systemChannelId: guild.systemChannelId ?? null,
+    },
+    // 앱이 관리하는 역할(봇 역할)도 초안에 그대로 담습니다. 빼면 "삭제 대상"으로 잡혀
+    // 적용이 막히므로, 화면에서 읽기 전용으로만 보여 줍니다.
+    roles: (structure.roles || []).map((role) => ({
+      id: role.id,
+      name: role.name,
+      color: role.color ?? 0,
+      hoist: Boolean(role.hoist),
+      mentionable: Boolean(role.mentionable),
+      permissions: role.permissions ?? "0",
+      position: role.position ?? 0,
+    })),
+    channels: (structure.channels || []).map((channel) => ({
+      id: channel.id,
+      typeName: channel.typeName,
+      name: channel.name ?? "",
+      parentId: channel.parentId ?? null,
+      position: channel.position ?? 0,
+      topic: channel.topic ?? null,
+      nsfw: channel.nsfw ?? null,
+      rateLimitPerUser: channel.rateLimitPerUser ?? null,
+      bitrate: channel.bitrate ?? null,
+      userLimit: channel.userLimit ?? null,
+      permissionOverwrites: (channel.permissionOverwrites || []).map(
+        (item) => ({
+          id: item.id,
+          type: Number(item.type) === 1 ? 1 : 0,
+          allow: item.allow ?? "0",
+          deny: item.deny ?? "0",
+        })
+      ),
+    })),
+  };
+}
+
+export function fetchDiscordStructure() {
+  return apiGet("/api/discord/structure");
+}
+
+export function fetchDiscordDraft() {
+  return apiGet("/api/discord/draft");
+}
+
+export function saveDiscordDraft(desired, note = "") {
+  return apiRequest("/api/discord/draft", {
+    method: "PUT",
+    body: { desired, note },
+  });
+}
+
+export function clearDiscordDraft() {
+  return apiRequest("/api/discord/draft", { method: "DELETE" });
+}
+
+export function previewDiscordApply(desired = null) {
+  return apiPost("/api/discord/apply/preview", desired ? { desired } : {});
+}
+
+export function applyDiscordStructure({
+  confirmName,
+  desired = null,
+  allowAdministrator = false,
+  allowDangerous = false,
+  allowDeletes = false,
+}) {
+  return apiPost("/api/discord/apply", {
+    confirmName,
+    desired,
+    allowAdministrator,
+    allowDangerous,
+    allowDeletes,
+  });
+}
+
+export function rollbackDiscordApply(runId, { confirmName } = {}) {
+  return apiPost(`/api/discord/apply/${encodeURIComponent(runId)}/rollback`, {
+    confirmName,
+  });
+}
+
+export function fetchDiscordApplyRuns({ limit = 20, offset = 0 } = {}) {
+  const params = new URLSearchParams();
+
+  params.set("limit", String(limit));
+  params.set("offset", String(offset));
+
+  return apiGet(`/api/discord/apply/runs?${params.toString()}`);
+}
+
+export function fetchDiscordApplyRun(runId) {
+  return apiGet(`/api/discord/apply/runs/${encodeURIComponent(runId)}`);
+}
+
+export function updateDiscordGuild(payload) {
+  return apiRequest("/api/discord/guild", { method: "PATCH", body: payload });
+}

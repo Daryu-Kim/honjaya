@@ -3,14 +3,24 @@
 // 봇 토큰(DISCORD_BOT_TOKEN)은 이 컨테이너에 없습니다. bot 컨테이너가 유일한 보관자이고,
 // 여기서는 compose 내부 주소(bot:4100)로 요청을 넘기기만 합니다.
 // 스냅샷 목록·상세는 DB 에서 바로 읽습니다(봇이 살아 있지 않아도 조회는 가능해야 하므로).
-import { Readable } from "node:stream";
-
 import { writeAuditLog } from "../../auth/audit.js";
 import { PERMISSIONS } from "../../auth/permissions.js";
 import { createStaffGuard } from "../../auth/sessions.js";
-import { config } from "../../config.js";
 import { pool } from "../../db.js";
+import { callBot, callBotStream } from "../../discordBot.js";
 import { diffStructures } from "../../discordDiff.js";
+import {
+  buildPlan,
+  clearDraft,
+  executeApply,
+  listRuns,
+  loadDraft,
+  loadRun,
+  markStaleRuns,
+  readPermissionCatalog,
+  rollbackRun,
+  saveDraft,
+} from "../../discordRunner.js";
 import { HttpError } from "../../http/errors.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -43,148 +53,6 @@ function clampInt(value, fallback, min, max) {
   return Math.min(Math.max(Math.trunc(parsed), min), max);
 }
 
-async function callBot({ method = "GET", path, body = null, log }) {
-  if (!config.discord.internalToken) {
-    throw new HttpError(
-      503,
-      "HJ503",
-      "Discord 봇 내부 토큰(BOT_INTERNAL_TOKEN)이 설정되지 않았어요.",
-    );
-  }
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), config.discord.timeoutMs);
-  const base = config.discord.botUrl.replace(/\/+$/, "");
-
-  try {
-    const response = await fetch(`${base}${path}`, {
-      method,
-      headers: {
-        "content-type": "application/json",
-        "x-internal-token": config.discord.internalToken,
-      },
-      body: body === null ? undefined : JSON.stringify(body),
-      signal: controller.signal,
-    });
-
-    const text = await response.text();
-    let payload = null;
-
-    if (text) {
-      try {
-        payload = JSON.parse(text);
-      } catch {
-        payload = { message: text.slice(0, 500) };
-      }
-    }
-
-    if (!response.ok) {
-      log?.warn?.("bot responded with error", {
-        path,
-        status: response.status,
-      });
-
-      throw new HttpError(
-        response.status >= 500 ? 502 : response.status,
-        "HJ_BOT",
-        payload?.message || "Discord 봇이 요청을 처리하지 못했어요.",
-        payload?.error ?? null,
-      );
-    }
-
-    return payload;
-  } catch (error) {
-    if (error instanceof HttpError) {
-      throw error;
-    }
-
-    if (error?.name === "AbortError") {
-      throw new HttpError(
-        504,
-        "HJ504",
-        "Discord 봇 응답이 너무 늦어요. 잠시 후 다시 시도해 주세요.",
-      );
-    }
-
-    log?.error?.("bot call failed", { path, err: error });
-
-    throw new HttpError(
-      503,
-      "HJ503",
-      "Discord 봇에 연결할 수 없어요. 봇 컨테이너가 실행 중인지 확인해 주세요.",
-    );
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/**
- * 봇이 내려주는 암호화 백업 파일을 그대로 흘려보냅니다.
- * 본문은 복호화 키가 없으면 쓸모가 없으므로 api 는 내용을 검사하지 않고 통과시킵니다.
- */
-async function callBotStream({ path, log }) {
-  if (!config.discord.internalToken) {
-    throw new HttpError(
-      503,
-      "HJ503",
-      "Discord 봇 내부 토큰(BOT_INTERNAL_TOKEN)이 설정되지 않았어요.",
-    );
-  }
-
-  // 헤더 수신까지만 제한합니다(다운로드 자체는 파일 크기만큼 걸릴 수 있음).
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), Math.max(config.discord.timeoutMs, 60_000));
-  const base = config.discord.botUrl.replace(/\/+$/, "");
-
-  let response;
-
-  try {
-    response = await fetch(`${base}${path}`, {
-      headers: { "x-internal-token": config.discord.internalToken },
-      signal: controller.signal,
-    });
-  } catch (error) {
-    if (error?.name === "AbortError") {
-      throw new HttpError(504, "HJ504", "Discord 봇 응답이 너무 늦어요. 잠시 후 다시 시도해 주세요.");
-    }
-
-    log?.error?.("bot stream call failed", { path, err: error });
-
-    throw new HttpError(
-      503,
-      "HJ503",
-      "Discord 봇에 연결할 수 없어요. 봇 컨테이너가 실행 중인지 확인해 주세요.",
-    );
-  } finally {
-    clearTimeout(timer);
-  }
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    let message = "Discord 봇이 파일을 내려주지 못했어요.";
-
-    if (text) {
-      try {
-        message = JSON.parse(text)?.message || message;
-      } catch {
-        message = text.slice(0, 200);
-      }
-    }
-
-    throw new HttpError(response.status >= 500 ? 502 : response.status, "HJ_BOT", message);
-  }
-
-  if (!response.body) {
-    throw new HttpError(502, "HJ_BOT", "Discord 봇이 빈 응답을 보냈어요.");
-  }
-
-  return {
-    stream: Readable.fromWeb(response.body),
-    contentType: response.headers.get("content-type") || "application/octet-stream",
-    contentLength: response.headers.get("content-length"),
-    disposition: response.headers.get("content-disposition"),
-  };
-}
 
 async function loadSettings() {
   const { rows } = await pool.query(
@@ -1012,6 +880,197 @@ export function registerDiscordRoutes(app) {
     });
 
     await auditAction(request, "discord.invite.delete", "discord_invite", code, {});
+
+    return result;
+  });
+
+  // ── 구조 편집(P12E) ───────────────────────────────────────────────────────
+  // 편집기는 실제 Discord 를 건드리지 않습니다. 초안(draft)을 저장하고
+  // 미리보기로 op 목록을 확인한 뒤, 적용(apply)에서만 반영합니다.
+
+  async function currentGuildId(log) {
+    const status = await callBot({ path: "/internal/status", log });
+    const id = String(status?.guild?.id ?? "").trim();
+
+    if (!id) {
+      throw new HttpError(503, "HJ503", "Discord 봇이 아직 서버에 연결되지 않았어요.");
+    }
+
+    return id;
+  }
+
+  app.get("/api/discord/structure", { preHandler: requireView }, async (request) => {
+    const payload = await callBot({ path: "/internal/structure/full", log: request.log });
+    const guildId = String(payload?.structure?.guild?.id ?? "").trim();
+    const [permissions, draft] = await Promise.all([
+      readPermissionCatalog({ log: request.log }).catch(() => []),
+      guildId ? loadDraft(guildId) : Promise.resolve(null),
+    ]);
+
+    return {
+      structure: payload?.structure ?? null,
+      structureHash: payload?.structureHash ?? null,
+      bot: payload?.bot ?? null,
+      permissions,
+      draft,
+    };
+  });
+
+  app.get("/api/discord/draft", { preHandler: requireView }, async (request) => ({
+    draft: await loadDraft(await currentGuildId(request.log)),
+  }));
+
+  async function saveDraftHandler(request) {
+    const body = readBody(request);
+    const employee = request.staff?.employee || null;
+
+    if (!body.desired || typeof body.desired !== "object") {
+      throw new HttpError(400, "HJ400", "저장할 초안(desired)이 없어요.");
+    }
+
+    const saved = await saveDraft({
+      guildId: await currentGuildId(request.log),
+      desired: body.desired,
+      note: body.note,
+      updatedBy: employee?.email || employee?.name || "staff",
+    });
+
+    await auditAction(request, "discord.draft.save", "discord_struct_doc", saved.id, {
+      version: saved.version,
+      roleCount: Array.isArray(body.desired.roles) ? body.desired.roles.length : null,
+      channelCount: Array.isArray(body.desired.channels) ? body.desired.channels.length : null,
+    });
+
+    return { draft: saved };
+  }
+
+  app.put("/api/discord/draft", { preHandler: requireManage }, saveDraftHandler);
+  app.post("/api/discord/draft", { preHandler: requireManage }, saveDraftHandler);
+
+  app.delete("/api/discord/draft", { preHandler: requireManage }, async (request) => {
+    const guildId = await currentGuildId(request.log);
+    const deleted = await clearDraft(guildId);
+
+    await auditAction(request, "discord.draft.clear", "discord_struct_doc", guildId, { deleted });
+
+    return { deleted };
+  });
+
+  app.post("/api/discord/apply/preview", { preHandler: requireView }, async (request) => {
+    const body = readBody(request);
+    let desired = body.desired ?? null;
+
+    if (!desired) {
+      const draft = await loadDraft(await currentGuildId(request.log));
+      desired = draft?.desired ?? null;
+    }
+
+    if (!desired) {
+      throw new HttpError(400, "HJ400", "미리 볼 초안이 없어요.");
+    }
+
+    const result = await buildPlan({ desired, log: request.log });
+
+    return {
+      guild: { id: result.guildId, name: result.guild?.name ?? null },
+      ops: result.plan.ops,
+      blocked: result.plan.blocked,
+      warnings: result.plan.warnings,
+      conflicts: result.plan.conflicts,
+      requiresAdministratorConfirm: result.plan.requiresAdministratorConfirm,
+      dangerousOverwrite: result.plan.dangerousOverwrite,
+      requiresDeleteConfirm: result.plan.requiresDeleteConfirm,
+      counts: result.plan.counts,
+    };
+  });
+
+  app.post("/api/discord/apply", { preHandler: requireManage }, async (request) => {
+    const body = readBody(request);
+    const employee = request.staff?.employee || null;
+    const draft = await loadDraft(await currentGuildId(request.log));
+    const desired = body.desired ?? draft?.desired ?? null;
+
+    if (!desired) {
+      throw new HttpError(400, "HJ400", "적용할 초안이 없어요.");
+    }
+
+    const result = await executeApply({
+      desired,
+      docVersion: draft?.version ?? null,
+      createdBy: employee?.email || employee?.name || "staff",
+      confirmName: body.confirmName,
+      allowAdministrator: body.allowAdministrator === true,
+      allowDangerous: body.allowDangerous === true,
+      allowDeletes: body.allowDeletes === true,
+      log: request.log,
+    });
+
+    await auditAction(request, "discord.apply", "discord_apply_run", result.runId, {
+      status: result.status,
+      ok: result.ok,
+      failed: result.failed,
+      summary: result.summary,
+      error: result.error,
+    });
+
+    return result;
+  });
+
+  app.post("/api/discord/apply/:runId/rollback", { preHandler: requireManage }, async (request) => {
+    const runId = assertUuid(request.params?.runId, "실행 ID");
+    const body = readBody(request);
+    const employee = request.staff?.employee || null;
+
+    const result = await rollbackRun({
+      runId,
+      createdBy: employee?.email || employee?.name || "staff",
+      confirmName: body.confirmName,
+      log: request.log,
+    });
+
+    await auditAction(request, "discord.apply.rollback", "discord_apply_run", result.runId, {
+      rollbackOf: runId,
+      status: result.status,
+      ok: result.ok,
+      failed: result.failed,
+      total: result.total,
+    });
+
+    return result;
+  });
+
+  app.get("/api/discord/apply/runs", { preHandler: requireView }, async (request) => {
+    await markStaleRuns(request.log).catch(() => 0);
+
+    return listRuns({
+      guildId: String(request.query?.guildId || "").trim() || null,
+      limit: clampInt(request.query?.limit, 20, 1, 100),
+      offset: clampInt(request.query?.offset, 0, 0, 100_000),
+    });
+  });
+
+  app.get("/api/discord/apply/runs/:runId", { preHandler: requireView }, async (request) =>
+    loadRun(assertUuid(request.params?.runId, "실행 ID")),
+  );
+
+  app.patch("/api/discord/guild", { preHandler: requireManage }, async (request) => {
+    const body = readBody(request);
+    const payload = body.payload && typeof body.payload === "object" ? body.payload : body;
+
+    if (Object.keys(payload).length === 0) {
+      throw new HttpError(400, "HJ400", "변경할 서버 설정이 없어요.");
+    }
+
+    const result = await callBot({
+      method: "PATCH",
+      path: "/internal/guild",
+      body: { payload },
+      log: request.log,
+    });
+
+    await auditAction(request, "discord.guild.update", "discord_guild", result?.result?.id ?? null, {
+      fields: Object.keys(payload),
+    });
 
     return result;
   });
