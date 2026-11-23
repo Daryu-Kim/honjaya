@@ -109,7 +109,7 @@ function channelToPlain(channel) {
   };
 }
 
-function emojiToPlain(emoji) {
+export function emojiToPlain(emoji) {
   return {
     id: emoji.id,
     name: emoji.name ?? "",
@@ -119,7 +119,7 @@ function emojiToPlain(emoji) {
   };
 }
 
-function stickerToPlain(sticker) {
+export function stickerToPlain(sticker) {
   return {
     id: sticker.id,
     name: sticker.name ?? "",
@@ -129,7 +129,7 @@ function stickerToPlain(sticker) {
   };
 }
 
-function autoModRuleToPlain(rule) {
+export function autoModRuleToPlain(rule) {
   return {
     id: rule.id,
     name: rule.name,
@@ -143,7 +143,7 @@ function autoModRuleToPlain(rule) {
   };
 }
 
-function scheduledEventToPlain(event) {
+export function scheduledEventToPlain(event) {
   return {
     id: event.id,
     name: event.name,

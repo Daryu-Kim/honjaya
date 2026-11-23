@@ -6,6 +6,21 @@ import { basename } from "node:path";
 
 import { config, configProblems } from "./config.js";
 import {
+  createAutoModRule,
+  createEmoji,
+  createScheduledEvent,
+  deleteAutoModRule,
+  deleteEmoji,
+  deleteScheduledEvent,
+  deleteSticker,
+  listExtras,
+  setAutoModEnabled,
+  updateAutoModRule,
+  updateEmoji,
+  updateScheduledEvent,
+  updateSticker,
+} from "./extrasOps.js";
+import {
   listAuditLogs,
   listMembers,
   memberToPlain,
@@ -381,6 +396,16 @@ export function startInternalApi({ log, deps }) {
         });
 
         return { status: 202, body: { jobId: job.id, deduped: job.deduped } };
+      },
+    ],
+
+    [
+      "POST",
+      "/internal/backups/schedule",
+      async () => {
+        const next = await deps.backups.reschedule();
+
+        return { status: 200, body: { nextBackupAt: next } };
       },
     ],
 
@@ -771,6 +796,176 @@ export function startInternalApi({ log, deps }) {
         const guild = await guildOr503();
 
         return { status: 200, body: await deleteInvite(guild, { ...body, code: params.code }) };
+      },
+    ],
+
+    // ── P12F 확장 기능 ────────────────────────────────────────────────────
+    [
+      "GET",
+      "/internal/extras",
+      async () => {
+        const guild = await guildOr503();
+
+        return { status: 200, body: await listExtras(guild, log) };
+      },
+    ],
+
+    [
+      "POST",
+      "/internal/emojis",
+      async (req) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+
+        return { status: 201, body: await createEmoji(guild, body) };
+      },
+    ],
+
+    [
+      "PATCH",
+      "/internal/emojis/:emojiId",
+      async (req, { params }) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+
+        return {
+          status: 200,
+          body: await updateEmoji(guild, { ...body, emojiId: params.emojiId }),
+        };
+      },
+    ],
+
+    [
+      "DELETE",
+      "/internal/emojis/:emojiId",
+      async (req, { params }) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+
+        return {
+          status: 200,
+          body: await deleteEmoji(guild, { ...body, emojiId: params.emojiId }),
+        };
+      },
+    ],
+
+    [
+      "PATCH",
+      "/internal/stickers/:stickerId",
+      async (req, { params }) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+
+        return {
+          status: 200,
+          body: await updateSticker(guild, { ...body, stickerId: params.stickerId }),
+        };
+      },
+    ],
+
+    [
+      "DELETE",
+      "/internal/stickers/:stickerId",
+      async (req, { params }) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+
+        return {
+          status: 200,
+          body: await deleteSticker(guild, { ...body, stickerId: params.stickerId }),
+        };
+      },
+    ],
+
+    [
+      "POST",
+      "/internal/automod",
+      async (req) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+
+        return { status: 201, body: await createAutoModRule(guild, body) };
+      },
+    ],
+
+    [
+      "PATCH",
+      "/internal/automod/:ruleId",
+      async (req, { params }) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+
+        return {
+          status: 200,
+          body: await updateAutoModRule(guild, { ...body, ruleId: params.ruleId }),
+        };
+      },
+    ],
+
+    [
+      "PATCH",
+      "/internal/automod/:ruleId/enabled",
+      async (req, { params }) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+
+        return {
+          status: 200,
+          body: await setAutoModEnabled(guild, { ...body, ruleId: params.ruleId }),
+        };
+      },
+    ],
+
+    [
+      "DELETE",
+      "/internal/automod/:ruleId",
+      async (req, { params }) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+
+        return {
+          status: 200,
+          body: await deleteAutoModRule(guild, { ...body, ruleId: params.ruleId }),
+        };
+      },
+    ],
+
+    [
+      "POST",
+      "/internal/events",
+      async (req) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+
+        return { status: 201, body: await createScheduledEvent(guild, body) };
+      },
+    ],
+
+    [
+      "PATCH",
+      "/internal/events/:eventId",
+      async (req, { params }) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+
+        return {
+          status: 200,
+          body: await updateScheduledEvent(guild, { ...body, eventId: params.eventId }),
+        };
+      },
+    ],
+
+    [
+      "DELETE",
+      "/internal/events/:eventId",
+      async (req, { params }) => {
+        const body = await readJsonBody(req);
+        const guild = await guildOr503();
+
+        return {
+          status: 200,
+          body: await deleteScheduledEvent(guild, { ...body, eventId: params.eventId }),
+        };
       },
     ],
   ];

@@ -1156,7 +1156,7 @@ Move/Mute/Deafen Members, Send Messages, Attach Files, Embed Links, Read History
 | **P12D** | Live editing (non-structure): members (nickname/roles/timeout/kick/ban), messages & 공지, threads, invites, voice move | M | P12C | **DONE — 커밋 `8988084`** |
 | **P12E** | Structure editing + apply engine: 채널·카테고리·역할 CRUD, 순서 변경, 권한 편집, diff → 적용 → 롤백, 서버 설정 | L | P12D | **DONE — lint/build 통과, 커밋 `333dafa`** |
 | **P12E-1** | 혼자야 기본 구조 프리셋: 서버 구조를 한 번에 채우는 원클릭 초안 생성(역할 4 · 카테고리 4 · 채널 14, 운영진 카테고리에 `#백업` 포함). 이름 매칭으로 멱등 · 추가 전용(기존 항목 수정/삭제 없음) | S | P12E | **DONE (code)** — lint/build 대기 |
-| **P12F** | 자동화 & extras: webhook alerts (주문/예약 → Discord), AutoMod rules, scheduled events, emoji/sticker, reserved announcements; **optional** Discord OAuth2 web login | M | P12E | PLANNED |
+| **P12F** | 자동화 & extras: 백업 설정 편집(`PUT /api/discord/settings`) + 확장 탭(이모지·스티커·AutoMod·예약 이벤트). webhook alerts / Discord OAuth2 web login 은 미착수 | M | P12E | **PARTIAL — 백업 설정 편집·확장 탭 완료(커밋 대기), 웹훅·OAuth2 미착수** |
 
 S/M/L are relative effort, not calendar estimates. P12A+P12B is the part with immediate operational value;
 P12E is the part with the highest risk and must not start before P12C/P12D are stable.
@@ -1450,6 +1450,35 @@ Key behaviours decided during implementation:
 - **Not verified here:** the whole flow has never touched a real guild. Must be smoke-tested on the
   host: seed a draft, preview it, apply a 1-role rename, then roll it back.
 
+### T. P12F implementation notes (PARTIAL — 백업 설정 편집 + 확장 탭)
+
+- **Why settings were missing:** `discord_settings` already held every backup field, and
+  `GET /api/discord/status` returned the row, but there was no write path at all. P12F adds
+  `PUT /api/discord/settings`, guarded by `discord.settings` (OWNER) — the permission constant
+  existed since P12A but was unused until now.
+- **Cron validation is duplicated on purpose.** The parser lives in `server/bot/src/cron.js`, and
+  the two Dockerfiles copy disjoint trees (`bot/src` vs `src`), so no shared import is possible.
+  The API keeps a narrower validator (`assertCronExpression`, numeric fields only — no `mon..sun`
+  aliases), which is enough to reject typos before the write.
+- **The next run time is computed by the bot, not the API.** Storing a cron and storing
+  `next_backup_at` from two different code paths invites drift, and `ensureSchedule()` returns the
+  stored value when it is non-null. So `PUT /api/discord/settings` nulls `next_backup_at` when the
+  cron changes and then calls the new `POST /internal/backups/schedule` → `backups.reschedule()`,
+  which recomputes with the bot's own TZ-aware `nextCronTime()`. If the bot is down the API still
+  succeeds and the 60s scheduler tick fills the column in.
+- **Extras are immediate, not drafted.** Channel/role edits go through draft → diff → apply because
+  a wrong delete is expensive; emoji/AutoMod/event edits are single-object operations that Discord
+  itself audits, so they call the bot directly (`/internal/extras*`). Every write is re-validated in
+  `extrasOps.js` and recorded via `auditAction`.
+- **Sticker creation is not offered.** `GuildStickerManager#create` uploads multipart files;
+  `GuildEmojiManager#create` accepts an `http(s)` URL and resolves it internally, so emojis can be
+  added from a URL. Stickers are rename/delete only.
+- **Bot permissions:** `Manage Events` + `Manage Expressions` were missing from the documented
+  invite scope — both added to `server/.env.example` and `server/bot/README.md`. Renaming an emoji
+  (`Manage Expressions`) and creating events (`Manage Events`) fail with 403 until the bot role
+  gets them.
+- **No DB migration.** `discord_settings` columns and `discord_snapshots` are unchanged; only code.
+
 ---
 
 ## 4. Open questions
@@ -1531,7 +1560,8 @@ done     p12c-discord-readonly /admin/discord 읽기 전용: 개요·채널 트�
 done     p12d-discord-live     라이브 편집: 멤버(역할/닉네임/타임아웃/킥/밴)·메시지·스레드·초대·음성
 done     p12e-discord-struct   구조 편집 + apply 엔진: 채널/카테고리/역할 CRUD·재정렬·권한 매트릭스·diff·적용·롤백
                               → 코드 완료 (discordApply/discordRunner/structOps + 구조 편집 탭). 실 서버 스모크 대기
-todo     p12f-discord-extras   웹훅 알림·AutoMod·예약 이벤트·이모지·(선택) Discord OAuth2 로그인
+todo     p12f-discord-extras   백업 설정 편집 + 확장 탭(이모지·스티커·AutoMod·예약 이벤트)
+                              → 코드 완료. 웹훅 알림·Discord OAuth2 로그인은 미착수
 ```
 
 ---

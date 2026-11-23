@@ -1065,3 +1065,95 @@ export function fetchDiscordApplyRun(runId) {
 export function updateDiscordGuild(payload) {
   return apiRequest("/api/discord/guild", { method: "PATCH", body: payload });
 }
+
+// ── P12F 설정·확장 ────────────────────────────────────────────────────────
+export const AUTOMOD_TRIGGER_LABELS = {
+  1: "키워드",
+  3: "스팸",
+  4: "사전 필터(욕설 등)",
+  5: "멘션 스팸",
+  6: "프로필",
+};
+
+export const AUTOMOD_ACTION_LABELS = {
+  1: "메시지 차단",
+  2: "알림 채널 경고",
+  3: "타임아웃",
+  4: "상호작용 차단",
+};
+
+export const AUTOMOD_PRESET_LABELS = {
+  1: "욕설",
+  2: "성적 콘텐츠",
+  3: "혐오 발언",
+};
+
+export const EVENT_STATUS_LABELS = {
+  1: "예정",
+  2: "진행 중",
+  3: "종료",
+  4: "취소",
+};
+
+export const EVENT_ENTITY_LABELS = {
+  1: "스테이지",
+  2: "음성 채널",
+  3: "외부 장소",
+};
+
+export function getAutoModTriggerLabel(value) {
+  return AUTOMOD_TRIGGER_LABELS[Number(value)] || `알 수 없음(${value})`;
+}
+
+export function getAutoModActionLabel(value) {
+  return AUTOMOD_ACTION_LABELS[Number(value)] || `알 수 없음(${value})`;
+}
+
+export function getAutoModPresetLabel(value) {
+  return AUTOMOD_PRESET_LABELS[Number(value)] || `알 수 없음(${value})`;
+}
+
+export function getEventStatusLabel(value) {
+  return EVENT_STATUS_LABELS[Number(value)] || `알 수 없음(${value})`;
+}
+
+export function getEventEntityLabel(value) {
+  return EVENT_ENTITY_LABELS[Number(value)] || `알 수 없음(${value})`;
+}
+
+export function updateDiscordSettings(payload) {
+  return apiRequest("/api/discord/settings", { method: "PUT", body: payload });
+}
+
+export function fetchDiscordExtras() {
+  return apiGet("/api/discord/extras");
+}
+
+export function createDiscordExtra(kind, payload) {
+  return apiPost(`/api/discord/extras/${encodeURIComponent(kind)}`, payload);
+}
+
+export function updateDiscordExtra(kind, itemId, payload) {
+  return apiRequest(
+    `/api/discord/extras/${encodeURIComponent(kind)}/${encodeURIComponent(
+      itemId
+    )}`,
+    { method: "PATCH", body: payload }
+  );
+}
+
+export function setDiscordAutoModEnabled(ruleId, enabled) {
+  return apiRequest(
+    `/api/discord/extras/automod/${encodeURIComponent(ruleId)}/enabled`,
+    { method: "PATCH", body: { enabled } }
+  );
+}
+
+export function deleteDiscordExtra(kind, itemId, reason = "") {
+  return apiRequest(
+    `/api/discord/extras/${encodeURIComponent(kind)}/${encodeURIComponent(
+      itemId
+    )}`,
+    { method: "DELETE", body: { reason } }
+  );
+}

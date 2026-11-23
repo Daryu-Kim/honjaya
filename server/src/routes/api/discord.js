@@ -53,6 +53,83 @@ function clampInt(value, fallback, min, max) {
   return Math.min(Math.max(Math.trunc(parsed), min), max);
 }
 
+// 백업 시각(cron) 형식 검사. 봇(bot/src/cron.js)이 이해하는 5필드 표기만 통과시킵니다.
+// 실제 다음 실행 시각 계산·저장은 봇(TZ=Asia/Seoul)이 담당합니다.
+const CRON_FIELD_SPECS = [
+  { name: "분", min: 0, max: 59 },
+  { name: "시", min: 0, max: 23 },
+  { name: "일", min: 1, max: 31 },
+  { name: "월", min: 1, max: 12 },
+  { name: "요일", min: 0, max: 7 },
+];
+
+function assertCronExpression(value) {
+  const expression = String(value ?? "").trim().replace(/\s+/g, " ");
+  const fields = expression.split(" ");
+
+  if (fields.length !== 5) {
+    throw new HttpError(
+      400,
+      "HJ400",
+      "백업 시각은 '분 시 일 월 요일' 5개 필드로 입력해 주세요. 예) 0 5 * * *",
+    );
+  }
+
+  fields.forEach((field, index) => {
+    const spec = CRON_FIELD_SPECS[index];
+
+    for (const chunk of field.split(",")) {
+      const part = chunk.trim();
+
+      if (!part) {
+        throw new HttpError(400, "HJ400", `${spec.name} 필드가 비어 있어요.`);
+      }
+
+      const [rangeText, stepText, ...rest] = part.split("/");
+
+      if (rest.length > 0) {
+        throw new HttpError(400, "HJ400", `백업 시각 형식이 올바르지 않아요: ${part}`);
+      }
+
+      if (stepText !== undefined && (!/^\d+$/.test(stepText) || Number(stepText) < 1)) {
+        throw new HttpError(400, "HJ400", `${spec.name} 필드의 간격이 올바르지 않아요: ${part}`);
+      }
+
+      if (rangeText === "*") {
+        continue;
+      }
+
+      const bounds = rangeText.split("-");
+
+      if (bounds.length > 2) {
+        throw new HttpError(400, "HJ400", `${spec.name} 필드의 범위가 올바르지 않아요: ${part}`);
+      }
+
+      for (const bound of bounds) {
+        if (!/^\d+$/.test(bound)) {
+          throw new HttpError(
+            400,
+            "HJ400",
+            `${spec.name} 필드는 숫자로 입력해 주세요(예: 0 5 * * *): ${part}`,
+          );
+        }
+
+        const number = Number(bound);
+
+        if (number < spec.min || number > spec.max) {
+          throw new HttpError(
+            400,
+            "HJ400",
+            `${spec.name} 필드는 ${spec.min}~${spec.max} 범위여야 해요: ${part}`,
+          );
+        }
+      }
+    }
+  });
+
+  return expression;
+}
+
 
 async function loadSettings() {
   const { rows } = await pool.query(
@@ -1074,4 +1151,247 @@ export function registerDiscordRoutes(app) {
 
     return result;
   });
+
+  // ── P12F 설정·확장 ───────────────────────────────────────────────────────
+  const requireSettings = createStaffGuard(PERMISSIONS.DISCORD_SETTINGS);
+
+  function optionalChannelId(value, label) {
+    const raw = String(value ?? "").trim();
+
+    return raw === "" ? "" : assertSnowflake(raw, label);
+  }
+
+  function settingsChannelColumns(body, current) {
+    const columns = {};
+
+    if (body.backupChannelId !== undefined) {
+      columns.backup_channel_id = optionalChannelId(body.backupChannelId, "백업 채널 ID");
+    }
+
+    if (body.announceChannelId !== undefined) {
+      columns.announce_channel_id = optionalChannelId(body.announceChannelId, "공지 채널 ID");
+    }
+
+    if (body.logChannelId !== undefined) {
+      columns.log_channel_id = optionalChannelId(body.logChannelId, "로그 채널 ID");
+    }
+
+    if (body.ownerDiscordId !== undefined) {
+      columns.owner_discord_id = optionalChannelId(body.ownerDiscordId, "사장 Discord ID");
+    }
+
+    if (body.backupCron !== undefined) {
+      columns.backup_cron = assertCronExpression(body.backupCron);
+    }
+
+    const intFields = [
+      ["keepDaily", "keep_daily", 0, 365],
+      ["keepWeekly", "keep_weekly", 0, 365],
+      ["keepMonthly", "keep_monthly", 0, 365],
+      ["maxUploadMb", "max_upload_mb", 1, 500],
+      ["maxOpsPerRun", "max_ops_per_run", 1, 500],
+    ];
+
+    for (const [key, column, min, max] of intFields) {
+      if (body[key] === undefined) {
+        continue;
+      }
+
+      const value = Number(body[key]);
+
+      if (!Number.isInteger(value) || value < min || value > max) {
+        throw new HttpError(400, "HJ400", `${key} 값은 ${min}~${max} 사이 정수여야 해요.`);
+      }
+
+      columns[column] = value;
+    }
+
+    if (Object.keys(columns).length === 0) {
+      throw new HttpError(400, "HJ400", "변경할 설정이 없어요.");
+    }
+
+    const keepDaily = columns.keep_daily ?? current?.keep_daily ?? 0;
+    const keepWeekly = columns.keep_weekly ?? current?.keep_weekly ?? 0;
+    const keepMonthly = columns.keep_monthly ?? current?.keep_monthly ?? 0;
+
+    if (keepDaily + keepWeekly + keepMonthly <= 0) {
+      // 전부 0 이면 새 백업이 올라오는 즉시 지워지므로 막습니다.
+      throw new HttpError(400, "HJ400", "보관 개수를 모두 0으로 둘 수는 없어요.");
+    }
+
+    return columns;
+  }
+
+  app.put("/api/discord/settings", { preHandler: requireSettings }, async (request) => {
+    const body = readBody(request);
+    const current = await loadSettings();
+
+    if (!current) {
+      throw new HttpError(404, "HJ404", "Discord 설정이 아직 만들어지지 않았어요. 마이그레이션을 먼저 실행해 주세요.");
+    }
+
+    const columns = settingsChannelColumns(body, current);
+    const entries = Object.entries(columns);
+    const assignments = entries.map(([column], index) => `${column} = $${index + 1}`);
+    const cronChanged =
+      columns.backup_cron !== undefined && columns.backup_cron !== current.backup_cron;
+
+    // cron 이 바뀌면 봇이 다음 실행 시각을 다시 계산하도록 비워 둡니다.
+    if (cronChanged) {
+      assignments.push("next_backup_at = null");
+    }
+
+    await pool.query(
+      `update public.discord_settings
+          set ${assignments.join(", ")}, updated_at = now()
+        where id = 1`,
+      entries.map(([, value]) => value),
+    );
+
+    let nextBackupAt = cronChanged ? null : current.next_backup_at;
+
+    if (cronChanged) {
+      // 봇이 살아 있으면 즉시 재계산해 화면에 바로 보여줍니다(죽어 있으면 1분 뒤 스케줄러가 계산).
+      const scheduled = await callBot({
+        method: "POST",
+        path: "/internal/backups/schedule",
+        log: request.log,
+      }).catch(() => null);
+
+      nextBackupAt = scheduled?.nextBackupAt ?? null;
+    }
+
+    await auditAction(request, "discord.settings.update", "discord_settings", "1", {
+      fields: entries.map(([column]) => column),
+      cronChanged,
+    });
+
+    return {
+      settings: await loadSettings(),
+      nextBackupAt,
+    };
+  });
+
+  // 확장 기능(이모지·스티커·AutoMod·예약 이벤트). 초안 없이 즉시 반영됩니다.
+  const EXTRAS_KINDS = {
+    emoji: { path: "/internal/emojis", label: "이모지", param: "emojiId", create: true },
+    sticker: { path: "/internal/stickers", label: "스티커", param: "stickerId", create: false },
+    automod: { path: "/internal/automod", label: "AutoMod 규칙", param: "ruleId", create: true },
+    event: { path: "/internal/events", label: "예약 이벤트", param: "eventId", create: true },
+  };
+
+  function extrasKind(value) {
+    const kind = EXTRAS_KINDS[String(value ?? "")];
+
+    if (!kind) {
+      throw new HttpError(404, "HJ404", "지원하지 않는 확장 기능이에요.");
+    }
+
+    return kind;
+  }
+
+  app.get("/api/discord/extras", { preHandler: requireView }, async (request) =>
+    callBot({ path: "/internal/extras", log: request.log }),
+  );
+
+  app.post("/api/discord/extras/:kind", { preHandler: requireManage }, async (request) => {
+    const kind = extrasKind(request.params?.kind);
+
+    if (!kind.create) {
+      throw new HttpError(400, "HJ400", `${kind.label} 추가는 Discord 앱에서만 할 수 있어요.`);
+    }
+
+    const body = readBody(request);
+    const payload =
+      body.payload && typeof body.payload === "object" ? body.payload : body;
+    const result = await callBot({
+      method: "POST",
+      path: kind.path,
+      body: { ...payload, ...actorPayload(request) },
+      log: request.log,
+    });
+
+    await auditAction(request, "discord.extras.create", `discord_${request.params?.kind}`, null, {
+      name: String(payload?.name ?? "").slice(0, 100),
+    });
+
+    return result;
+  });
+
+  app.patch(
+    "/api/discord/extras/:kind/:itemId",
+    { preHandler: requireManage },
+    async (request) => {
+      const kind = extrasKind(request.params?.kind);
+      const itemId = assertSnowflake(request.params?.itemId, `${kind.label} ID`);
+      const body = readBody(request);
+      const payload =
+        body.payload && typeof body.payload === "object" ? body.payload : body;
+      const result = await callBot({
+        method: "PATCH",
+        path: `${kind.path}/${itemId}`,
+        body: { ...payload, [kind.param]: itemId, ...actorPayload(request) },
+        log: request.log,
+      });
+
+      await auditAction(
+        request,
+        "discord.extras.update",
+        `discord_${request.params?.kind}`,
+        itemId,
+        { fields: Object.keys(payload) },
+      );
+
+      return result;
+    },
+  );
+
+  app.patch(
+    "/api/discord/extras/automod/:itemId/enabled",
+    { preHandler: requireManage },
+    async (request) => {
+      const itemId = assertSnowflake(request.params?.itemId, "AutoMod 규칙 ID");
+      const body = readBody(request);
+      const enabled = body.enabled !== false;
+      const result = await callBot({
+        method: "PATCH",
+        path: `/internal/automod/${itemId}/enabled`,
+        body: { enabled, ...actorPayload(request) },
+        log: request.log,
+      });
+
+      await auditAction(request, "discord.extras.automod.toggle", "discord_automod", itemId, {
+        enabled,
+      });
+
+      return result;
+    },
+  );
+
+  app.delete(
+    "/api/discord/extras/:kind/:itemId",
+    { preHandler: requireManage },
+    async (request) => {
+      const kind = extrasKind(request.params?.kind);
+      const itemId = assertSnowflake(request.params?.itemId, `${kind.label} ID`);
+      const body = readBody(request);
+      const reason = reasonText(body.reason);
+      const result = await callBot({
+        method: "DELETE",
+        path: `${kind.path}/${itemId}`,
+        body: { [kind.param]: itemId, reason, ...actorPayload(request) },
+        log: request.log,
+      });
+
+      await auditAction(
+        request,
+        "discord.extras.delete",
+        `discord_${request.params?.kind}`,
+        itemId,
+        { reason },
+      );
+
+      return result;
+    },
+  );
 }

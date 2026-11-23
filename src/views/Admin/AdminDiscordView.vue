@@ -963,6 +963,13 @@
 
     <!-- 백업 -->
     <section v-else-if="activeTab === 'backups'" class="panel">
+      <DiscordBackupSettings
+        :settings="status?.settings || null"
+        :channels="guild?.channels || []"
+        :can-edit="canSettings"
+        @saved="onSettingsSaved"
+      />
+
       <div class="panel-head">
         <h2>백업 이력</h2>
         <div class="panel-actions">
@@ -1297,6 +1304,12 @@
     </section>
 
     <DiscordStructureEditor v-else-if="activeTab === 'structure'" />
+
+    <DiscordExtrasPanel
+      v-else-if="activeTab === 'extras'"
+      :channels="guild?.channels || []"
+      :can-manage="canManage"
+    />
   </div>
 </template>
 
@@ -1304,6 +1317,8 @@
 import { computed, onMounted, ref } from "vue";
 
 import DiscordStructureEditor from "@/components/admin/DiscordStructureEditor.vue";
+import DiscordBackupSettings from "@/components/admin/DiscordBackupSettings.vue";
+import DiscordExtrasPanel from "@/components/admin/DiscordExtrasPanel.vue";
 import {
   banDiscordMember,
   clearDiscordMemberTimeout,
@@ -1358,10 +1373,12 @@ const TABS = [
   { value: "backups", label: "백업" },
   { value: "snapshots", label: "스냅샷" },
   { value: "structure", label: "구조 편집" },
+  { value: "extras", label: "확장" },
 ];
 
 const canManage = computed(() => hasPermission("discord.manage"));
 const canBackup = computed(() => hasPermission("discord.backup"));
+const canSettings = computed(() => hasPermission("discord.settings"));
 
 const activeTab = ref("overview");
 const refreshing = ref(false);
@@ -2234,6 +2251,14 @@ async function loadGuild() {
   } finally {
     guildLoading.value = false;
   }
+}
+
+async function onSettingsSaved(nextSettings) {
+  if (nextSettings) {
+    status.value = { ...(status.value || {}), settings: nextSettings };
+  }
+
+  await Promise.all([loadStatus(), loadBackups()]);
 }
 
 async function refreshAll() {

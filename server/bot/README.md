@@ -25,8 +25,12 @@ Discord 서버(길드)의 구조·멤버·공지·백업을 관리하는 봇입�
    * scopes: `bot`, `applications.commands`
    * permissions: `Manage Roles`, `Manage Channels`, `Kick Members`, `Ban Members`,
      `Moderate Members`, `Manage Messages`, `Manage Threads`, `Create Invite`,
-     `Manage Webhooks`, `View Audit Log`, `Send Messages`, `Embed Links`, `Attach Files`
+     `Manage Webhooks`, `View Audit Log`, `Send Messages`, `Embed Links`, `Attach Files`,
+     `Manage Events`, `Manage Expressions`
    * 생성된 URL 로 봇 초대
+   * `Manage Events`(예약 이벤트)와 `Manage Expressions`(이모지·스티커)는
+     관리자 웹의 **확장** 탭에서만 쓰입니다. 이미 초대한 상태라면 서버 설정 → 역할에서
+     봇 역할에 두 권한을 직접 켜 주세요.
 4. 서버 설정 → 역할에서 **봇 역할을 사장 역할 바로 아래**로 올립니다.
    **Administrator 는 주지 않습니다.** (봇 역할보다 높은 역할은 봇이 건드릴 수 없습니다)
 
@@ -157,6 +161,31 @@ docker compose run --rm bot node scripts/decrypt-backup.mjs \
   --out /tmp/honjaya.dump --dir /backups --base <filename> --sha256 <backup_runs.sha256>
 ```
 
+### 7-2. 확장 기능 (P12F)
+
+관리자 웹 `/admin/discord` → **확장** 탭. 구조 편집과 달리 초안·미리보기 없이 즉시 반영됩니다.
+모든 입력은 봇에서 다시 검증합니다.
+
+| 종류 | 추가 | 수정 | 삭제 | 필요 권한 |
+| --- | --- | --- | --- | --- |
+| 이모지 | 이미지 URL 로 추가 | 이름 변경 | 삭제 가능 | `Manage Expressions` |
+| 스티커 | ✗ (파일 업로드 전용) | 이름 변경 | 삭제 가능 | `Manage Expressions` |
+| AutoMod | 규칙 생성 | 이름·트리거·동작 수정, 켜기/끄기 | 삭제 가능 | `Manage Server` |
+| 예약 이벤트 | 음성/스테이지 채널 또는 외부 장소 | 동일 | 삭제 가능 | `Manage Events` |
+
+* AutoMod 트리거: 키워드(1, 키워드 + 정규식), 스팸(3), 사전 설정(4), 멘션 스팸(5), 멤버 프로필(6).
+  동작은 메시지 차단(1)·알림 채널 경고(2)·타임아웃(3, 최대 28일) 중에서 고릅니다.
+* 예약 이벤트는 음성(2)·외부 장소(3)만 다룹니다. 외부 장소는 종료 시각이 필수입니다.
+* 백업 설정(`PUT /api/discord/settings`)에서 `backup_cron` 이 바뀌면 봇이
+  `POST /internal/backups/schedule` 로 `next_backup_at` 을 다시 계산합니다
+  (봇이 꺼져 있으면 최대 1분 뒤 스케줄러가 채웁니다).
+
+관련 내부 라우트: `GET /internal/extras`, `POST /internal/emojis`,
+`PATCH|DELETE /internal/emojis/:emojiId`, `PATCH|DELETE /internal/stickers/:stickerId`,
+`POST /internal/automod`, `PATCH|DELETE /internal/automod/:ruleId`,
+`PATCH /internal/automod/:ruleId/enabled`, `POST /internal/events`,
+`PATCH|DELETE /internal/events/:eventId`, `POST /internal/backups/schedule`.
+
 ## 8. 다음 단계
 
 | 단계 | 내용 | 상태 |
@@ -164,8 +193,8 @@ docker compose run --rm bot node scripts/decrypt-backup.mjs \
 | P12A | 봇 부팅·슬래시 명령·스냅샷·작업 큐 | 완료 |
 | P12B | 백업·암호화·Discord 업로드·보관 정책·검증 복원 | 완료 |
 | P12B-1 | 서버 코드·설정 번들 백업(`kind='SERVER'`) | 완료 (마이그레이션·배포 대기) |
-| P12C | `/admin/discord` 읽기 전용 대시보드 | 예정 |
-| P12D | 멤버/메시지/스레드/초대 실시간 관리 | 예정 |
-| P12E | 구조 편집기 + 3-way diff 적용(apply) 엔진 | 예정 |
-| P12F | 웹훅·AutoMod·예약 이벤트 + (선택) Discord OAuth2 로그인 | 예정 |
+| P12C | `/admin/discord` 읽기 전용 대시보드 | 완료 |
+| P12D | 멤버/메시지/스레드/초대 실시간 관리 | 완료 |
+| P12E | 구조 편집기 + 3-way diff 적용(apply) 엔진 | 완료 |
+| P12F | 웹훅·AutoMod·예약 이벤트 + (선택) Discord OAuth2 로그인 | 부분 완료 (백업 설정 편집·확장 탭 완료, Discord OAuth2 로그인 미착수) |
 

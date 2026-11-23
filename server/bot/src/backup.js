@@ -1101,6 +1101,25 @@ export function createBackupService({ pool, log, service, queue }) {
     return next;
   }
 
+  /** 설정이 바뀌었을 때 다음 실행 시각을 강제로 다시 계산해 저장합니다(관리자 화면 저장 직후). */
+  async function reschedule(now = new Date()) {
+    let next = null;
+
+    try {
+      next = nextCronTime((await readSettings()).backup_cron, now);
+    } catch (error) {
+      log.warn("backup cron invalid", { err: error });
+      next = null;
+    }
+
+    await pool.query(
+      `update public.discord_settings set next_backup_at = $1, updated_at = now() where id = 1`,
+      [next],
+    );
+
+    return next;
+  }
+
   async function tick(now = new Date()) {
     const next = await ensureSchedule(now);
 
@@ -1141,6 +1160,7 @@ export function createBackupService({ pool, log, service, queue }) {
     listRuns,
     partPath,
     prune,
+    reschedule,
     runBackup,
     runServerBackup,
     tick,
