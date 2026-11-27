@@ -1751,6 +1751,12 @@ Mapping (no new accounts — owner decision 2026-11-27):
 - **김원재 (사장, OWNER)** — 전체. OWNER는 override가 강제로 null이 되므로 role default로 전부 통과.
 - **최윤희 (기존 계정, 이름 그대로)** — `arc.view` `arc.stock` `arc.expense` `arc.approve` `arc.check` `arc.edu` `arc.care` `arc.sensitive` `arc.admin` override.
   ⚠️ Repo/seed/migrations contain no such name, so her current role must be read from the live DB (`/admin` 직원 화면) before assigning — see §H-1.
+  **ARC 총괄 계정 (owner decision 2026-11-28)** — login id `yoonhee1021` is the ARC 총괄. This is an
+  **account-level flag, not a role**: `ARC_DIRECTOR_LOGIN_IDS` + `isArcDirector()` in
+  `server/src/auth/permissions.js`, exposed as `employee.isArcDirector` by `toPublicEmployee()`.
+  When set, the SPA (a) lands on `/admin/arc` right after login (`arcHomePath()` in `src/lib/arc.js`),
+  (b) sends the first `/admin/dashboard` entry to `/admin/arc` (one-shot per browser tab via
+  `sessionStorage`), and (c) opens the ARC sidebar group by default. No schema change; no new role.
 - **임시은 (직원, STAFF)** — `arc.view` + `arc.stock` + 본인 OTC 자기점검(`arc_otc_checks`는 본인 행만). `arc.sensitive` 없음.
 
 ### F. UI

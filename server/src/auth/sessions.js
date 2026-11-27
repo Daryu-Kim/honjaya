@@ -8,7 +8,7 @@ import { config } from "../config.js";
 import { pool } from "../db.js";
 import { HttpError } from "../http/errors.js";
 import { parseCookies, serializeCookie } from "./cookies.js";
-import { permissionsForEmployee } from "./permissions.js";
+import { isArcDirector, permissionsForEmployee } from "./permissions.js";
 
 const HOUR_MS = 60 * 60 * 1000;
 const USER_AGENT_MAX = 300;
@@ -78,6 +78,8 @@ export function toPublicEmployee(row) {
     name: row.name || "",
     role: row.role,
     permissions: permissionsForEmployee(row),
+    // 응급안전관리센터 총괄 계정이면 프런트가 ARC 를 첫 화면으로 엽니다.
+    isArcDirector: isArcDirector(row.login_id),
     // null = 역할 기본값 사용, 배열 = 직원별 직접 설정값
     permissionOverrides: Array.isArray(row.permissions)
       ? [...row.permissions]

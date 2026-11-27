@@ -57,6 +57,7 @@ import {
   staffAuthState,
   staffLogin,
 } from "@/lib/staffAuth.js";
+import { arcHomePath } from "@/lib/arc";
 
 const router = useRouter();
 const route = useRoute();
@@ -75,7 +76,8 @@ function resolveRedirectPath() {
     return redirect;
   }
 
-  return "/admin/dashboard";
+  // 응급안전관리센터 총괄 계정은 ARC 를 첫 화면으로 엽니다.
+  return arcHomePath(staffAuthState.employee) || "/admin/dashboard";
 }
 
 async function submitLogin() {

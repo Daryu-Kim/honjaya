@@ -360,7 +360,11 @@ const arcMenuList = [
   },
 ];
 
-const isArcMenuOpen = ref(false);
+// 총괄 계정(yoonhee1021)은 응급안전이 주 화면이라 그룹을 펼친 채로 시작합니다.
+const isArcMenuOpen = ref(
+  route.path.startsWith("/admin/arc") ||
+    Boolean(currentEmployee.value?.isArcDirector)
+);
 
 // 권한이 없는 메뉴는 아예 보여주지 않습니다. (직원별 권한 설정과 같은 기준)
 const visibleMenuList = computed(() => {

@@ -44,7 +44,7 @@ import AdminArcExpenseView from "@/views/Admin/AdminArcExpenseView.vue";
 import StaffLoginView from "@/views/Staff/StaffLoginView.vue";
 import AdminLayout from "@/layouts/AdminLayout.vue";
 import { startGlobalBusy } from "@/lib/globalBusy";
-import { canUseArc } from "@/lib/arc";
+import { arcHomePath, canUseArc, hasArcLanded, markArcLanded } from "@/lib/arc";
 import { hasPermission, loadStaffSession } from "@/lib/staffAuth";
 
 const routes = [
@@ -351,6 +351,17 @@ router.beforeEach(async (to) => {
 
     if (requiredPermission && !hasPermission(requiredPermission)) {
       return { path: "/admin/dashboard" };
+    }
+
+    // 응급안전관리센터 총괄 계정(yoonhee1021)은 관리자 화면 첫 진입을 ARC 로 보냅니다.
+    if (!hasArcLanded()) {
+      markArcLanded();
+
+      const arcHome = arcHomePath(employee);
+
+      if (arcHome && to.path === "/admin/dashboard") {
+        return { path: arcHome };
+      }
     }
 
     return true;

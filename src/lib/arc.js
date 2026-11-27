@@ -11,6 +11,43 @@ export function canUseArc(role) {
   return ARC_ALLOWED_ROLES.includes(String(role || ""));
 }
 
+// 응급안전관리센터 총괄(yoonhee1021) 계정의 첫 화면입니다.
+// 서버가 직원 정보에 isArcDirector 를 내려 주면 그 계정은 로그인 직후 ARC 로 들어갑니다.
+export const ARC_HOME_PATH = "/admin/arc";
+
+export function arcHomePath(employee) {
+  return employee?.isArcDirector && canUseArc(employee?.role)
+    ? ARC_HOME_PATH
+    : "";
+}
+
+// 첫 화면 이동은 브라우저 탭당 1회만 적용합니다.
+// (새 탭 = 다시 ARC 로, 같은 탭에서 새로고침 = 보던 화면 유지)
+const ARC_LANDING_STORAGE_KEY = "honjaya.arcLandingDone";
+let arcLandingDoneInMemory = false;
+
+export function hasArcLanded() {
+  if (arcLandingDoneInMemory) {
+    return true;
+  }
+
+  if (typeof sessionStorage === "undefined") {
+    return false;
+  }
+
+  return sessionStorage.getItem(ARC_LANDING_STORAGE_KEY) === "1";
+}
+
+export function markArcLanded() {
+  arcLandingDoneInMemory = true;
+
+  if (typeof sessionStorage === "undefined") {
+    return;
+  }
+
+  sessionStorage.setItem(ARC_LANDING_STORAGE_KEY, "1");
+}
+
 export const ARC_LEVEL_LABELS = {
   INFO: "안내",
   WARN: "주의",

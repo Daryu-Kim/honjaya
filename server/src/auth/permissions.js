@@ -11,6 +11,19 @@ export const ROLE_LABELS = {
   STAFF: "직원",
 };
 
+// 응급안전관리센터 총괄 계정.
+// 역할(MANAGER)이 아니라 이 계정 자체가 총괄이라서, 로그인하면 ARC 를 첫 화면으로 엽니다.
+// (2026-11-28 대표 지시: yoonhee1021 = 최윤희 총괄)
+export const ARC_DIRECTOR_LOGIN_IDS = ["yoonhee1021"];
+
+export function isArcDirector(loginId) {
+  const normalized = String(loginId || "")
+    .trim()
+    .toLowerCase();
+
+  return ARC_DIRECTOR_LOGIN_IDS.includes(normalized);
+}
+
 export const PERMISSIONS = {
   ORDER_VIEW: "order.view",
   ORDER_MANAGE: "order.manage",
