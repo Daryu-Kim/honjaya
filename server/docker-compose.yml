@@ -48,6 +48,14 @@ services:
       BOT_API_URL: http://bot:4100
       BOT_INTERNAL_TOKEN: ${BOT_INTERNAL_TOKEN:-}
       BOT_TIMEOUT_MS: ${BOT_TIMEOUT_MS:-15000}
+      # P14 — ARC SAFETY 증빙 파일 저장 경로(컨테이너 안). 호스트의 ./arc-files 와 연결됩니다.
+      ARC_FILES_DIR: ${ARC_FILES_DIR:-/app/arc-files}
+      # 민감 건강정보 암호화 키. DB 덤프·백업에는 포함되지 않으므로 오프라인 사본을 보관하세요.
+      ARC_FIELD_KEY: ${ARC_FIELD_KEY:-}
+    volumes:
+      # P14 — 증빙 사진·영수증·서명본. 호스트 server/arc-files 에 남기므로 봇이 /src 로 읽어
+      # 05:00 서버 번들 백업에 함께 담깁니다(이름을 backups/csv 로 바꾸면 백업에서 제외됩니다).
+      - ./arc-files:/app/arc-files
     # 프런트엔드는 Vercel 이 서빙하므로 API 는 호스트 로컬(Funnel)에서만 보이면 됩니다.
     # 같은 Wi-Fi 의 폰에서 http://<노트북 IP>:3000 으로 직접 확인하려면 "3000:3000" 으로 바꾸세요.
     ports:
