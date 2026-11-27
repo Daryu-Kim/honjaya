@@ -1580,7 +1580,15 @@ Shared: `src/lib/shop.js` (client + formatters + slot builder) and
 
 ---
 
-## 3-15. P14 — ARC SAFETY 응급안전관리센터 (P14A+P14B+P14C+P14D SHIPPED 2026-11-27, rev 2026-11-27)
+## 3-15. P14 — ARC SAFETY 응급안전관리센터 (P14A+P14B+P14C+P14D SHIPPED 2026-11-27, rev 2026-11-28)
+
+Rev 4 (2026-11-28, owner): all 11 ARC screens are now one sidebar group at the very
+bottom (divider + per-item accent color) instead of standalone menus, and the whole
+module — 조회 and 등록 — is limited to OWNER(김원재) and MANAGER(최윤희). STAFF default
+permissions no longer include `arc.*`; every `/api/arc/*` route re-checks the role;
+MANAGER keeps all 9 ARC permissions even with a stale per-employee override
+(`permissionsForEmployee`). Router redirects non-ARC roles away from `/admin/arc*`.
+Commit `3711ef1`.
 
 Rev 2 changes (owner decisions): 혼자야 단일 사업장 · 상세 건강기록 R1 포함 · 백업은 ARC 포함(→ 앱 레벨
 암호화) · 김원재=사장/임시은=직원 · 최윤희는 기존 MANAGER 계정 재사용 · **2FA 범위 제외**.
