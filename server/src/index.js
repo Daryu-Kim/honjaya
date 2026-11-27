@@ -1,9 +1,67 @@
 import { buildApp } from "./app.js";
 import { purgeExpiredSessions } from "./auth/sessions.js";
 import { config } from "./config.js";
-import { closePool } from "./db.js";
+import { closePool, pool } from "./db.js";
 import { messagingReadiness } from "./messaging.js";
 import { startEventBroadcast, stopEventBroadcast } from "./routes/events.js";
+import { applySchema } from "../scripts/apply-schema.mjs";
+
+// 배포 후 migrate 를 잊으면 화면마다 "테이블을 찾을 수 없어요." 가 뜹니다.
+// AUTO_SCHEMA=1 이면 기동할 때 꼭 있어야 할 테이블을 확인하고, 빠진 게 있으면 스키마를 적용합니다.
+// (모든 SQL 이 멱등이라 이미 적용된 DB 에서는 조회 한 번으로 끝납니다)
+const REQUIRED_TABLES = [
+  "products",
+  "employees",
+  "order_sheets",
+  "customers",
+  "coupons",
+  "arc_items",
+  "arc_settings",
+  "arc_care_records",
+  "arc_care_files",
+  "arc_training_sessions",
+];
+
+async function missingTables() {
+  const select = REQUIRED_TABLES.map(
+    (name) => `to_regclass('public.${name}') is not null as ${name}`
+  ).join(", ");
+  const { rows } = await pool.query(`select ${select}`);
+
+  return REQUIRED_TABLES.filter((name) => !rows[0][name]);
+}
+
+async function ensureSchema(log) {
+  const missing = await missingTables();
+
+  if (missing.length === 0) {
+    return;
+  }
+
+  log.info(`[schema] 없는 테이블 ${missing.length}개: ${missing.join(", ")}`);
+  log.info("[schema] 기동 중 스키마를 적용합니다. 첫 배포에서는 1~2분 걸릴 수 있어요.");
+
+  await applySchema(config.databaseUrl, log);
+
+  const still = await missingTables();
+
+  if (still.length > 0) {
+    throw new Error(`스키마 적용 후에도 없는 테이블: ${still.join(", ")}`);
+  }
+
+  log.info("[schema] 기동 시 스키마 적용 완료");
+}
+
+if (config.autoSchema) {
+  try {
+    await ensureSchema(console);
+  } catch (error) {
+    console.error(`[schema] 기동 시 스키마 적용 실패: ${error.message}`);
+    console.error(
+      "[schema] 서버에서 `docker compose --profile tools run --rm migrate` 로 다시 적용해 주세요."
+    );
+  }
+}
 
 const app = await buildApp();
 

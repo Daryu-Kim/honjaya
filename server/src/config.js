@@ -94,4 +94,8 @@ export const config = {
     filesDir: resolve(serverRoot, String(process.env.ARC_FILES_DIR || "arc-files").trim()),
     fieldKey: String(process.env.ARC_FIELD_KEY || "").trim(),
   },
+  // 기동할 때 스키마(supabase/*.sql + sql/*.sql)를 한 번 적용합니다.
+  // "배포했는데 migrate 를 잊어서 테이블을 찾을 수 없어요" 를 막기 위한 장치이고,
+  // 모든 SQL 이 멱등이라 여러 번 실행해도 안전합니다. compose api 서비스에서만 켭니다.
+  autoSchema: String(process.env.AUTO_SCHEMA || "").trim() === "1",
 };

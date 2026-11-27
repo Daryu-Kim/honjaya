@@ -2005,9 +2005,44 @@ accepted formats + 20MB.
 lookup. DDL is `alter table … add column if not exists` + `create index if not exists`, so `arc.sql` stays
 re-runnable.
 
-**7. Deploy.** `cd /opt/honjaya && git pull && cd server && docker compose --profile tools run --rm migrate
-&& docker compose up -d --build api`. Files still land in `ARC_FILES_DIR` (`server/arc-files/care/…`), which
+**7. Deploy.** `cd /opt/honjaya && git pull && cd server && docker compose up -d --build api`. The api now
+checks its own schema on boot (see §L), so `--profile tools run --rm migrate` is no longer required for a normal
+deploy — keep it only for a manual re-apply. Files still land in `ARC_FILES_DIR` (`server/arc-files/care/…`), which
 `serverBundle.js` already ships to Discord — so 서식 원본 is included in the backup by design.
+
+---
+
+### L. Ops — auto schema on API boot (2026-11-28 — 「테이블을 찾을 수 없어요.」 재발 방지)
+
+**Symptom.** After a deploy every ARC screen returned 「테이블을 찾을 수 없어요.」 while the rest of the site
+worked. Cause: the SPA (Vercel) auto-deploys from `master`, but `server/sql/arc.sql` only runs through the
+`migrate` compose service (`profiles: ["tools"]`). A plain `docker compose up -d --build api` deploys the code
+with **no** `arc_*` tables → Postgres `42P01` → `PG_MESSAGES["42P01"]` in `http/errors.js` (404, so it never
+even shows up in `docker compose logs api`, which only logs `status >= 500`).
+
+**Fix — the API self-heals on boot.**
+
+| file | change |
+| --- | --- |
+| `server/src/config.js` | `autoSchema: process.env.AUTO_SCHEMA === "1"` (default **off** so `npm run dev` stays fast) |
+| `server/src/index.js` | `REQUIRED_TABLES` probe with `to_regclass('public.<name>')`; if any is missing → `applySchema(config.databaseUrl, log)` → probe again → throw if still missing. Wrapped in try/catch: a failure logs Korean guidance and **never blocks boot**. |
+| `server/docker-compose.yml` | api gets `AUTO_SCHEMA: ${AUTO_SCHEMA:-1}` and `- ../supabase:/supabase:ro` (so `repoRoot` = `/` resolves `/supabase/schema.sql`) |
+
+Probe list: `products, employees, order_sheets, customers, coupons, arc_items, arc_settings, arc_care_records,
+arc_care_files, arc_training_sessions` — one sentinel per SQL file, including the ARC ones that broke.
+
+**Cost.** Already-correct DB → one `select` and no `[schema]` lines. Fresh/partial DB → full idempotent pipeline
+(measured locally on an empty cluster: 32 files, `arc.sql` 96 statements, ~40s), then a second probe.
+
+**Verified (local, ephemeral `embedded-postgres`, port 55432, empty DB).**
+`AUTO_SCHEMA=1 npm start` → log `[schema] 없는 테이블 10개 …` → full apply → `[schema] 기동 시 스키마 적용 완료`
+→ `public` tables **64**, `arc_*` **26**, all 6 P14H columns on `arc_care_records` present, `arc_training_*`
+present, `GET /health` → `{"ok":true,"db":"up"}`. Second boot on the populated DB printed no `[schema]` lines
+(probe-only path).
+
+**Trade-off.** Boot-time DDL needs a role that can `create role` (the `BOOTSTRAP_SQL` block) — the compose
+`postgres` superuser has it. A non-superuser `DATABASE_URL` would fail the apply, log the Korean warning, and the
+API would still start (leaving the operator the manual `migrate` path). Set `AUTO_SCHEMA=0` to disable.
 
 ---
 
@@ -2109,6 +2144,7 @@ todo     p14f-review-docs   R3: 사후검토·NearMiss·CAPA·서식 + arc-files
 done     p14g-stock-par     DONE: arc_items/arc_otc_items 안전재고(min_qty)·보충량(reorder_qty) 시드 + OTC 부족 알림 + suggestedOrderQty
 done     p14g-training      DONE: arc_training_sessions/attendees + arcTraining.js(모듈15·상황연습21·금지30) + /admin/arc/training(달력·출석·자료)
 done     p14h-care-form      DONE: AS-REC-001 별첨 A ② 비현장 보고 6필드 + 기록자 서명 + 기록성격 고지 + 목록에서 서식원본 등록
+done     ops-auto-schema     DONE: api 기동 시 필수 테이블 점검 → 없으면 스키마 자동 적용(AUTO_SCHEMA=1). "테이블을 찾을 수 없어요" 재발 방지
 ```
 
 ---
