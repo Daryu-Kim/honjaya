@@ -431,25 +431,34 @@ export async function withdrawArcConsent(id, employee = null, reason = "") {
   return mapConsent(rows[0], { revealSensitive: false });
 }
 
-/** 유효한 동의(활성 + 보존기간 미경과)가 있는지. P14C 상세기록 저장 게이트입니다. */
-export async function hasValidArcConsent(incidentNo = "") {
+/**
+ * 유효한 동의(활성 + 보존기간 미경과) 1건. 없으면 null.
+ * P14C 상세기록 저장 게이트가 동의서 id 까지 함께 기록하기 위해 씁니다.
+ */
+export async function findActiveArcConsent(incidentNo = "") {
   const key = String(incidentNo ?? "").trim();
 
   if (!key) {
-    return false;
+    return null;
   }
 
   const { rows } = await pool.query(
-    `select 1
+    `select *
        from public.arc_consents
       where incident_no = $1
         and status = 'ACTIVE'
         and (retention_until is null or retention_until >= current_date)
+      order by confirmed_at desc nulls last, created_at desc
       limit 1`,
     [key]
   );
 
-  return rows.length > 0;
+  return rows[0] ? mapConsent(rows[0], { revealSensitive: false }) : null;
+}
+
+/** 유효한 동의(활성 + 보존기간 미경과)가 있는지. P14C 상세기록 저장 게이트입니다. */
+export async function hasValidArcConsent(incidentNo = "") {
+  return Boolean(await findActiveArcConsent(incidentNo));
 }
 
 // ── 민감정보 접근 승인 / 열람 로그 ───────────────────────────────────

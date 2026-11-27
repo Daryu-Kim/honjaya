@@ -437,3 +437,138 @@ values
   ('OTC-012', '클리어딘(로라타딘)', '제2세대 H1 항히스타민제(콧물·재채기·두드러기)', 10, '정', date '2029-06-11', 120),
   ('OTC-013', '타이레놀정 500mg', '비마약성 중추성 해열진통제·아세트아미노펜제', 30, '정', date '2029-05-26', 130)
 on conflict (code) do nothing;
+
+
+-- ── P14C: 사건 접수(INC) + AS-CARE 상세 기록(암호화) ──────────────────
+-- 사건 헤더(arc_incidents)는 비식별 운영정보만 담습니다. 성명·연락처·증상·처치 같은
+-- 식별 가능한 건강정보는 arc_care_* 의 *_enc 컬럼에만 들어갑니다.
+create table if not exists public.arc_incidents (
+  id                uuid primary key default gen_random_uuid(),
+  -- INC-YYYYMMDD-nn (한국시간 발생일 기준 일련번호)
+  incident_no       text not null,
+  occurred_at       timestamptz not null default now(),
+  -- GUEST(비응급 고객) / STAFF_OTC(직원 상비약 자가복용) / EMERGENCY(응급·119 인계)
+  kind              text not null default 'GUEST'
+                    check (kind in ('GUEST', 'STAFF_OTC', 'EMERGENCY')),
+  -- ON_SITE(현장 직접 사정) / OFF_SITE(비현장·사후 보고)
+  record_mode       text not null default 'ON_SITE'
+                    check (record_mode in ('ON_SITE', 'OFF_SITE')),
+  status            text not null default 'OPEN' check (status in ('OPEN', 'CLOSED')),
+  -- 비식별 표시명(예: 손님A, 직원1). 실명은 상세기록에만 암호화 저장합니다.
+  subject_label     text not null default '',
+  place             text not null default '',
+  -- 비식별 요약. 서버가 6자리 이상 숫자·이메일 형태를 거부합니다.
+  summary           text not null default '',
+  -- 개인정보 처리근거: CONSENT_F25 / CONSENT_F27 / OTHER_LEGAL / NOT_APPLICABLE / DEIDENTIFIED
+  legal_basis       text not null default 'NOT_APPLICABLE'
+                    check (legal_basis in ('CONSENT_F25', 'CONSENT_F27', 'OTHER_LEGAL',
+                                           'NOT_APPLICABLE', 'DEIDENTIFIED')),
+  legal_basis_note  text not null default '',
+  transferred_119   boolean not null default false,
+  reporter_id       text references public.employees(id) on delete set null,
+  reporter_name     text not null default '',
+  handler_id        text references public.employees(id) on delete set null,
+  handler_name      text not null default '',
+  closed_at         timestamptz,
+  closed_by_name    text not null default '',
+  close_note        text not null default '',
+  created_by        text references public.employees(id) on delete set null,
+  created_by_name   text not null default '',
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now()
+);
+
+create unique index if not exists arc_incidents_no_idx
+  on public.arc_incidents (incident_no);
+
+create index if not exists arc_incidents_time_idx
+  on public.arc_incidents (occurred_at desc);
+
+create index if not exists arc_incidents_status_idx
+  on public.arc_incidents (status, occurred_at desc);
+
+-- 사건 1건당 상세기록 1건(AS-CARE-01). 정정은 arc_care_addenda 에 덧붙입니다
+-- (원기록 임의 삭제 금지).
+create table if not exists public.arc_care_records (
+  id                    uuid primary key default gen_random_uuid(),
+  incident_id           uuid not null unique
+                        references public.arc_incidents(id) on delete cascade,
+  incident_no           text not null default '',
+  -- 01 사건 개요(대상자)
+  subject_name_enc      text not null default '',
+  subject_phone_enc     text not null default '',
+  subject_birth_enc     text not null default '',
+  subject_gender_enc    text not null default '',
+  subject_age_enc       text not null default '',
+  chief_complaint_enc   text not null default '',
+  summary_enc           text not null default '',
+  history_enc           text not null default '',
+  -- 03 현장 조치·최종 계획
+  treatment_enc         text not null default '',
+  disposition_enc       text not null default '',
+  followup_enc          text not null default '',
+  -- OFF_SITE 서식 전용(보고 정보 출처 / 미확인 사항)
+  report_source_enc     text not null default '',
+  unconfirmed_enc       text not null default '',
+  -- 기록 시점의 동의·법적근거 확인 상태(평문 색인). 그 자체는 개인정보가 아닙니다.
+  legal_basis           text not null default 'NOT_APPLICABLE'
+                        check (legal_basis in ('CONSENT_F25', 'CONSENT_F27', 'OTHER_LEGAL',
+                                               'NOT_APPLICABLE', 'DEIDENTIFIED')),
+  legal_basis_note      text not null default '',
+  consent_id            uuid references public.arc_consents(id) on delete set null,
+  recorded_by           text references public.employees(id) on delete set null,
+  recorded_by_name      text not null default '',
+  created_at            timestamptz not null default now(),
+  updated_at            timestamptz not null default now()
+);
+
+-- 활력징후·상태경과 타임라인(정보구분 DIRECT=직접 확인 / REPORT=보고받음).
+create table if not exists public.arc_care_timeline (
+  id             uuid primary key default gen_random_uuid(),
+  care_id        uuid not null references public.arc_care_records(id) on delete cascade,
+  source         text not null default 'DIRECT' check (source in ('DIRECT', 'REPORT')),
+  -- HH:MM (사건 발생일 기준). 정렬만 되면 되므로 문자열로 둡니다.
+  measured_at    text not null default '',
+  temp_enc       text not null default '',
+  bp_enc         text not null default '',
+  pulse_enc      text not null default '',
+  spo2_enc       text not null default '',
+  condition_enc  text not null default '',
+  sort_order     integer not null default 0,
+  created_at     timestamptz not null default now()
+);
+
+create index if not exists arc_care_timeline_care_idx
+  on public.arc_care_timeline (care_id, sort_order);
+
+-- 02 약품·물품 사용 확인 + 복약·처치 교육.
+create table if not exists public.arc_care_meds (
+  id             uuid primary key default gen_random_uuid(),
+  care_id        uuid not null references public.arc_care_records(id) on delete cascade,
+  -- 구급상자/상비의약품 마스터 연결(선택). 마스터가 지워져도 기록 문구는 남습니다.
+  item_id        uuid references public.arc_items(id) on delete set null,
+  name_enc       text not null default '',
+  qty_enc        text not null default '',
+  category_enc   text not null default '',
+  education_enc  text not null default '',
+  note_enc       text not null default '',
+  sort_order     integer not null default 0,
+  created_at     timestamptz not null default now()
+);
+
+create index if not exists arc_care_meds_care_idx
+  on public.arc_care_meds (care_id, sort_order);
+
+-- 정정·추가 기록(append only). 원기록은 남기고 사유와 함께 덧붙입니다.
+create table if not exists public.arc_care_addenda (
+  id           uuid primary key default gen_random_uuid(),
+  care_id      uuid not null references public.arc_care_records(id) on delete cascade,
+  incident_no  text not null default '',
+  body_enc     text not null default '',
+  author_id    text references public.employees(id) on delete set null,
+  author_name  text not null default '',
+  created_at   timestamptz not null default now()
+);
+
+create index if not exists arc_care_addenda_care_idx
+  on public.arc_care_addenda (care_id, created_at);

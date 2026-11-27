@@ -22,6 +22,9 @@
         <router-link to="/admin/arc/otc" class="link-button">
           개인 상비약
         </router-link>
+        <router-link to="/admin/arc/incidents" class="link-button">
+          사건·응급기록
+        </router-link>
         <router-link to="/admin/arc/consents" class="link-button">
           동의서 관리
         </router-link>
@@ -91,6 +94,24 @@
       >
         <span class="summary-label">개봉 후 기한 초과</span>
         <strong>{{ stock.openedOverdue ?? 0 }}개</strong>
+      </article>
+      <article
+        class="summary-card"
+        :class="{ alert: (incidents.open ?? 0) > 0 }"
+      >
+        <span class="summary-label">진행 중 사건</span>
+        <strong>{{ incidents.open ?? 0 }}건</strong>
+      </article>
+      <article class="summary-card">
+        <span class="summary-label">이번 달 사건</span>
+        <strong>{{ incidents.thisMonth ?? 0 }}건</strong>
+      </article>
+      <article
+        class="summary-card"
+        :class="{ alert: (incidents.emergencyLast90Days ?? 0) > 0 }"
+      >
+        <span class="summary-label">90일 응급·119</span>
+        <strong>{{ incidents.emergencyLast90Days ?? 0 }}건</strong>
       </article>
     </section>
 
@@ -193,6 +214,7 @@ import { hasPermission } from "@/lib/staffAuth";
 
 const summary = ref({});
 const stock = ref({});
+const incidents = ref({});
 const notifications = ref([]);
 const isKeyReady = ref(true);
 const unreadOnly = ref(false);
@@ -208,6 +230,7 @@ async function loadSummary() {
 
     summary.value = data?.summary ?? {};
     stock.value = data?.stock ?? {};
+    incidents.value = data?.incidents ?? {};
   } catch (error) {
     errorMessage.value = error?.message || "현황을 불러오지 못했어요.";
   }

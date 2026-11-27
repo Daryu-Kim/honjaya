@@ -205,6 +205,13 @@ const menuList = [
     permission: "arc.view",
   },
   {
+    to: "/admin/arc/incidents",
+    label: "사건·응급기록",
+    description: "사건 접수·AS-CARE",
+    matchStartsWith: "/admin/arc/incidents",
+    permission: "arc.view",
+  },
+  {
     to: "/admin/arc/consents",
     label: "응급안전 동의서",
     description: "동의 확인·철회",

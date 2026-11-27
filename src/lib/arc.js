@@ -86,6 +86,35 @@ export const ARC_SETTLE_STATUS_LABELS = {
   SETTLED: "정산완료",
 };
 
+export const ARC_INCIDENT_KIND_LABELS = {
+  GUEST: "비응급 고객",
+  STAFF_OTC: "직원 상비약 자가복용",
+  EMERGENCY: "응급·119 인계",
+};
+
+export const ARC_INCIDENT_STATUS_LABELS = {
+  OPEN: "진행 중",
+  CLOSED: "종결",
+};
+
+export const ARC_RECORD_MODE_LABELS = {
+  ON_SITE: "현장 직접 사정",
+  OFF_SITE: "비현장·사후 보고",
+};
+
+export const ARC_LEGAL_BASIS_LABELS = {
+  CONSENT_F25: "F25 · 직원 민감정보 동의 확인",
+  CONSENT_F27: "F27 · 비응급 고객 개인정보 동의 확인",
+  OTHER_LEGAL: "그 외 적법근거(사유 필수)",
+  NOT_APPLICABLE: "해당없음 · 응급·119 인계",
+  DEIDENTIFIED: "비식별 전환(상세기록 미저장)",
+};
+
+export const ARC_TIMELINE_SOURCE_LABELS = {
+  DIRECT: "직접 확인",
+  REPORT: "보고받음",
+};
+
 const NOTIFICATIONS_PATH = "/api/arc/notifications";
 const CONSENTS_PATH = "/api/arc/consents";
 const ACCESS_PATH = "/api/arc/sensitive-access";
@@ -94,6 +123,7 @@ const STOCK_PATH = "/api/arc/stock";
 const STOCKTAKES_PATH = "/api/arc/stocktakes";
 const PURCHASES_PATH = "/api/arc/purchases";
 const OTC_PATH = "/api/arc/otc";
+const INCIDENTS_PATH = "/api/arc/incidents";
 
 function queryString(params = {}) {
   const search = new URLSearchParams();
@@ -169,6 +199,7 @@ export async function fetchArcDashboard() {
   return {
     summary: data?.summary ?? null,
     stock: data?.stock ?? null,
+    incidents: data?.incidents ?? null,
   };
 }
 
@@ -520,4 +551,108 @@ export async function createArcOtcCheck(otcItemId, payload) {
   );
 
   return data?.check ?? null;
+}
+
+// ── 사건 접수(INC) · AS-CARE 상세기록 ──────────────────────────────────────
+
+export async function fetchArcIncidents({
+  kind = "",
+  status = "",
+  search = "",
+  from = "",
+  to = "",
+  limit = 100,
+} = {}) {
+  const data = await apiGet(
+    `${INCIDENTS_PATH}${queryString({
+      kind,
+      status,
+      search,
+      from,
+      to,
+      limit,
+    })}`
+  );
+
+  return {
+    incidents: Array.isArray(data?.incidents) ? data.incidents : [],
+    canCare: Boolean(data?.canCare),
+    canSensitive: Boolean(data?.canSensitive),
+    canApprove: Boolean(data?.canApprove),
+    viewerName: data?.viewerName ?? "",
+  };
+}
+
+export async function createArcIncident(payload) {
+  const data = await apiPost(INCIDENTS_PATH, payload);
+
+  return data?.incident ?? null;
+}
+
+export async function fetchArcIncident(incidentId) {
+  const data = await apiGet(
+    `${INCIDENTS_PATH}/${encodeURIComponent(incidentId)}`
+  );
+
+  return {
+    exists: Boolean(data?.exists),
+    legalBasis: data?.legalBasis ?? null,
+    recordedByName: data?.recordedByName ?? "",
+    updatedAt: data?.updatedAt ?? null,
+    addendaCount: data?.addendaCount ?? 0,
+    incident: data?.incident ?? null,
+    canCare: Boolean(data?.canCare),
+    canSensitive: Boolean(data?.canSensitive),
+    canApprove: Boolean(data?.canApprove),
+    viewerName: data?.viewerName ?? "",
+  };
+}
+
+export async function updateArcIncident(incidentId, payload) {
+  const data = await apiPatch(
+    `${INCIDENTS_PATH}/${encodeURIComponent(incidentId)}`,
+    payload
+  );
+
+  return data?.incident ?? null;
+}
+
+/** 상세 건강기록. 403 이면 사건별 열람 승인이 필요합니다. */
+export async function fetchArcCare(incidentId) {
+  const data = await apiGet(
+    `${INCIDENTS_PATH}/${encodeURIComponent(incidentId)}/care`
+  );
+
+  return {
+    incident: data?.incident ?? null,
+    care: data?.care ?? null,
+    timeline: Array.isArray(data?.timeline) ? data.timeline : [],
+    meds: Array.isArray(data?.meds) ? data.meds : [],
+    addenda: Array.isArray(data?.addenda) ? data.addenda : [],
+    access: data?.access ?? null,
+  };
+}
+
+export async function saveArcCare(incidentId, payload) {
+  const data = await apiPatch(
+    `${INCIDENTS_PATH}/${encodeURIComponent(incidentId)}/care`,
+    payload
+  );
+
+  return {
+    care: data?.care ?? null,
+    timeline: Array.isArray(data?.timeline) ? data.timeline : [],
+    meds: Array.isArray(data?.meds) ? data.meds : [],
+    addenda: Array.isArray(data?.addenda) ? data.addenda : [],
+    access: data?.access ?? null,
+  };
+}
+
+export async function addArcCareAddendum(incidentId, body) {
+  const data = await apiPost(
+    `${INCIDENTS_PATH}/${encodeURIComponent(incidentId)}/addenda`,
+    { body }
+  );
+
+  return data?.addendum ?? null;
 }

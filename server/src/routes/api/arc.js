@@ -21,6 +21,16 @@ import {
   withdrawArcConsent,
 } from "../../arc.js";
 import {
+  addArcCareAddendum,
+  arcIncidentSummary,
+  createArcIncident,
+  getArcCareDetail,
+  getArcCareStatus,
+  listArcIncidents,
+  saveArcCare,
+  updateArcIncident,
+} from "../../arcIncidents.js";
+import {
   applyArcStocktake,
   arcStockSummary,
   claimArcOtcItems,
@@ -89,6 +99,7 @@ export function registerArcRoutes(app) {
     return {
       summary: await arcDashboardSummary(employee?.id ?? null),
       stock: await arcStockSummary({ employee }),
+      incidents: await arcIncidentSummary(),
     };
   });
 
@@ -462,5 +473,105 @@ export function registerArcRoutes(app) {
         canManageAll: hasPermission(request, PERMISSIONS.ARC_ADMIN),
       })),
     })
+  );
+
+  // ── 사건 접수(INC) · AS-CARE 상세기록 ───────────────────────────────
+
+  app.get("/api/arc/incidents", { preHandler: requireView }, async (request) => {
+    const query = request.query || {};
+
+    return {
+      incidents: await listArcIncidents({
+        kind: query.kind || null,
+        status: query.status || null,
+        search: query.search || "",
+        from: query.from || null,
+        to: query.to || null,
+        limit: query.limit,
+      }),
+      canCare: hasPermission(request, PERMISSIONS.ARC_CARE),
+      canSensitive: hasPermission(request, PERMISSIONS.ARC_SENSITIVE),
+      canApprove: hasPermission(request, PERMISSIONS.ARC_APPROVE),
+      viewerName: currentEmployee(request)?.name ?? "",
+    };
+  });
+
+  app.post("/api/arc/incidents", { preHandler: requireCare }, async (request) => ({
+    incident: await createArcIncident(readBody(request), currentEmployee(request)),
+  }));
+
+  app.get("/api/arc/incidents/:incidentId", { preHandler: requireView }, async (request) => ({
+    ...(await getArcCareStatus(request.params?.incidentId)),
+    canCare: hasPermission(request, PERMISSIONS.ARC_CARE),
+    canSensitive: hasPermission(request, PERMISSIONS.ARC_SENSITIVE),
+    canApprove: hasPermission(request, PERMISSIONS.ARC_APPROVE),
+    viewerName: currentEmployee(request)?.name ?? "",
+  }));
+
+  app.patch(
+    "/api/arc/incidents/:incidentId",
+    { preHandler: requireCare },
+    async (request) => ({
+      incident: await updateArcIncident(
+        request.params?.incidentId,
+        readBody(request),
+        currentEmployee(request)
+      ),
+    })
+  );
+
+  // 상세 건강기록 조회: arc.sensitive + 사건별 접근 승인 + 열람로그를 모두 통과해야 합니다.
+  app.get(
+    "/api/arc/incidents/:incidentId/care",
+    { preHandler: requireSensitive },
+    async (request) => {
+      const employee = currentEmployee(request);
+      const status = await getArcCareStatus(request.params?.incidentId);
+
+      if (!status.exists) {
+        return { ...(await getArcCareDetail(status.incident.id)), access: null };
+      }
+
+      const access = await assertArcSensitiveAccess({
+        incidentNo: status.incident.incidentNo,
+        employee,
+        action: "VIEW",
+        ip: clientIp(request),
+      });
+
+      return { ...(await getArcCareDetail(status.incident.id)), access };
+    }
+  );
+
+  app.patch(
+    "/api/arc/incidents/:incidentId/care",
+    { preHandler: requireCare },
+    async (request) =>
+      saveArcCare(request.params?.incidentId, readBody(request), currentEmployee(request), {
+        ip: clientIp(request),
+      })
+  );
+
+  app.post(
+    "/api/arc/incidents/:incidentId/addenda",
+    { preHandler: requireSensitive },
+    async (request) => {
+      const status = await getArcCareStatus(request.params?.incidentId);
+
+      await assertArcSensitiveAccess({
+        incidentNo: status.incident.incidentNo,
+        employee: currentEmployee(request),
+        action: "UPDATE",
+        ip: clientIp(request),
+      });
+
+      return {
+        addendum: await addArcCareAddendum(
+          request.params?.incidentId,
+          readBody(request),
+          currentEmployee(request)
+        ),
+      };
+    }
   );
 }

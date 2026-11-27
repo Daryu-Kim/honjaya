@@ -37,6 +37,8 @@ import AdminArcOtcView from "@/views/Admin/AdminArcOtcView.vue";
 import AdminArcSettingsView from "@/views/Admin/AdminArcSettingsView.vue";
 import AdminArcConsentView from "@/views/Admin/AdminArcConsentView.vue";
 import AdminArcAccessView from "@/views/Admin/AdminArcAccessView.vue";
+import AdminArcIncidentView from "@/views/Admin/AdminArcIncidentView.vue";
+import AdminArcCareView from "@/views/Admin/AdminArcCareView.vue";
 import StaffLoginView from "@/views/Staff/StaffLoginView.vue";
 import AdminLayout from "@/layouts/AdminLayout.vue";
 import { startGlobalBusy } from "@/lib/globalBusy";
@@ -208,6 +210,20 @@ const routes = [
         path: "arc/consents",
         name: "admin-arc-consents",
         component: AdminArcConsentView,
+        meta: { permission: "arc.view" },
+      },
+      {
+        // 사건 접수 목록. 상세 건강기록 본문은 열리지 않고 사건 메타만 보입니다.
+        path: "arc/incidents",
+        name: "admin-arc-incidents",
+        component: AdminArcIncidentView,
+        meta: { permission: "arc.view" },
+      },
+      {
+        // AS-CARE 상세기록. 서버가 arc.sensitive + 사건별 접근승인을 다시 검사합니다.
+        path: "arc/incidents/:incidentId",
+        name: "admin-arc-incident-detail",
+        component: AdminArcCareView,
         meta: { permission: "arc.view" },
       },
       {
