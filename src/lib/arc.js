@@ -175,6 +175,7 @@ const OTC_PATH = "/api/arc/otc";
 const INCIDENTS_PATH = "/api/arc/incidents";
 const USAGES_PATH = "/api/arc/usages";
 const EXPENSES_PATH = "/api/arc/expenses";
+const ROUTINE_PATH = "/api/arc/routine";
 
 function queryString(params = {}) {
   const search = new URLSearchParams();
@@ -359,8 +360,8 @@ export async function fetchArcAccessRequests({
   };
 }
 
-export async function requestArcAccess({ incidentNo, purpose }) {
-  const data = await apiPost(ACCESS_PATH, { incidentNo, purpose });
+export async function requestArcAccess({ incidentNo, purpose, evidence }) {
+  const data = await apiPost(ACCESS_PATH, { incidentNo, purpose, evidence });
 
   return data?.request ?? null;
 }
@@ -906,4 +907,24 @@ export async function createArcExpenseFromUsageMonth(payload) {
     payments: Array.isArray(data?.payments) ? data.payments : [],
     applied: data?.applied ?? null,
   };
+}
+
+// ── 월간 운영 루틴(AS-CAL-001) ─────────────────────────────────────────────
+
+export const ARC_ROUTINE_STATE_LABELS = {
+  PENDING: "미완료",
+  DONE: "완료",
+  SKIPPED: "건너뜀",
+  ACTIVE: "진행 기간",
+  OVERDUE: "기한 지남",
+  UPCOMING: "예정",
+};
+
+// 서버가 이번 달(Asia/Seoul) 기준으로 기간을 정해 줍니다.
+export async function fetchArcRoutine(period = "") {
+  return apiGet(`${ROUTINE_PATH}${queryString({ period })}`);
+}
+
+export async function saveArcRoutineStep(stepKey, payload = {}) {
+  return apiPatch(`${ROUTINE_PATH}/${encodeURIComponent(stepKey)}`, payload);
 }

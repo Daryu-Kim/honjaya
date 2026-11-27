@@ -19,6 +19,7 @@ import {
   logArcSensitiveRead,
 } from "./arc.js";
 import { writeAuditLog } from "./auth/audit.js";
+import { isArcDirector } from "./auth/permissions.js";
 import { config } from "./config.js";
 import { pool } from "./db.js";
 import { badRequest, HttpError } from "./http/errors.js";
@@ -762,6 +763,15 @@ async function ensureWriterAccess(client, { incidentNo, employee, ttlMinutes }) 
 }
 
 export async function saveArcCare(incidentId, input = {}, employee = null, { ip = "" } = {}) {
+  // 상세 건강기록 작성은 ARC 총괄(최윤희)만 할 수 있습니다. (2026-11-28 대표 지시)
+  if (!isArcDirector(employee?.loginId)) {
+    throw new HttpError(
+      403,
+      "HJ403",
+      "상세 건강기록 작성은 ARC 총괄만 할 수 있어요."
+    );
+  }
+
   const incident = await getArcIncident(incidentId);
   const basis = normalizeLegalBasis(input.legalBasis, incident.legalBasis);
   const note = text(input.legalBasisNote, 500);
@@ -943,6 +953,15 @@ export async function saveArcCare(incidentId, input = {}, employee = null, { ip 
 }
 
 export async function addArcCareAddendum(incidentId, { body = "" } = {}, employee = null) {
+  // 상세 건강기록 추가 작성도 ARC 총괄 전용입니다.
+  if (!isArcDirector(employee?.loginId)) {
+    throw new HttpError(
+      403,
+      "HJ403",
+      "상세 건강기록 추가 작성은 ARC 총괄만 할 수 있어요."
+    );
+  }
+
   const incident = await getArcIncident(incidentId);
   const content = requireText(body, "추가 기록", 2000);
 

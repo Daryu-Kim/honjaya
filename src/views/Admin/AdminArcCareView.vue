@@ -392,19 +392,20 @@
         </div>
 
         <p v-if="!canSensitive" class="helper-text">
-          상세기록 열람은 arc.sensitive 권한(RN·관리자)이 필요해요. 필요하면
-          사장님께 권한을 요청해 주세요.
+          상세 건강기록은 ARC 총괄 전용이에요. 열람이 필요하면 사장님을 통해
+          요청해 주세요.
         </p>
         <template v-else>
           <p class="helper-text">
-            상세기록은 사건별 승인 후에 열람할 수 있어요. 승인은 만료되면 다시
-            요청해야 해요. 열람·작성 이력은 모두 기록돼요.
+            상세 건강기록 작성·조회는 ARC 총괄(최윤희) 전용이에요. 그 밖의
+            직원은 사유와 증빙을 남기고 총괄의 승인을 받아야 하며, 승인은
+            만료되면 다시 요청해야 해요. 열람·작성 이력은 모두 기록돼요.
           </p>
 
           <div v-if="careDenied" class="gate-box">
             <p class="gate-text">
-              이 사건의 상세기록 열람 승인이 없어요. 사유를 적고 승인을 요청해
-              주세요.
+              이 사건의 상세기록 열람 승인이 없어요. 정당한 사유와 증빙을 적고
+              ARC 총괄(최윤희)님께 승인을 요청해 주세요.
             </p>
             <div class="gate-form">
               <input
@@ -412,7 +413,14 @@
                 class="inline-input wide"
                 type="text"
                 maxlength="300"
-                placeholder="예: 119 인계 경과 확인"
+                placeholder="열람 사유 (10자 이상) 예: 119 인계 경과 확인"
+              />
+              <input
+                v-model.trim="accessEvidence"
+                class="inline-input wide"
+                type="text"
+                maxlength="500"
+                placeholder="증빙 자료 예: 보호자 요청 메시지, 119 이송 기록지 번호"
               />
               <button
                 type="button"
@@ -503,8 +511,8 @@
         </p>
         <template v-else>
           <p v-if="!canCare" class="helper-text">
-            열람 전용 화면이에요. 작성·수정은 arc.care 권한이 있는 직원만
-            가능해요.
+            열람 전용 화면이에요. 상세 건강기록 작성·수정은 ARC 총괄(최윤희)만
+            할 수 있어요.
           </p>
 
           <h3 class="section-title">01 · 사건 개요</h3>
@@ -972,6 +980,7 @@ const consentForm = reactive({
 
 const accessRequests = ref([]);
 const accessPurpose = ref("");
+const accessEvidence = ref("");
 const isSavingAccess = ref(false);
 const careDenied = ref(false);
 
@@ -1154,7 +1163,8 @@ async function loadAll() {
     const detail = await fetchArcIncident(incidentId);
 
     incident.value = detail.incident;
-    canCare.value = detail.canCare;
+    // 작성·수정은 ARC 총괄 전용입니다(서버가 다시 확인합니다).
+    canCare.value = Boolean(detail.canCare && detail.canWriteCare);
     canSensitive.value = detail.canSensitive;
     canApprove.value = detail.canApprove;
     resetEditForm();
@@ -1267,9 +1277,11 @@ async function submitAccessRequest() {
     await requestArcAccess({
       incidentNo: incident.value.incidentNo,
       purpose: accessPurpose.value,
+      evidence: accessEvidence.value,
     });
 
     accessPurpose.value = "";
+    accessEvidence.value = "";
     okMessage.value =
       "열람 승인을 요청했어요. 승인되면 상세기록을 볼 수 있어요.";
     await loadAccessRequests();

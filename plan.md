@@ -1664,6 +1664,25 @@ plus menu entries, dashboard links and 4 cards. STAFF(임시은)는 `arc.stock`�
 SFC compile check, `vue-cli-service build` OK. Deploy: `docker compose up -d --build` +
 `docker compose run --rm migrate` (새 테이블 4개가 먼저 생성되어야 화면이 열린다).
 
+**P14E — 월간 운영 루틴 (AS-CAL-001)** — `server/sql/arc.sql` adds `arc_routine_log`
+(id, `period` `YYYY-MM`, `step_key`, `status` DONE/SKIPPED, `checklist` jsonb, `actions` jsonb, `note`,
+`done_by` → `employees`, `done_by_name`, `done_at`, `updated_at`, unique(`period`,`step_key`)).
+`server/src/arcRoutine.js` holds `ARC_ROUTINE_STEPS`, a 15-step template taken verbatim from the PDFs:
+monthly `OPEN`(1–3) · `SITE_A`(4–7) · `KIT_CHECK`(8–12, AS-KIT-001 §06 16항목, 서명 필요) ·
+`SITE_BC`(8–12) · `SUP`(13–15) · `EDU`(16–20, GDE 12항목 + 구두평가 9문항) · `EVI`(21–24) ·
+`SECURITY`(21–24, F29 권한·감사로그) · `SIGN`(25–27, 대표 서명) · `CLOSE`(28–31);
+month-filtered `Q_DEVICE`(1·4·7·9월) · `Q_CONTACT`(1·4·7월) · `Q_TRAINING`(3·6·12월) ·
+`HALF_AUDIT`(6월) · `YEAR_CLOSE`(9월). `listArcRoutine({period})` returns each step with
+`state` ACTIVE/OVERDUE/UPCOMING/DONE/SKIPPED + `progress` + `alerts`, `saveArcRoutineStep()` upserts
+(PENDING deletes the row, checklist/actions 스냅샷·서명 검증), `arcRoutineSummary()` feeds the dashboard.
+Routes: `GET /api/arc/routine` (`arc.view`), `PATCH /api/arc/routine/:stepKey` (`arc.check`, audit
+`arc.routine.save`); `GET /api/arc/dashboard` now also returns `routine`. Screen `/admin/arc/routine`
+(월별 이동 · 진행률 · 단계별 체크리스트 · 보완/교체 필요품 · 메모 · 완료/건너뜀/되돌리기) + sidebar
+「월간 운영 루틴」 + dashboard 「이번 달 운영 루틴」 패널.
+Deploy: `docker compose run --rm migrate` (새 테이블 1개) then `docker compose up -d --build api`.
+**남은 확장(미착수)**: 교육 이수 관리(`arc.edu` 화면), 회의록·사후검토 F11/F12/F13, 서식 라이브러리
+F01–F29, 개인정보 권리행사 F26(10일 법정기한), AS-NOT-001 고지 확인, 문서·설명서 관리 F24.
+
 Request source: `[개발 지시서] 혼자야 관리자 앱 내 ARC SAFETY 응급안전관리센터 구축` (partner request: 1 dashboard + 12 menus, 8 reference documents, ~40 record forms).
 Original reference docs (all read, 382 pages total): AS-OPS-001 통합운영문서, AS-CAL-001 1년 업무달력,
 AS-KIT-001 구급상자 운영관리대장, AS-GDE-001 현장 응급처치 교육가이드, AS-PRP-001 복수사업장 도입제안서,
@@ -1763,13 +1782,22 @@ Mapping (no new accounts — owner decision 2026-11-27):
   explicit override array), `arcGuard()` in `server/src/routes/api/arc.js` accepts
   `role in (OWNER, MANAGER) || isArcDirector(loginId)` (message: 사장·매니저·ARC 총괄), and the SPA uses
   `canAccessArc(employee)` (`src/lib/arc.js`) for the router guard and the sidebar group.
-  Unchanged: the detailed health record (상세 건강기록) still needs a per-incident `arc_sensitive_access`
-  approval by another ARC approver (사장) — the 2-person rule from AS-CARE is not relaxed.
+  **상세 건강기록 정책 (owner decision 2026-11-28, revised)** — 작성·승인·조회 권한을 총괄에게 모은다.
+  (a) **작성 전용**: `saveArcCare()`/`addArcCareAddendum()`는 `isArcDirector`가 아니면 403
+  ("상세 건강기록 작성은 ARC 총괄만 할 수 있어요."). 사장도 작성 불가.
+  (b) **승인 전용**: `decideArcSensitiveAccess()`도 비총괄은 403 ("민감정보 열람 승인은 ARC 총괄만
+  할 수 있어요."). `GET /api/arc/sensitive-access`의 `canApprove`는 총괄에게만 true.
+  (c) **조회**: 총괄은 항상 열람(`assertArcSensitiveAccess` bypass, `accessId:null`로 열람로그만 기록).
+  사장·그 외는 사건별 `approved` 승인 + **열람사유 10자 이상** + **증빙(`evidence`, 신규 컬럼)** 이
+  모두 있어야 한다. 신청 시 증빙이 비면 400. 알림 본문에도 증빙이 함께 표시된다.
+  (d) 요청 권한: `POST /api/arc/sensitive-access`는 OWNER 또는 총괄만.
+  기존 "2인 승인(사장↔총괄) 상호 승인" 규칙은 폐기 → 총괄 단독 승인 + 사유·증빙 의무로 대체.
 - **임시은 (직원, STAFF)** — `arc.view` + `arc.stock` + 본인 OTC 자기점검(`arc_otc_checks`는 본인 행만). `arc.sensitive` 없음.
 
 ### F. UI
 
-`/admin/arc` (대시보드: 8 실적카드 + 8 빠른업무 + 알림), `/admin/arc/stock`, `/admin/arc/otc`,
+`/admin/arc` (대시보드: 8 실적카드 + 8 빠른업무 + 알림 + 이번 달 운영 루틴), `/admin/arc/routine`,
+`/admin/arc/stock`, `/admin/arc/otc`,
 `/admin/arc/usages`, `/admin/arc/expenses`, `/admin/arc/checks`, `/admin/arc/edu`, `/admin/arc/calendar`,
 `/admin/arc/incidents`, `/admin/arc/care/:id`, `/admin/arc/reviews`, `/admin/arc/docs`.
 Entry: `/admin/dash` 빠른 메뉴 「응급안전관리센터」 + AdminLayout 「응급안전」 그룹.

@@ -42,6 +42,11 @@ import {
   updateArcExpense,
 } from "../../arcExpense.js";
 import {
+  arcRoutineSummary,
+  listArcRoutine,
+  saveArcRoutineStep,
+} from "../../arcRoutine.js";
+import {
   applyArcStocktake,
   arcStockSummary,
   claimArcOtcItems,
@@ -145,8 +150,50 @@ export function registerArcRoutes(app) {
       incidents: await arcIncidentSummary(),
       usage: await arcUsageSummary(),
       expense: await arcExpenseSummary(),
+      routine: await arcRoutineSummary(),
     };
   });
+
+  // ── 월간 운영 루틴(AS-CAL-001) ──────────────────────────────────────
+
+  app.get("/api/arc/routine", { preHandler: requireView }, async (request) => {
+    const query = request.query || {};
+
+    return listArcRoutine({ period: query.period });
+  });
+
+  app.patch(
+    "/api/arc/routine/:stepKey",
+    { preHandler: requireCheck },
+    async (request) => {
+      const employee = currentEmployee(request);
+      const body = readBody(request);
+
+      const result = await saveArcRoutineStep(
+        {
+          period: body.period,
+          stepKey: request.params.stepKey,
+          status: body.status,
+          checklist: body.checklist,
+          actions: body.actions,
+          note: body.note,
+        },
+        employee
+      );
+
+      await writeAuditLog({
+        employee,
+        action: "arc.routine.save",
+        targetType: "arc_routine_log",
+        targetId: `${result.period}:${request.params.stepKey}`,
+        detail: { status: result.step?.status ?? "PENDING" },
+        ip: clientIp(request),
+        log: request.log,
+      });
+
+      return result;
+    }
+  );
 
   // ── 설정 ───────────────────────────────────────────────────────────
 
@@ -260,8 +307,8 @@ export function registerArcRoutes(app) {
   app.get("/api/arc/sensitive-access", { preHandler: requireSensitive }, async (request) => {
     const query = request.query || {};
     const employee = currentEmployee(request);
-    const canApprove = hasPermission(request, PERMISSIONS.ARC_APPROVE);
-    // 승인 권한자는 전체를, 그 외에는 자기 요청만 봅니다.
+    // 승인은 ARC 총괄만 합니다. 그 외에는 자기 요청만 봅니다.
+    const canApprove = isArcDirector(employee?.loginId);
     const scopeAll = canApprove && isTruthyFlag(query.scopeAll);
 
     return {
@@ -275,9 +322,20 @@ export function registerArcRoutes(app) {
     };
   });
 
-  app.post("/api/arc/sensitive-access", { preHandler: requireSensitive }, async (request) => ({
-    request: await requestArcSensitiveAccess(readBody(request), currentEmployee(request)),
-  }));
+  app.post("/api/arc/sensitive-access", { preHandler: requireSensitive }, async (request) => {
+    const employee = currentEmployee(request);
+
+    // 상세 건강기록은 총괄 전용이라 요청은 사장과 총괄만 낼 수 있습니다.
+    if (!isArcDirector(employee?.loginId) && employee?.role !== "OWNER") {
+      throw new HttpError(
+        403,
+        "HJ403",
+        "상세 건강기록 열람 요청은 사장과 ARC 총괄만 낼 수 있어요."
+      );
+    }
+
+    return { request: await requestArcSensitiveAccess(readBody(request), employee) };
+  });
 
   app.patch(
     "/api/arc/sensitive-access/:accessId",
@@ -545,13 +603,21 @@ export function registerArcRoutes(app) {
     incident: await createArcIncident(readBody(request), currentEmployee(request)),
   }));
 
-  app.get("/api/arc/incidents/:incidentId", { preHandler: requireView }, async (request) => ({
-    ...(await getArcCareStatus(request.params?.incidentId)),
-    canCare: hasPermission(request, PERMISSIONS.ARC_CARE),
-    canSensitive: hasPermission(request, PERMISSIONS.ARC_SENSITIVE),
-    canApprove: hasPermission(request, PERMISSIONS.ARC_APPROVE),
-    viewerName: currentEmployee(request)?.name ?? "",
-  }));
+  app.get("/api/arc/incidents/:incidentId", { preHandler: requireView }, async (request) => {
+    const employee = currentEmployee(request);
+    const director = isArcDirector(employee?.loginId);
+
+    return {
+      ...(await getArcCareStatus(request.params?.incidentId)),
+      canCare: hasPermission(request, PERMISSIONS.ARC_CARE),
+      canSensitive: hasPermission(request, PERMISSIONS.ARC_SENSITIVE),
+      canApprove: director,
+      // 상세 건강기록 작성·수정은 ARC 총괄만 가능합니다.
+      canWriteCare: director,
+      isArcDirector: director,
+      viewerName: employee?.name ?? "",
+    };
+  });
 
   app.patch(
     "/api/arc/incidents/:incidentId",

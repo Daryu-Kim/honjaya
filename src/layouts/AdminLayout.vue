@@ -279,6 +279,14 @@ const arcMenuList = [
     color: "#f59e0b",
   },
   {
+    to: "/admin/arc/routine",
+    label: "월간 운영 루틴",
+    description: "1년 업무달력·점검 순서",
+    matchStartsWith: "/admin/arc/routine",
+    permission: "arc.view",
+    color: "#38bdf8",
+  },
+  {
     to: "/admin/arc/stock",
     label: "구급상자 재고",
     description: "재고·유효기간·수불",

@@ -30,6 +30,7 @@ import ReservationLookupView from "@/views/User/ReservationLookupView.vue";
 import AdminShopView from "@/views/Admin/AdminShopView.vue";
 import AdminReservationView from "@/views/Admin/AdminReservationView.vue";
 import AdminArcView from "@/views/Admin/AdminArcView.vue";
+import AdminArcRoutineView from "@/views/Admin/AdminArcRoutineView.vue";
 import AdminArcStockView from "@/views/Admin/AdminArcStockView.vue";
 import AdminArcStocktakeView from "@/views/Admin/AdminArcStocktakeView.vue";
 import AdminArcPurchaseView from "@/views/Admin/AdminArcPurchaseView.vue";
@@ -188,6 +189,13 @@ const routes = [
         path: "arc",
         name: "admin-arc",
         component: AdminArcView,
+        meta: { permission: "arc.view" },
+      },
+      {
+        // AS-CAL-001 월간 운영 루틴. 저장은 서버가 arc.check 로 다시 검사합니다.
+        path: "arc/routine",
+        name: "admin-arc-routine",
+        component: AdminArcRoutineView,
         meta: { permission: "arc.view" },
       },
       {

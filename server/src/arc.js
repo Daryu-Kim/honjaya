@@ -11,6 +11,7 @@ import { randomUUID } from "node:crypto";
 
 import { decryptField, encryptField, hasArcKey } from "./arcCrypto.js";
 import { writeAuditLog } from "./auth/audit.js";
+import { isArcDirector } from "./auth/permissions.js";
 import { config } from "./config.js";
 import { pool } from "./db.js";
 import { callBot } from "./discordBot.js";
@@ -471,7 +472,10 @@ function mapAccess(row) {
     status: row.status,
     requestedById: row.requested_by,
     requestedByName: row.requested_by_name,
+    requestedByRole: row.requested_by_role ?? "",
     requestedAt: row.requested_at,
+    // 사장 등 총괄 이외 요청자는 사유와 함께 증빙 자료를 남깁니다.
+    evidence: row.evidence ?? "",
     decidedByName: row.decided_by_name,
     decidedAt: row.decided_at,
     decisionReason: row.decision_reason,
@@ -515,9 +519,24 @@ export async function pendingArcSensitiveAccessCount() {
   return rows[0]?.count ?? 0;
 }
 
-export async function requestArcSensitiveAccess({ incidentNo = "", purpose = "" } = {}, employee = null) {
+/**
+ * 열람 승인 요청.
+ * 상세 건강기록 열람·작성 권한은 ARC 총괄(최윤희)에게 있고, 그 밖의 직원(사장 포함)은
+ * 요청을 올려 총괄의 승인을 받아야 합니다. 사장 요청은 정당한 사유 + 증빙이 필수입니다.
+ */
+export async function requestArcSensitiveAccess(
+  { incidentNo = "", purpose = "", evidence = "" } = {},
+  employee = null
+) {
   const incident = requireText(incidentNo, "사건 번호", 60);
-  const reason = requireText(purpose, "열람 사유", 300);
+  const director = isArcDirector(employee?.loginId);
+  const reason = requireText(purpose, "열람 사유", 500);
+  const rawProof = String(evidence ?? "").trim().slice(0, 500);
+  const proof = director ? rawProof : requireText(rawProof, "증빙 자료", 500);
+
+  if (!director && reason.length < 10) {
+    throw badRequest("열람 사유를 10자 이상 구체적으로 적어 주세요.");
+  }
 
   // 이미 유효한 승인이 있으면 재사용합니다(같은 사건을 반복 승인받지 않도록).
   const { rows: existing } = await pool.query(
@@ -538,10 +557,18 @@ export async function requestArcSensitiveAccess({ incidentNo = "", purpose = "" 
 
   const { rows } = await pool.query(
     `insert into public.arc_sensitive_access
-       (id, incident_no, purpose, requested_by, requested_by_name)
-     values ($1, $2, $3, $4, $5)
+       (id, incident_no, purpose, evidence, requested_by, requested_by_name, requested_by_role)
+     values ($1, $2, $3, $4, $5, $6, $7)
      returning *`,
-    [randomUUID(), incident, reason, employee?.id ?? null, employee?.name ?? ""]
+    [
+      randomUUID(),
+      incident,
+      reason,
+      proof,
+      employee?.id ?? null,
+      employee?.name ?? "",
+      employee?.role ?? "",
+    ]
   );
 
   await writeAuditLog({
@@ -556,7 +583,13 @@ export async function requestArcSensitiveAccess({ incidentNo = "", purpose = "" 
     kind: "INCIDENT",
     level: "WARN",
     title: "민감정보 열람 승인 요청",
-    body: `${employee?.name || "직원"}님이 ${incident} 상세기록 열람을 요청했어요.\n사유: ${reason}`,
+    body: [
+      `${employee?.name || "직원"}님이 ${incident} 상세기록 열람을 요청했어요.`,
+      `사유: ${reason}`,
+      proof ? `증빙: ${proof}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
     link: "/admin/arc/access",
     incidentNo: incident,
     dedupeKey: `arc-access-request:${rows[0].id}`,
@@ -568,13 +601,22 @@ export async function requestArcSensitiveAccess({ incidentNo = "", purpose = "" 
 
 /**
  * 승인/거부.
- * 자기 요청은 원칙적으로 자기가 승인할 수 없습니다(사장 계정만 예외 — 사장이 유일한 승인자일 때 막히지 않도록).
+ * 승인 권한은 ARC 총괄(최윤희)에게만 있습니다. 사장도 승인할 수 없습니다.
+ * (2026-11-28 대표 지시: 상세 건강기록 작성·조회는 총괄 권한, 사장은 사유+증빙 후 승인 요청)
  */
 export async function decideArcSensitiveAccess(
   id,
   { approve = false, reason = "" } = {},
   employee = null
 ) {
+  if (!isArcDirector(employee?.loginId)) {
+    throw new HttpError(
+      403,
+      "HJ403",
+      "민감정보 열람 승인은 ARC 총괄만 할 수 있어요."
+    );
+  }
+
   const { rows: found } = await pool.query(
     `select * from public.arc_sensitive_access where id = $1`,
     [id]
@@ -589,8 +631,8 @@ export async function decideArcSensitiveAccess(
     throw badRequest("이미 처리된 요청이에요.");
   }
 
-  if (row.requested_by && row.requested_by === employee?.id && employee?.role !== "OWNER") {
-    throw badRequest("본인이 요청한 열람은 본인이 승인할 수 없어요.");
+  if (!String(row.evidence ?? "").trim() && row.requested_by !== employee?.id) {
+    throw badRequest("증빙 자료가 없는 요청은 승인할 수 없어요. 요청자에게 증빙을 요구해 주세요.");
   }
 
   const settings = await getArcSettings();
@@ -645,6 +687,7 @@ export async function decideArcSensitiveAccess(
 /**
  * 유효한 승인인지 확인하고 열람 로그를 1행 남깁니다.
  * P14C 이후 상세기록 조회/저장 경로가 모두 이 함수를 통과해야 합니다.
+ * ARC 총괄(최윤희)은 승인 없이 항상 열람할 수 있고, 그 외 직원은 총괄의 승인 + 증빙이 필요합니다.
  */
 export async function assertArcSensitiveAccess({
   accessId = null,
@@ -654,6 +697,27 @@ export async function assertArcSensitiveAccess({
   ip = "",
 } = {}) {
   const incident = String(incidentNo ?? "").trim();
+
+  if (isArcDirector(employee?.loginId)) {
+    await logArcSensitiveRead({
+      accessId: null,
+      incidentNo: incident,
+      employee,
+      action,
+      ip,
+    });
+
+    return {
+      id: null,
+      incidentNo: incident,
+      purpose: "ARC 총괄 상시 열람",
+      evidence: "",
+      status: "APPROVED",
+      director: true,
+      expiresAt: null,
+    };
+  }
+
   const { rows } = await pool.query(
     `select *
        from public.arc_sensitive_access
@@ -670,12 +734,20 @@ export async function assertArcSensitiveAccess({
     throw new HttpError(
       403,
       "HJ403",
-      "상세 건강기록을 열람하려면 사건별 접근 승인이 필요해요. 열람 사유를 적어 승인을 요청해 주세요."
+      "상세 건강기록은 ARC 총괄만 열람할 수 있어요. 열람이 필요하면 사유와 증빙을 적어 승인을 요청해 주세요."
     );
   }
 
   if (row.requested_by && row.requested_by !== employee?.id) {
     throw new HttpError(403, "HJ403", "다른 직원의 열람 승인으로는 기록을 볼 수 없어요.");
+  }
+
+  if (!String(row.evidence ?? "").trim()) {
+    throw new HttpError(
+      403,
+      "HJ403",
+      "증빙 자료가 없는 승인은 사용할 수 없어요. 사유와 증빙을 다시 남겨 주세요."
+    );
   }
 
   await logArcSensitiveRead({

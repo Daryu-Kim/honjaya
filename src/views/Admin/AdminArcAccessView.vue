@@ -5,8 +5,9 @@
         <p class="eyebrow">ARC SAFETY</p>
         <h1>민감정보 열람 관리</h1>
         <p class="description">
-          상세 건강기록은 사건별 승인을 받은 뒤 정해진 시간 동안만 열려요. 모든
-          열람은 기록으로 남아요.
+          상세 건강기록 작성·조회는 ARC 총괄(최윤희) 전용이에요. 그 밖의 직원은
+          정당한 사유와 증빙을 남기고 총괄의 승인을 받은 뒤 정해진 시간 동안만
+          열람할 수 있어요. 모든 열람은 기록으로 남아요.
         </p>
       </div>
       <router-link to="/admin/arc" class="link-button">
@@ -30,11 +31,19 @@
           />
         </label>
         <label class="field wide">
-          <span>열람 사유</span>
+          <span>열람 사유 (10자 이상)</span>
           <input
             v-model="requestForm.purpose"
             type="text"
             placeholder="예: 응급처치 경과 확인 및 보호자 안내"
+          />
+        </label>
+        <label class="field wide">
+          <span>증빙 자료 (필수)</span>
+          <input
+            v-model="requestForm.evidence"
+            type="text"
+            placeholder="예: 보호자 요청 문자 캡처, 119 이송 기록지 번호"
           />
         </label>
       </div>
@@ -106,6 +115,9 @@
           </div>
 
           <p class="row-body">{{ item.purpose }}</p>
+          <p v-if="item.evidence" class="row-body evidence-row">
+            증빙 · {{ item.evidence }}
+          </p>
 
           <div class="row-actions">
             <span v-if="item.status === 'APPROVED'" class="row-note">
@@ -203,6 +215,7 @@ const canAdmin = computed(() => hasPermission("arc.admin"));
 const requestForm = reactive({
   incidentNo: "",
   purpose: "",
+  evidence: "",
 });
 
 function statusTone(status) {
@@ -257,6 +270,7 @@ async function submitRequest() {
         : "열람 승인을 요청했어요. 승인되면 상세 기록을 볼 수 있어요.";
     requestForm.incidentNo = "";
     requestForm.purpose = "";
+    requestForm.evidence = "";
     await loadAll();
   } catch (error) {
     errorMessage.value = error?.message || "열람 승인을 요청하지 못했어요.";
@@ -536,6 +550,11 @@ onMounted(loadAll);
   font-size: 13px;
   line-height: 1.6;
   color: rgba(255, 255, 255, 0.72);
+}
+
+.evidence-row {
+  color: rgba(255, 214, 138, 0.86);
+  font-size: 12px;
 }
 
 .row-actions {

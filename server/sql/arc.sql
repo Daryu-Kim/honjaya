@@ -121,6 +121,13 @@ create index if not exists arc_sensitive_access_incident_idx
 create index if not exists arc_sensitive_access_requester_idx
   on public.arc_sensitive_access (requested_by, expires_at desc);
 
+-- P14C-fix(2026-11-28 대표 지시): 상세 건강기록 작성·조회는 ARC 총괄(최윤희) 전용이고,
+-- 사장을 포함한 그 밖의 직원은 정당한 사유 + 증빙을 남긴 뒤 총괄의 승인을 받아야 합니다.
+alter table public.arc_sensitive_access
+  add column if not exists evidence text not null default '';
+alter table public.arc_sensitive_access
+  add column if not exists requested_by_role text not null default '';
+
 -- ── 열람 로그(열람 1건당 1행, 2년 이상 보관) ──────────────────────────
 create table if not exists public.arc_sensitive_reads (
   id            uuid primary key default gen_random_uuid(),
@@ -700,3 +707,27 @@ create table if not exists public.arc_usage_items (
 
 create index if not exists arc_usage_items_usage_idx
   on public.arc_usage_items (usage_id, sort_order);
+
+-- ── 운영 루틴(AS-CAL-001 1년 업무달력) ────────────────────────────────────
+-- 루틴 항목 자체는 코드 템플릿(server/src/arcRoutine.js)이 원본이고,
+-- 이 표에는 "이번 달에 실제로 끝낸 기록"만 남깁니다. (행 없음 = 미완료)
+create table if not exists public.arc_routine_log (
+  id             text primary key,
+  -- 'YYYY-MM'
+  period         text not null,
+  step_key       text not null,
+  status         text not null default 'DONE' check (status in ('DONE', 'SKIPPED')),
+  -- 점검 체크리스트 상태(항목키 → true)
+  checklist      jsonb not null default '{}'::jsonb,
+  -- 보완·교체 필요품 / 후속조치 목록
+  actions        jsonb not null default '[]'::jsonb,
+  note           text not null default '',
+  done_by        text references public.employees(id) on delete set null,
+  done_by_name   text not null default '',
+  done_at        timestamptz not null default now(),
+  updated_at     timestamptz not null default now(),
+  constraint arc_routine_log_period_step unique (period, step_key)
+);
+
+create index if not exists arc_routine_log_period_idx
+  on public.arc_routine_log (period);

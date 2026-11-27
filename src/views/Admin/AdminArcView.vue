@@ -10,6 +10,9 @@
         </p>
       </div>
       <nav class="header-links">
+        <router-link to="/admin/arc/routine" class="link-button">
+          월간 루틴
+        </router-link>
         <router-link to="/admin/arc/stock" class="link-button">
           재고·유효기간
         </router-link>
@@ -149,6 +152,65 @@
       </article>
     </section>
 
+    <section class="panel routine-panel">
+      <div class="panel-head">
+        <h2>
+          이번 달 운영 루틴
+          <span class="dim">({{ routine.period || "-" }})</span>
+        </h2>
+        <div class="panel-actions">
+          <span class="routine-progress">
+            {{ routine.done ?? 0 }} / {{ routine.total ?? 0 }} 완료 ·
+            {{ routine.percent ?? 0 }}%
+          </span>
+          <router-link to="/admin/arc/routine" class="text-link">
+            루틴 열기
+          </router-link>
+        </div>
+      </div>
+
+      <div class="routine-track">
+        <div
+          class="routine-fill"
+          :style="{ width: `${routine.percent ?? 0}%` }"
+        ></div>
+      </div>
+
+      <p v-if="(routine.overdue ?? 0) > 0" class="routine-overdue">
+        기한이 지난 루틴 {{ routine.overdue }}건이 있어요. 루틴 화면에서 처리해
+        주세요.
+      </p>
+
+      <ul
+        v-if="routine.active?.length || routine.next?.length"
+        class="routine-list"
+      >
+        <li
+          v-for="item in routine.active"
+          :key="`active-${item.key}`"
+          class="routine-row active"
+        >
+          <span class="routine-chip">지금</span>
+          <strong>{{ item.title }}</strong>
+          <span class="dim"
+            >기한 {{ item.windowLabel }} · {{ item.owner }}</span
+          >
+        </li>
+        <li
+          v-for="item in routine.next"
+          :key="`next-${item.key}`"
+          class="routine-row"
+        >
+          <span class="routine-chip">예정</span>
+          <strong>{{ item.title }}</strong>
+          <span class="dim">기한 {{ item.windowLabel }}</span>
+        </li>
+      </ul>
+      <p v-else class="empty-box">
+        이번 달 루틴이 모두 끝났어요. 다음 달 루틴은 1일이 되면 자동으로 생겨요.
+      </p>
+    </section>
+
     <section v-if="!isKeyReady" class="warn-box">
       <strong>민감정보 암호화 키(ARC_FIELD_KEY)가 설정되지 않았어요.</strong>
       <p>
@@ -248,6 +310,7 @@ import {
 import { hasPermission } from "@/lib/staffAuth";
 
 const summary = ref({});
+const routine = ref({});
 const stock = ref({});
 const incidents = ref({});
 const usage = ref({});
@@ -266,6 +329,7 @@ async function loadSummary() {
     const data = await fetchArcDashboard();
 
     summary.value = data?.summary ?? {};
+    routine.value = data?.routine ?? {};
     stock.value = data?.stock ?? {};
     incidents.value = data?.incidents ?? {};
     usage.value = data?.usage ?? {};
@@ -611,5 +675,75 @@ onMounted(loadAll);
   font-size: 11px;
   font-weight: 700;
   color: rgba(255, 255, 255, 0.72);
+}
+
+.routine-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.routine-progress {
+  font-size: 12px;
+  font-weight: 800;
+  color: #7dd3fc;
+}
+
+.routine-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.routine-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #38bdf8, #22d3ee);
+  transition: width 0.3s ease;
+}
+
+.routine-overdue {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  font-size: 12px;
+  font-weight: 700;
+  color: #fca5a5;
+}
+
+.routine-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.routine-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 13px;
+
+  &.active {
+    background: rgba(56, 189, 248, 0.12);
+    border-color: rgba(56, 189, 248, 0.35);
+  }
+}
+
+.routine-chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 11px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.8);
 }
 </style>
