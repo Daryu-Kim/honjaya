@@ -572,3 +572,131 @@ create table if not exists public.arc_care_addenda (
 
 create index if not exists arc_care_addenda_care_idx
   on public.arc_care_addenda (care_id, created_at);
+-- ══════════════════════════════════════════════════════════════════════════
+-- P14D — 사용대장(USE) · 단가·소모금액 · 비용 실비정산(EXP, 부분입금)
+--   AS-OPS-001 §06-B-4 "품목·수량·대상자 구분·사유·시각을 당일 장부에 기록"
+--   AS-OPS-001 §20-2 비용 사전승인·실비정산서 / §21 제4조 소모품 사용정산
+--   내구재(is_device)는 정상 사용만으로 비용을 청구하지 않으므로 정산 대상에서 뺍니다.
+-- ══════════════════════════════════════════════════════════════════════════
+
+-- ── 비용·실비정산 대장(EXP) — 부분입금 이력을 별도 표로 남깁니다 ────────────
+create table if not exists public.arc_expenses (
+  id               uuid primary key default gen_random_uuid(),
+  -- EXP-YYYYMMDD-nn
+  expense_no       text not null,
+  -- 정산기간(YYYY-MM). 월 소모금액 일괄 정산이면 그 달, 단건이면 빈 값/해당 월.
+  period           text not null default '',
+  spent_on         date not null default current_date,
+  -- SUPPLY=소모품 / PRINT=인쇄·교구 / TRANSPORT=교통 / SERVICE=자문·활동비 / EQUIPMENT=장비·자재 / OTHER=기타
+  category         text not null default 'SUPPLY'
+                     check (category in ('SUPPLY', 'PRINT', 'TRANSPORT', 'SERVICE', 'EQUIPMENT', 'OTHER')),
+  purpose          text not null default '',
+  amount           integer not null default 0 check (amount >= 0),
+  -- 청구인·부담 주체. 실제 결제한 사람 기준으로 정산합니다.
+  claimant         text not null default '',
+  paid_by          text not null default 'RN' check (paid_by in ('SHOP', 'RN', 'OWNER', 'OTHER')),
+  vendor           text not null default '',
+  receipt_no       text not null default '',
+  pre_approved     boolean not null default false,
+  approved_by      text references public.employees(id) on delete set null,
+  approved_by_name text not null default '',
+  approved_at      timestamptz,
+  -- MANUAL=직접 등록 / USAGE_MONTH=월 소모금액 일괄 정산 / PURCHASE=구매대장 연결
+  source_type      text not null default 'MANUAL'
+                     check (source_type in ('MANUAL', 'USAGE_MONTH', 'PURCHASE')),
+  source_ref       text not null default '',
+  settle_status    text not null default 'UNSETTLED'
+                     check (settle_status in ('UNSETTLED', 'PARTIAL', 'SETTLED')),
+  settled_amount   integer not null default 0 check (settled_amount >= 0),
+  -- 정산 원칙: 월말 또는 청구 후 14일 이내(AS-OPS 06-B-3).
+  due_on           date,
+  note             text not null default '',
+  employee_id      text references public.employees(id) on delete set null,
+  employee_name    text not null default '',
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now()
+);
+
+create unique index if not exists arc_expenses_no_idx
+  on public.arc_expenses (expense_no);
+
+create index if not exists arc_expenses_period_idx
+  on public.arc_expenses (spent_on desc);
+
+create index if not exists arc_expenses_status_idx
+  on public.arc_expenses (settle_status, spent_on desc);
+
+-- ── 입금 이력(부분입금) ───────────────────────────────────────────────────
+create table if not exists public.arc_expense_payments (
+  id            uuid primary key default gen_random_uuid(),
+  expense_id    uuid not null references public.arc_expenses(id) on delete cascade,
+  paid_on       date not null default current_date,
+  amount        integer not null check (amount > 0),
+  method        text not null default 'TRANSFER'
+                  check (method in ('TRANSFER', 'CASH', 'CARD', 'ETC')),
+  note          text not null default '',
+  employee_id   text references public.employees(id) on delete set null,
+  employee_name text not null default '',
+  created_at    timestamptz not null default now()
+);
+
+create index if not exists arc_expense_payments_expense_idx
+  on public.arc_expense_payments (expense_id, paid_on);
+
+-- ── 사용대장(USE) — 재고 차감의 업무 근거. 취소 시 역분개로 재고를 되돌립니다. ──
+create table if not exists public.arc_usages (
+  id             uuid primary key default gen_random_uuid(),
+  -- USE-YYYYMMDD-nn
+  usage_no       text not null,
+  used_at        timestamptz not null default now(),
+  -- 대상자 구분(원본 요구): GUEST=고객 / STAFF=직원 / VISITOR=방문객 / CHECK=점검·교육 중 사용 / ETC=기타
+  target_kind    text not null default 'GUEST'
+                   check (target_kind in ('GUEST', 'STAFF', 'VISITOR', 'CHECK', 'ETC')),
+  purpose        text not null default '',
+  -- 사건(INC) 연결(선택). 상세 건강정보는 여기에 쓰지 않습니다.
+  incident_no    text not null default '',
+  place          text not null default '',
+  note           text not null default '',
+  -- 소모금액 합계(내구재는 0으로 계산되어 정산에서 빠집니다).
+  total_amount   integer not null default 0 check (total_amount >= 0),
+  -- 정산 대상 금액이 있는지. 내구재만 쓴 기록은 false.
+  billable       boolean not null default true,
+  -- 이 사용대장을 근거로 만든 정산서(중복 청구 방지).
+  expense_id     uuid references public.arc_expenses(id) on delete set null,
+  status         text not null default 'ACTIVE' check (status in ('ACTIVE', 'VOID')),
+  void_reason    text not null default '',
+  voided_at      timestamptz,
+  voided_by_name text not null default '',
+  employee_id    text references public.employees(id) on delete set null,
+  employee_name  text not null default '',
+  created_at     timestamptz not null default now()
+);
+
+create unique index if not exists arc_usages_no_idx
+  on public.arc_usages (usage_no);
+
+create index if not exists arc_usages_time_idx
+  on public.arc_usages (used_at desc);
+
+create index if not exists arc_usages_billing_idx
+  on public.arc_usages (status, billable, expense_id);
+
+-- ── 사용 품목 — 단가·금액은 사용 시점 스냅샷(나중에 단가가 바뀌어도 과거 금액 유지) ──
+create table if not exists public.arc_usage_items (
+  id         uuid primary key default gen_random_uuid(),
+  usage_id   uuid not null references public.arc_usages(id) on delete cascade,
+  item_id    uuid references public.arc_items(id) on delete set null,
+  item_code  text not null default '',
+  item_name  text not null default '',
+  item_unit  text not null default '',
+  qty        numeric(12, 2) not null check (qty > 0),
+  unit_price integer not null default 0 check (unit_price >= 0),
+  amount     integer not null default 0 check (amount >= 0),
+  is_device  boolean not null default false,
+  note       text not null default '',
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists arc_usage_items_usage_idx
+  on public.arc_usage_items (usage_id, sort_order);

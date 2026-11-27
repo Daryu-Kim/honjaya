@@ -124,6 +124,8 @@ const STOCKTAKES_PATH = "/api/arc/stocktakes";
 const PURCHASES_PATH = "/api/arc/purchases";
 const OTC_PATH = "/api/arc/otc";
 const INCIDENTS_PATH = "/api/arc/incidents";
+const USAGES_PATH = "/api/arc/usages";
+const EXPENSES_PATH = "/api/arc/expenses";
 
 function queryString(params = {}) {
   const search = new URLSearchParams();
@@ -655,4 +657,204 @@ export async function addArcCareAddendum(incidentId, body) {
   );
 
   return data?.addendum ?? null;
+}
+
+// ── 사용대장(USE) · 비용·실비정산(EXP) ─────────────────────────────────────
+
+export const ARC_USAGE_TARGET_LABELS = {
+  GUEST: "고객",
+  STAFF: "직원",
+  VISITOR: "방문객",
+  CHECK: "점검·교육",
+  ETC: "기타",
+};
+
+export const ARC_USAGE_STATUS_LABELS = {
+  ACTIVE: "유효",
+  VOID: "취소",
+};
+
+export const ARC_EXPENSE_CATEGORY_LABELS = {
+  SUPPLY: "소모품",
+  PRINT: "인쇄·교구",
+  TRANSPORT: "교통",
+  SERVICE: "자문·활동비",
+  EQUIPMENT: "장비·자재",
+  OTHER: "기타",
+};
+
+export const ARC_EXPENSE_SOURCE_LABELS = {
+  MANUAL: "직접 등록",
+  USAGE_MONTH: "월 소모금액 정산",
+  PURCHASE: "구매대장 연결",
+};
+
+export const ARC_PAYMENT_METHOD_LABELS = {
+  TRANSFER: "계좌이체",
+  CASH: "현금",
+  CARD: "카드",
+  ETC: "기타",
+};
+
+export function formatArcMoney(value) {
+  const amount = Number(value);
+
+  if (!Number.isFinite(amount)) return "0원";
+
+  return `${Math.round(amount).toLocaleString("ko-KR")}원`;
+}
+
+export async function fetchArcUsages({
+  period = "",
+  incidentNo = "",
+  status = "",
+  limit = 100,
+} = {}) {
+  const data = await apiGet(
+    `${USAGES_PATH}${queryString({ period, incidentNo, status, limit })}`
+  );
+
+  return {
+    usages: Array.isArray(data?.usages) ? data.usages : [],
+    priceMap:
+      data?.priceMap && typeof data.priceMap === "object" ? data.priceMap : {},
+    summary: data?.summary ?? null,
+    canCreate: Boolean(data?.canCreate),
+    canExpense: Boolean(data?.canExpense),
+    canApprove: Boolean(data?.canApprove),
+    viewerName: data?.viewerName ?? "",
+  };
+}
+
+export async function createArcUsage(payload) {
+  const data = await apiPost(USAGES_PATH, payload);
+
+  return {
+    usage: data?.usage ?? null,
+    items: Array.isArray(data?.items) ? data.items : [],
+  };
+}
+
+export async function fetchArcUsage(usageId) {
+  const data = await apiGet(`${USAGES_PATH}/${encodeURIComponent(usageId)}`);
+
+  return {
+    usage: data?.usage ?? null,
+    items: Array.isArray(data?.items) ? data.items : [],
+    canCreate: Boolean(data?.canCreate),
+  };
+}
+
+export async function voidArcUsage(usageId, reason) {
+  const data = await apiPost(
+    `${USAGES_PATH}/${encodeURIComponent(usageId)}/void`,
+    { reason }
+  );
+
+  return {
+    usage: data?.usage ?? null,
+    items: Array.isArray(data?.items) ? data.items : [],
+  };
+}
+
+export async function fetchArcExpenses({
+  period = "",
+  status = "",
+  limit = 100,
+} = {}) {
+  const data = await apiGet(
+    `${EXPENSES_PATH}${queryString({ period, status, limit })}`
+  );
+
+  return {
+    expenses: Array.isArray(data?.expenses) ? data.expenses : [],
+    summary: data?.summary ?? null,
+    pendingUsage: data?.pendingUsage ?? null,
+    canCreate: Boolean(data?.canCreate),
+    canApprove: Boolean(data?.canApprove),
+    viewerName: data?.viewerName ?? "",
+  };
+}
+
+export async function fetchArcExpense(expenseId) {
+  const data = await apiGet(
+    `${EXPENSES_PATH}/${encodeURIComponent(expenseId)}`
+  );
+
+  return {
+    expense: data?.expense ?? null,
+    payments: Array.isArray(data?.payments) ? data.payments : [],
+    canCreate: Boolean(data?.canCreate),
+    canApprove: Boolean(data?.canApprove),
+  };
+}
+
+export async function createArcExpense(payload) {
+  const data = await apiPost(EXPENSES_PATH, payload);
+
+  return {
+    expense: data?.expense ?? null,
+    payments: Array.isArray(data?.payments) ? data.payments : [],
+  };
+}
+
+export async function updateArcExpense(expenseId, payload) {
+  const data = await apiPatch(
+    `${EXPENSES_PATH}/${encodeURIComponent(expenseId)}`,
+    payload
+  );
+
+  return {
+    expense: data?.expense ?? null,
+    payments: Array.isArray(data?.payments) ? data.payments : [],
+  };
+}
+
+export async function addArcExpensePayment(expenseId, payload) {
+  const data = await apiPost(
+    `${EXPENSES_PATH}/${encodeURIComponent(expenseId)}/payments`,
+    payload
+  );
+
+  return {
+    expense: data?.expense ?? null,
+    payments: Array.isArray(data?.payments) ? data.payments : [],
+  };
+}
+
+/** 대표확인(승인). arc.approve 권한이 있는 계정만 호출할 수 있어요. */
+export async function approveArcExpense(expenseId) {
+  const data = await apiPost(
+    `${EXPENSES_PATH}/${encodeURIComponent(expenseId)}/approve`,
+    {}
+  );
+
+  return {
+    expense: data?.expense ?? null,
+    payments: Array.isArray(data?.payments) ? data.payments : [],
+  };
+}
+
+export async function removeArcExpensePayment(expenseId, paymentId) {
+  const data = await apiPost(
+    `${EXPENSES_PATH}/${encodeURIComponent(
+      expenseId
+    )}/payments/${encodeURIComponent(paymentId)}/remove`,
+    {}
+  );
+
+  return {
+    expense: data?.expense ?? null,
+    payments: Array.isArray(data?.payments) ? data.payments : [],
+  };
+}
+
+export async function createArcExpenseFromUsageMonth(payload) {
+  const data = await apiPost(`${EXPENSES_PATH}/from-usage-month`, payload);
+
+  return {
+    expense: data?.expense ?? null,
+    payments: Array.isArray(data?.payments) ? data.payments : [],
+    applied: data?.applied ?? null,
+  };
 }

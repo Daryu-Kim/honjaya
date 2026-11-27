@@ -25,6 +25,12 @@
         <router-link to="/admin/arc/incidents" class="link-button">
           사건·응급기록
         </router-link>
+        <router-link to="/admin/arc/usages" class="link-button">
+          사용대장
+        </router-link>
+        <router-link to="/admin/arc/expenses" class="link-button">
+          실비정산
+        </router-link>
         <router-link to="/admin/arc/consents" class="link-button">
           동의서 관리
         </router-link>
@@ -112,6 +118,34 @@
       >
         <span class="summary-label">90일 응급·119</span>
         <strong>{{ incidents.emergencyLast90Days ?? 0 }}건</strong>
+      </article>
+      <article class="summary-card">
+        <span class="summary-label">이번 달 소모금액</span>
+        <strong>{{ formatArcMoney(usage.monthAmount) }}</strong>
+        <small class="dim">{{ usage.monthCount ?? 0 }}건 사용</small>
+      </article>
+      <article
+        class="summary-card"
+        :class="{ alert: (usage.unbilledCount ?? 0) > 0 }"
+      >
+        <span class="summary-label">아직 청구 전</span>
+        <strong>{{ formatArcMoney(usage.unbilledAmount) }}</strong>
+        <small class="dim">{{ usage.unbilledCount ?? 0 }}건</small>
+      </article>
+      <article
+        class="summary-card"
+        :class="{ alert: (expense.openAmount ?? 0) > 0 }"
+      >
+        <span class="summary-label">미정산 금액</span>
+        <strong>{{ formatArcMoney(expense.openAmount) }}</strong>
+        <small class="dim">{{ expense.openCount ?? 0 }}건</small>
+      </article>
+      <article
+        class="summary-card"
+        :class="{ alert: (expense.overdueCount ?? 0) > 0 }"
+      >
+        <span class="summary-label">정산 기한 지남</span>
+        <strong>{{ expense.overdueCount ?? 0 }}건</strong>
       </article>
     </section>
 
@@ -208,6 +242,7 @@ import {
   fetchArcHealth,
   fetchArcNotifications,
   formatArcDateTime,
+  formatArcMoney,
   markArcNotificationsRead,
 } from "@/lib/arc";
 import { hasPermission } from "@/lib/staffAuth";
@@ -215,6 +250,8 @@ import { hasPermission } from "@/lib/staffAuth";
 const summary = ref({});
 const stock = ref({});
 const incidents = ref({});
+const usage = ref({});
+const expense = ref({});
 const notifications = ref([]);
 const isKeyReady = ref(true);
 const unreadOnly = ref(false);
@@ -231,6 +268,8 @@ async function loadSummary() {
     summary.value = data?.summary ?? {};
     stock.value = data?.stock ?? {};
     incidents.value = data?.incidents ?? {};
+    usage.value = data?.usage ?? {};
+    expense.value = data?.expense ?? {};
   } catch (error) {
     errorMessage.value = error?.message || "현황을 불러오지 못했어요.";
   }
@@ -370,6 +409,11 @@ onMounted(loadAll);
   font-size: 12px;
   font-weight: 700;
   color: rgba(255, 255, 255, 0.66);
+}
+
+.summary-card .dim {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
 }
 
 .error-box {

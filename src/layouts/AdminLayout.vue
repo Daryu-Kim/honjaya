@@ -212,6 +212,20 @@ const menuList = [
     permission: "arc.view",
   },
   {
+    to: "/admin/arc/usages",
+    label: "사용대장",
+    description: "소모품 사용·단가",
+    matchStartsWith: "/admin/arc/usages",
+    permission: "arc.view",
+  },
+  {
+    to: "/admin/arc/expenses",
+    label: "실비정산",
+    description: "청구·부분입금",
+    matchStartsWith: "/admin/arc/expenses",
+    permission: "arc.view",
+  },
+  {
     to: "/admin/arc/consents",
     label: "응급안전 동의서",
     description: "동의 확인·철회",

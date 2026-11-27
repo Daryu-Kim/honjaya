@@ -563,6 +563,127 @@ async function insertMove(client, {
   return rows[0];
 }
 
+/**
+ * 한 트랜잭션 안에서 여러 품목을 차감할 때 쓰는 하위 함수입니다.
+ * 사용대장(arcUsage)처럼 헤더 1건 + 품목 N건을 한 번에 기록하면서
+ * 재고까지 함께 빼야 하는 경우에 사용합니다.
+ */
+export async function consumeStockInTransaction(
+  client,
+  itemId,
+  qty,
+  { reason = "", refType = "", refId = "", incidentNo = "", employee = null } = {}
+) {
+  const { rows } = await client.query(
+    `select * from public.arc_items where id = $1 for update`,
+    [itemId]
+  );
+
+  if (rows.length === 0) {
+    throw new HttpError(404, "HJ404", "품목을 찾을 수 없어요.");
+  }
+
+  if (!rows[0].active) {
+    throw badRequest("사용 중지된 품목이에요. 품목 설정에서 다시 사용으로 바꿔 주세요.");
+  }
+
+  const taken = await consumeLots(client, itemId, qty);
+  const moves = [];
+
+  for (const part of taken) {
+    moves.push(
+      await insertMove(client, {
+        itemId,
+        lotId: part.lotId,
+        kind: "OUT",
+        qty: part.qty,
+        reason,
+        refType,
+        refId,
+        incidentNo,
+        employee,
+      })
+    );
+  }
+
+  return { item: rows[0], moves };
+}
+
+/**
+ * 차감된 재고를 원래 로트로 되돌립니다(사용 취소).
+ * 같은 참조로 이미 되돌린 기록이 있으면 두 번 되돌리지 않고 막습니다.
+ */
+export async function restoreStockInTransaction(
+  client,
+  { refType, refId, reason = "", employee = null, cancelRefType = "" } = {}
+) {
+  const sourceType = text(refType, 40);
+  const targetId = text(refId, 80);
+
+  if (!sourceType || !targetId) {
+    throw badRequest("되돌릴 출고 기록을 찾지 못했어요.");
+  }
+
+  const backType = text(cancelRefType, 40) || `${sourceType}_VOID`;
+
+  const { rows: done } = await client.query(
+    `select 1
+       from public.arc_stock_moves
+      where ref_type = $1
+        and ref_id = $2
+      limit 1`,
+    [backType, targetId]
+  );
+
+  if (done.length > 0) {
+    throw badRequest("이미 재고가 되돌려진 기록이에요.");
+  }
+
+  const { rows: moves } = await client.query(
+    `select *
+       from public.arc_stock_moves
+      where ref_type = $1
+        and ref_id = $2
+        and qty > 0
+        and kind in ('OUT', 'DISPOSE')
+      order by created_at`,
+    [sourceType, targetId]
+  );
+
+  let total = 0;
+
+  for (const move of moves) {
+    const partQty = num(move.qty);
+
+    total = round2(total + partQty);
+
+    if (move.lot_id) {
+      await client.query(
+        `update public.arc_item_lots
+            set qty = qty + $2,
+                disposed_at = null,
+                updated_at = now()
+          where id = $1`,
+        [move.lot_id, partQty]
+      );
+    }
+
+    await insertMove(client, {
+      itemId: move.item_id,
+      lotId: move.lot_id,
+      kind: "IN",
+      qty: partQty,
+      reason: reason || "사용 취소로 재고 복원",
+      refType: backType,
+      refId: targetId,
+      incidentNo: move.incident_no,
+      employee,
+    });
+  }
+
+  return { restored: moves.length, qty: total };
+}
+
 export async function recordArcStockMove(input = {}, employee = null) {
   const kind = text(input.kind, 10).toUpperCase();
 

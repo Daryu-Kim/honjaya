@@ -39,6 +39,8 @@ import AdminArcConsentView from "@/views/Admin/AdminArcConsentView.vue";
 import AdminArcAccessView from "@/views/Admin/AdminArcAccessView.vue";
 import AdminArcIncidentView from "@/views/Admin/AdminArcIncidentView.vue";
 import AdminArcCareView from "@/views/Admin/AdminArcCareView.vue";
+import AdminArcUsageView from "@/views/Admin/AdminArcUsageView.vue";
+import AdminArcExpenseView from "@/views/Admin/AdminArcExpenseView.vue";
 import StaffLoginView from "@/views/Staff/StaffLoginView.vue";
 import AdminLayout from "@/layouts/AdminLayout.vue";
 import { startGlobalBusy } from "@/lib/globalBusy";
@@ -204,6 +206,20 @@ const routes = [
         path: "arc/otc",
         name: "admin-arc-otc",
         component: AdminArcOtcView,
+        meta: { permission: "arc.view" },
+      },
+      {
+        // 사용대장. 소모품 사용과 단가·소모금액을 기록합니다.
+        path: "arc/usages",
+        name: "admin-arc-usages",
+        component: AdminArcUsageView,
+        meta: { permission: "arc.view" },
+      },
+      {
+        // 실비정산 대장. 금액·입금 처리는 서버가 arc.expense 로 다시 검사합니다.
+        path: "arc/expenses",
+        name: "admin-arc-expenses",
+        component: AdminArcExpenseView,
         meta: { permission: "arc.view" },
       },
       {

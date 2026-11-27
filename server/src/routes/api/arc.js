@@ -31,6 +31,17 @@ import {
   updateArcIncident,
 } from "../../arcIncidents.js";
 import {
+  addArcExpensePayment,
+  arcExpenseSummary,
+  createArcExpense,
+  createArcExpenseFromUsageMonth,
+  getArcExpense,
+  listArcExpenses,
+  previewUsageMonth,
+  removeArcExpensePayment,
+  updateArcExpense,
+} from "../../arcExpense.js";
+import {
   applyArcStocktake,
   arcStockSummary,
   claimArcOtcItems,
@@ -54,6 +65,14 @@ import {
   updateArcItem,
   updateArcOtcItem,
 } from "../../arcStock.js";
+import {
+  arcUsageSummary,
+  createArcUsage,
+  getArcUsage,
+  latestArcUnitPriceMap,
+  listArcUsages,
+  voidArcUsage,
+} from "../../arcUsage.js";
 import { writeAuditLog } from "../../auth/audit.js";
 import { PERMISSIONS } from "../../auth/permissions.js";
 import { createStaffGuard } from "../../auth/sessions.js";
@@ -85,6 +104,7 @@ export function registerArcRoutes(app) {
   const requireCare = createStaffGuard(PERMISSIONS.ARC_CARE);
   const requireSensitive = createStaffGuard(PERMISSIONS.ARC_SENSITIVE);
   const requireApprove = createStaffGuard(PERMISSIONS.ARC_APPROVE);
+  const requireExpense = createStaffGuard(PERMISSIONS.ARC_EXPENSE);
   const requireAdmin = createStaffGuard(PERMISSIONS.ARC_ADMIN);
 
   // ── 현황 ───────────────────────────────────────────────────────────
@@ -100,6 +120,8 @@ export function registerArcRoutes(app) {
       summary: await arcDashboardSummary(employee?.id ?? null),
       stock: await arcStockSummary({ employee }),
       incidents: await arcIncidentSummary(),
+      usage: await arcUsageSummary(),
+      expense: await arcExpenseSummary(),
     };
   });
 
@@ -573,5 +595,175 @@ export function registerArcRoutes(app) {
         ),
       };
     }
+  );
+
+  // ── 사용대장(USE) · 소모금액 ────────────────────────────────────────
+
+  app.get("/api/arc/usages", { preHandler: requireView }, async (request) => {
+    const employee = currentEmployee(request);
+
+    return {
+      usages: await listArcUsages({
+        period: request.query?.period || "",
+        incidentNo: request.query?.incidentNo || "",
+        status: request.query?.status || "",
+        limit: request.query?.limit,
+      }),
+      priceMap: await latestArcUnitPriceMap(),
+      summary: await arcUsageSummary(),
+      canCreate: hasPermission(request, PERMISSIONS.ARC_STOCK),
+      canExpense: hasPermission(request, PERMISSIONS.ARC_EXPENSE),
+      canApprove: hasPermission(request, PERMISSIONS.ARC_APPROVE),
+      viewerName: employee?.name ?? "",
+    };
+  });
+
+  app.get(
+    "/api/arc/usages/:usageId",
+    { preHandler: requireView },
+    async (request) => ({
+      ...(await getArcUsage(request.params?.usageId)),
+      canCreate: hasPermission(request, PERMISSIONS.ARC_STOCK),
+    })
+  );
+
+  app.post("/api/arc/usages", { preHandler: requireStock }, async (request) => {
+    const employee = currentEmployee(request);
+    const result = await createArcUsage(readBody(request), employee);
+
+    await writeAuditLog({
+      employee,
+      action: "arc.usage.create",
+      targetType: "arc_usage",
+      targetId: result.usage?.id ?? "",
+      detail: {
+        usageNo: result.usage?.usageNo,
+        targetKind: result.usage?.targetKind,
+        totalAmount: result.usage?.totalAmount,
+        itemCount: result.items?.length ?? 0,
+      },
+      ip: clientIp(request),
+      log: request.log,
+    });
+
+    return result;
+  });
+
+  app.post(
+    "/api/arc/usages/:usageId/void",
+    { preHandler: requireApprove },
+    async (request) => {
+      const employee = currentEmployee(request);
+      const result = await voidArcUsage(
+        request.params?.usageId,
+        { reason: readBody(request).reason },
+        employee
+      );
+
+      await writeAuditLog({
+        employee,
+        action: "arc.usage.void",
+        targetType: "arc_usage",
+        targetId: request.params?.usageId,
+        detail: {
+          usageNo: result.usage?.usageNo,
+          reason: readBody(request).reason,
+          restored: result.restore,
+        },
+        ip: clientIp(request),
+        log: request.log,
+      });
+
+      return result;
+    }
+  );
+
+  // ── 비용·실비정산(EXP) + 부분입금 ──────────────────────────────────
+
+  app.get("/api/arc/expenses", { preHandler: requireView }, async (request) => {
+    const employee = currentEmployee(request);
+    const period = request.query?.period || "";
+
+    return {
+      expenses: await listArcExpenses({
+        period,
+        status: request.query?.status || "",
+        limit: request.query?.limit,
+      }),
+      summary: await arcExpenseSummary(),
+      pendingUsage: await previewUsageMonth(period),
+      canCreate: hasPermission(request, PERMISSIONS.ARC_EXPENSE),
+      canApprove: hasPermission(request, PERMISSIONS.ARC_APPROVE),
+      viewerName: employee?.name ?? "",
+    };
+  });
+
+  app.get(
+    "/api/arc/expenses/:expenseId",
+    { preHandler: requireView },
+    async (request) => ({
+      ...(await getArcExpense(request.params?.expenseId)),
+      canCreate: hasPermission(request, PERMISSIONS.ARC_EXPENSE),
+      canApprove: hasPermission(request, PERMISSIONS.ARC_APPROVE),
+    })
+  );
+
+  app.post(
+    "/api/arc/expenses",
+    { preHandler: requireExpense },
+    async (request) =>
+      createArcExpense(readBody(request), currentEmployee(request))
+  );
+
+  app.post(
+    "/api/arc/expenses/from-usage-month",
+    { preHandler: requireExpense },
+    async (request) =>
+      createArcExpenseFromUsageMonth(readBody(request), currentEmployee(request))
+  );
+
+  app.patch(
+    "/api/arc/expenses/:expenseId",
+    { preHandler: requireExpense },
+    async (request) =>
+      updateArcExpense(
+        request.params?.expenseId,
+        readBody(request),
+        currentEmployee(request)
+      )
+  );
+
+  // 대표확인(승인)은 건별로만 찍을 수 있고 arc.approve 권한이 필요합니다.
+  app.post(
+    "/api/arc/expenses/:expenseId/approve",
+    { preHandler: requireApprove },
+    async (request) =>
+      updateArcExpense(
+        request.params?.expenseId,
+        { approve: true },
+        currentEmployee(request)
+      )
+  );
+
+  app.post(
+    "/api/arc/expenses/:expenseId/payments",
+    { preHandler: requireExpense },
+    async (request) =>
+      addArcExpensePayment(
+        request.params?.expenseId,
+        readBody(request),
+        currentEmployee(request)
+      )
+  );
+
+  app.post(
+    "/api/arc/expenses/:expenseId/payments/:paymentId/remove",
+    { preHandler: requireExpense },
+    async (request) =>
+      removeArcExpensePayment(
+        request.params?.expenseId,
+        request.params?.paymentId,
+        currentEmployee(request)
+      )
   );
 }
