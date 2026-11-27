@@ -941,3 +941,21 @@ create table if not exists public.arc_training_attendees (
 
 create index if not exists arc_training_attendees_employee_idx
   on public.arc_training_attendees (employee_id, result);
+-- ══════════════════════════════════════════════════════════════════════════
+-- P14H — AS-CARE 서식 원본(외부 파일) · 비현장 보고 정보 · 기록자 확인
+--   AS-REC-001 별첨 A ② 「비현장·사후 보고」 항목(보고정보 발생시각·보고받은
+--   시각·보고자·보고수단·보고 범위)과 기록자 서명란을 그대로 담습니다.
+--   파일 본문은 DB가 아니라 ARC_FILES_DIR 아래에 두고, 여기에는 서식 목록만 둡니다.
+-- ══════════════════════════════════════════════════════════════════════════
+
+alter table public.arc_care_records
+  add column if not exists report_occurred_at text not null default '',
+  add column if not exists report_received_at text not null default '',
+  add column if not exists report_channel     text not null default '',
+  add column if not exists reporter_enc       text not null default '',
+  add column if not exists report_scope_enc   text not null default '',
+  add column if not exists recorder_sign_enc  text not null default '';
+
+-- 서식 원본 보관 위치(ARC_FILES_DIR) 안내용 색인. 사건·기록별 최근 첨부를 빠르게 찾습니다.
+create index if not exists arc_care_files_record_time_idx
+  on public.arc_care_files (care_record_id, created_at desc);

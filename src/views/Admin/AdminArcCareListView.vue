@@ -144,6 +144,76 @@
         민감정보 열람 로그에 남아요.
       </p>
     </section>
+
+    <section v-if="canWriteCare" class="panel">
+      <div class="panel-head">
+        <h2>서식 원본 등록 (한글·워드·PDF)</h2>
+      </div>
+      <p class="helper-text">
+        종이로 작성·서명한 AS-CARE 원본을 사건에 붙여 둘 수 있어요. HWP · HWPX ·
+        DOC · DOCX · XLS · XLSX · PDF · JPG · PNG · TXT 파일을 한 개 20MB까지
+        올릴 수 있고, 등록은 ARC 총괄(최윤희)만 할 수 있어요.
+      </p>
+      <p v-if="uploadError" class="error-box">{{ uploadError }}</p>
+      <p v-else-if="uploadOk" class="ok-box">{{ uploadOk }}</p>
+      <div class="upload-form">
+        <label class="field wide">
+          <span>사건 선택</span>
+          <select v-model="uploadIncidentId" :disabled="isUploading">
+            <option value="">사건을 선택해 주세요</option>
+            <option v-for="row in incidents" :key="row.id" :value="row.id">
+              {{ row.incidentNo }} · {{ formatArcDateTime(row.occurredAt) }} ·
+              {{ row.subjectLabel || "표시명 없음" }}
+            </option>
+          </select>
+        </label>
+        <label class="field">
+          <span>서식 파일</span>
+          <input
+            ref="uploadInput"
+            type="file"
+            accept=".hwp,.hwpx,.doc,.docx,.xls,.xlsx,.pdf,.jpg,.jpeg,.png,.txt"
+            :disabled="isUploading"
+          />
+        </label>
+        <label class="field">
+          <span>자료 종류</span>
+          <select v-model="uploadKind" :disabled="isUploading">
+            <option
+              v-for="(label, code) in ARC_CARE_FILE_KIND_LABELS"
+              :key="code"
+              :value="code"
+            >
+              {{ label }}
+            </option>
+          </select>
+        </label>
+        <label class="field wide">
+          <span>메모(선택)</span>
+          <input
+            v-model.trim="uploadNote"
+            type="text"
+            maxlength="300"
+            placeholder="예) 종이 서식 서명 후 스캔, 원본은 사무실 보관"
+            :disabled="isUploading"
+          />
+        </label>
+        <div class="actions">
+          <button
+            type="button"
+            class="preset-button"
+            :disabled="isUploading"
+            @click="submitUpload"
+          >
+            {{ isUploading ? "올리는 중…" : "서식 원본 올리기" }}
+          </button>
+        </div>
+      </div>
+    </section>
+    <p v-else class="helper-text">
+      서식 원본 등록은 ARC 총괄(최윤희)만 할 수 있어요. 등록된 원본은 각 사건의
+      AS-CARE 화면에서 내려받을 수 있어요.
+    </p>
   </div>
 </template>
 
@@ -151,9 +221,12 @@
 import { computed, onMounted, reactive, ref } from "vue";
 
 import {
+  ARC_CARE_FILE_KIND_LABELS,
   ARC_INCIDENT_KIND_LABELS,
   fetchArcCareRecords,
+  fetchArcIncidents,
   formatArcDateTime,
+  uploadArcCareFile,
 } from "@/lib/arc";
 
 const records = ref([]);
@@ -167,12 +240,76 @@ const filters = reactive({
   hasFiles: false,
 });
 
+// 서식 원본 등록(ARC 총괄 전용). 사건을 고르고 파일을 붙입니다.
+const incidents = ref([]);
+const uploadIncidentId = ref("");
+const uploadKind = ref("CARE_SHEET");
+const uploadNote = ref("");
+const uploadInput = ref(null);
+const uploadError = ref("");
+const uploadOk = ref("");
+const isUploading = ref(false);
+
 const withFilesCount = computed(
   () => records.value.filter((row) => row.fileCount > 0).length
 );
 const withAddendaCount = computed(
   () => records.value.filter((row) => row.addendaCount > 0).length
 );
+
+async function loadIncidents() {
+  try {
+    const data = await fetchArcIncidents({ limit: 200 });
+
+    incidents.value = data.incidents ?? [];
+  } catch {
+    incidents.value = [];
+  }
+}
+
+async function submitUpload() {
+  if (isUploading.value) return;
+
+  uploadError.value = "";
+  uploadOk.value = "";
+
+  const file = uploadInput.value?.files?.[0];
+
+  if (!uploadIncidentId.value) {
+    uploadError.value = "원본을 붙일 사건을 먼저 선택해 주세요.";
+    return;
+  }
+
+  if (!file) {
+    uploadError.value = "올릴 파일을 선택해 주세요.";
+    return;
+  }
+
+  isUploading.value = true;
+
+  try {
+    const result = await uploadArcCareFile(uploadIncidentId.value, {
+      file,
+      kind: uploadKind.value,
+      note: uploadNote.value,
+    });
+
+    uploadOk.value = result.duplicated
+      ? "같은 파일이 이미 첨부되어 있어요. 기존 파일을 그대로 두었어요."
+      : `'${result.file?.fileName || file.name}' 파일을 첨부했어요.`;
+    uploadNote.value = "";
+
+    if (uploadInput.value) {
+      uploadInput.value.value = "";
+    }
+
+    await loadRecords();
+  } catch (error) {
+    uploadError.value = error?.message || "파일을 첨부하지 못했어요.";
+  } finally {
+    isUploading.value = false;
+  }
+}
 
 async function loadRecords() {
   isLoading.value = true;
@@ -189,6 +326,10 @@ async function loadRecords() {
 
     records.value = data.records;
     canWriteCare.value = data.canWriteCare;
+
+    if (data.canWriteCare) {
+      await loadIncidents();
+    }
   } catch (error) {
     records.value = [];
     errorMessage.value = error?.message || "AS-CARE 목록을 불러오지 못했어요.";
@@ -443,6 +584,58 @@ onMounted(loadRecords);
   background: rgba(248, 113, 113, 0.14);
   color: #fca5a5;
   font-size: 13px;
+}
+
+.ok-box {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(52, 211, 153, 0.14);
+  color: #6ee7b7;
+  font-size: 13px;
+}
+
+.upload-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  span {
+    font-size: 12px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.62);
+  }
+
+  &.wide {
+    grid-column: 1 / -1;
+  }
+
+  input,
+  select {
+    padding: 8px 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+    font-size: 13px;
+  }
+
+  select option {
+    color: #111827;
+  }
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  grid-column: 1 / -1;
 }
 
 .empty-box {

@@ -811,8 +811,59 @@
               ></textarea>
             </label>
             <template v-if="incident.recordMode === 'OFF_SITE'">
+              <p class="sub-title">보고 정보 출처 (비현장·사후 보고 서식)</p>
+              <label class="field">
+                <span>보고정보 발생시각</span>
+                <input
+                  v-model.trim="careForm.reportOccurredAt"
+                  type="text"
+                  maxlength="5"
+                  placeholder="HH:MM"
+                  :readonly="!canCare"
+                />
+              </label>
+              <label class="field">
+                <span>보고받은 시각</span>
+                <input
+                  v-model.trim="careForm.reportReceivedAt"
+                  type="text"
+                  maxlength="5"
+                  placeholder="HH:MM"
+                  :readonly="!canCare"
+                />
+              </label>
+              <label class="field">
+                <span>보고자</span>
+                <input
+                  v-model.trim="careForm.reporter"
+                  type="text"
+                  maxlength="60"
+                  placeholder="예) 홀 담당 직원"
+                  :readonly="!canCare"
+                />
+              </label>
+              <label class="field">
+                <span>보고수단</span>
+                <input
+                  v-model.trim="careForm.reportChannel"
+                  type="text"
+                  maxlength="40"
+                  placeholder="예) 대면 · 전화 · 메시지"
+                  :readonly="!canCare"
+                />
+              </label>
               <label class="field wide">
-                <span>보고 출처</span>
+                <span>보고 범위</span>
+                <textarea
+                  v-model.trim="careForm.reportScope"
+                  rows="2"
+                  maxlength="1000"
+                  placeholder="예) 상태 확인 보조 · 약물·물품 관련 · 대상자 표현·경과"
+                  :readonly="!canCare"
+                ></textarea>
+              </label>
+              <label class="field wide">
+                <span>보고 출처·경위</span>
                 <textarea
                   v-model.trim="careForm.reportSource"
                   rows="2"
@@ -851,6 +902,27 @@
                 :readonly="!canCare"
               />
             </label>
+            <label class="field">
+              <span>기록자 확인(서명)</span>
+              <input
+                v-model.trim="careForm.recorderSign"
+                type="text"
+                maxlength="60"
+                placeholder="예) 최윤희 (서명)"
+                :readonly="!canCare"
+              />
+            </label>
+          </div>
+
+          <div class="notice-box">
+            <strong>기록 성격</strong>
+            <p>
+              이 기록은 기록자가 현장에서 직접 확인한 상태와 실제 시행한
+              조치·교육을 사실 중심으로 남기는 내부 업무기록이에요. 보고받은
+              정보와 직접 확인한 정보를 구분하고, 실제로 하지 않은 조치나 의학적
+              판정은 적지 않아요. 의료기관의 진료기록·진단서·처방전을 대체하지
+              않아요.
+            </p>
           </div>
 
           <div v-if="canCare" class="actions">
@@ -913,8 +985,12 @@
           </h3>
           <p class="helper-text">
             손으로 적고 서명한 AS-CARE 원본을 올려 두면 종이 서식과 전자기록을
-            함께 남길 수 있어요. 한 파일 20MB까지 올릴 수 있고, 올리기·삭제는
-            ARC 총괄만 됩니다.
+            함께 남길 수 있어요. HWP · HWPX · DOC · DOCX · XLS · XLSX · PDF ·
+            JPG · PNG · TXT 파일을 한 개 20MB까지 올릴 수 있어요.
+          </p>
+          <p v-if="!canCare" class="helper-text">
+            서식 원본 등록·삭제는 ARC 총괄(최윤희)만 할 수 있어요. 내려받기는 이
+            사건의 열람 승인을 받은 직원도 가능해요.
           </p>
           <p v-if="careFileError" class="error-box">{{ careFileError }}</p>
           <p v-else-if="careFileOk" class="ok-box">{{ careFileOk }}</p>
@@ -1096,6 +1172,12 @@ const careForm = reactive({
   followup: "",
   reportSource: "",
   unconfirmed: "",
+  reportOccurredAt: "",
+  reportReceivedAt: "",
+  reportChannel: "",
+  reporter: "",
+  reportScope: "",
+  recorderSign: "",
   legalBasis: "CONSENT_F27",
   legalBasisNote: "",
   timeline: [],
@@ -1178,6 +1260,12 @@ function fillCareForm(data) {
   careForm.followup = care?.followup ?? "";
   careForm.reportSource = care?.reportSource ?? "";
   careForm.unconfirmed = care?.unconfirmed ?? "";
+  careForm.reportOccurredAt = care?.reportOccurredAt ?? "";
+  careForm.reportReceivedAt = care?.reportReceivedAt ?? "";
+  careForm.reportChannel = care?.reportChannel ?? "";
+  careForm.reporter = care?.reporter ?? "";
+  careForm.reportScope = care?.reportScope ?? "";
+  careForm.recorderSign = care?.recorderSign ?? "";
   careForm.legalBasis =
     care?.legalBasis && options.includes(care.legalBasis)
       ? care.legalBasis
@@ -2024,6 +2112,37 @@ onMounted(loadAll);
   font-size: 12px;
   line-height: 1.6;
   color: rgba(255, 255, 255, 0.55);
+}
+
+.sub-title {
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: rgba(147, 197, 253, 0.9);
+}
+
+.notice-box {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(96, 165, 250, 0.28);
+  font-size: 12px;
+  line-height: 1.65;
+  color: rgba(255, 255, 255, 0.72);
+
+  strong {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 12px;
+    color: #bfdbfe;
+  }
+
+  p {
+    margin: 0;
+  }
 }
 
 .addenda-list {

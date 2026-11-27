@@ -601,6 +601,9 @@ function mapCare(row) {
     followup: dec(row.followup_enc),
     reportSource: dec(row.report_source_enc),
     unconfirmed: dec(row.unconfirmed_enc),
+    reporter: dec(row.reporter_enc),
+    reportScope: dec(row.report_scope_enc),
+    recorderSign: dec(row.recorder_sign_enc),
   };
 
   return {
@@ -611,6 +614,10 @@ function mapCare(row) {
     legalBasisNote: row.legal_basis_note,
     consentId: row.consent_id,
     recordedByName: row.recorded_by_name,
+    // 비식별 보고 정보(시각·수단)는 평문, 보고자·범위·서명은 암호문입니다.
+    reportOccurredAt: row.report_occurred_at ?? "",
+    reportReceivedAt: row.report_received_at ?? "",
+    reportChannel: row.report_channel ?? "",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     ...fields,
@@ -854,7 +861,22 @@ export async function saveArcCare(incidentId, input = {}, employee = null, { ip 
     followup: enc(input.followup, 2000),
     reportSource: enc(input.reportSource, 500),
     unconfirmed: enc(input.unconfirmed, 1000),
+    reporter: enc(input.reporter, 60),
+    reportScope: enc(input.reportScope, 1000),
+    recorderSign: enc(input.recorderSign, 60),
+    reportOccurredAt: text(input.reportOccurredAt, 5),
+    reportReceivedAt: text(input.reportReceivedAt, 5),
+    reportChannel: text(input.reportChannel, 40),
   };
+
+  for (const [key, label] of [
+    ["reportOccurredAt", "보고정보 발생시각"],
+    ["reportReceivedAt", "보고받은 시각"],
+  ]) {
+    if (values[key] && !MEASURED_AT_PATTERN.test(values[key])) {
+      throw badRequest(`${label}은 24시간제 HH:MM 형식으로 입력해 주세요.`);
+    }
+  }
 
   const settings = await getArcSettings();
 
@@ -865,9 +887,11 @@ export async function saveArcCare(incidentId, input = {}, employee = null, { ip 
           subject_name_enc, subject_phone_enc, subject_birth_enc, subject_gender_enc, subject_age_enc,
           chief_complaint_enc, summary_enc, history_enc,
           treatment_enc, disposition_enc, followup_enc, report_source_enc, unconfirmed_enc,
+          report_occurred_at, report_received_at, report_channel,
+          reporter_enc, report_scope_enc, recorder_sign_enc,
           legal_basis, legal_basis_note, consent_id, recorded_by, recorded_by_name)
        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-               $17, $18, $19, $20, $21)
+               $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
        on conflict (incident_id) do update
           set subject_name_enc = excluded.subject_name_enc,
               subject_phone_enc = excluded.subject_phone_enc,
@@ -882,6 +906,12 @@ export async function saveArcCare(incidentId, input = {}, employee = null, { ip 
               followup_enc = excluded.followup_enc,
               report_source_enc = excluded.report_source_enc,
               unconfirmed_enc = excluded.unconfirmed_enc,
+              report_occurred_at = excluded.report_occurred_at,
+              report_received_at = excluded.report_received_at,
+              report_channel = excluded.report_channel,
+              reporter_enc = excluded.reporter_enc,
+              report_scope_enc = excluded.report_scope_enc,
+              recorder_sign_enc = excluded.recorder_sign_enc,
               legal_basis = excluded.legal_basis,
               legal_basis_note = excluded.legal_basis_note,
               consent_id = excluded.consent_id,
@@ -906,6 +936,12 @@ export async function saveArcCare(incidentId, input = {}, employee = null, { ip 
         values.followup,
         values.reportSource,
         values.unconfirmed,
+        values.reportOccurredAt,
+        values.reportReceivedAt,
+        values.reportChannel,
+        values.reporter,
+        values.reportScope,
+        values.recorderSign,
         basis,
         note,
         consent?.id ?? null,

@@ -1956,6 +1956,59 @@ Sessions: attendance save is transactional (delete+insert), 불참인데 통과 
 ③교육자료 탭: 모듈 15종 아코디언·상황연습 21·절대금지 30. 사이드바 「월간 교육·OT」 + `/admin/arc` 헤더
 링크 추가.
 
+### K. P14H implementation notes (2026-11-28 — AS-CARE 서식 완성 + 서식 원본 등록)
+
+Owner request: "AS-CARE는 형식도 고퀄리티로 세부적으로, 특히 외부 파일(HWP·WORD·PDF 등)을 등록할 수 있게,
+등록은 일단 최윤희만".
+
+**1. What already existed (reused, not rebuilt).** `arc_care_records` + `arc_care_timeline` +
+`arc_care_meds` + `arc_care_addenda` + `arc_care_files`, and `server/src/arcFiles.js` (20MB, extension +
+magic-byte check, sha256 dedupe per incident, `requireDirector`). Routes `GET/POST
+/api/arc/incidents/:id/care-files`, `GET /api/arc/care-files/:fileId/download`, `DELETE
+/api/arc/care-files/:fileId`. Allowed: pdf·hwp·hwpx·doc·docx·xls·xlsx·jpg·jpeg·png·txt. So "외부 파일 등록"
+needed **no new transport** — only ergonomics and the missing official form fields.
+
+**2. The delta that made the form match the source document.** AS-REC-001 별첨 A has **two** blank forms:
+① 현장 출동·직접 사정 (ON-SITE) and ② 비현장·사후 보고 (OFF-SITE). The OFF-SITE variant additionally asks
+보고정보 발생시각 / 보고받은 시각 / 보고자 / 보고수단 / 보고 범위 and both variants end with 기록자·서명. The app
+was missing those six. `saveArcCare` now stores:
+
+| column | kind | why |
+| --- | --- | --- |
+| `report_occurred_at` | plain text `text(…,5)` | HH:MM, non-identifying → keeps it queryable |
+| `report_received_at` | plain text `text(…,5)` | same |
+| `report_channel` | plain text `text(…,40)` | 대면·전화·메시지, non-identifying |
+| `reporter_enc` | `enc(…,60)` | names a person → encrypted |
+| `report_scope_enc` | `enc(…,1000)` | free text that may name people → encrypted |
+| `recorder_sign_enc` | `enc(…,60)` | signature text → encrypted |
+
+Both HH:MM fields are validated with the existing `MEASURED_AT_PATTERN` (24h `HH:MM`, same rule as 측정 시각)
+so a typo cannot be stored. `mapCare` returns the plain three at top level and the encrypted three inside
+`fields`, matching the existing reportSource/unconfirmed split.
+
+**3. 기록 성격 notice.** AS-REC-001 별첨 A ends with a notice that a report-based record is **not** a
+medical record and must not claim actions that were never performed. That text now renders as a
+`.notice-box` under section 03 of `AdminArcCareView.vue`, so it is visible above the save button on every
+record (both modes).
+
+**4. 서식 원본 등록 ergonomics.** Uploading previously required opening one incident's AS-CARE detail.
+`AdminArcCareListView.vue` now has a director-only panel: pick an incident (`fetchArcIncidents({limit:200})`),
+pick a file, pick a 자료 종류 (`ARC_CARE_FILE_KIND_LABELS`), optional memo → `uploadArcCareFile`. Duplicate
+(upload returns `duplicated: true`) is reported as "이미 첨부되어 있어요" and the existing file is kept.
+Non-directors see a Korean notice instead of the form. The 04 section of the detail view now enumerates all
+accepted formats + 20MB.
+
+**5. Permission recap.** 등록·수정·삭제는 여전히 `isArcDirector`(최윤희) 전용 — 목록 패널도 `v-if="canWriteCare"`
+(서버가 `isArcDirector` 로 계산). 사장도 등록 불가, 열람은 승인 기반.
+
+**6. New index.** `arc_care_files_record_time_idx (care_record_id, created_at desc)` — "이 기록의 최근 첨부"
+lookup. DDL is `alter table … add column if not exists` + `create index if not exists`, so `arc.sql` stays
+re-runnable.
+
+**7. Deploy.** `cd /opt/honjaya && git pull && cd server && docker compose --profile tools run --rm migrate
+&& docker compose up -d --build api`. Files still land in `ARC_FILES_DIR` (`server/arc-files/care/…`), which
+`serverBundle.js` already ships to Discord — so 서식 원본 is included in the backup by design.
+
 ---
 
 ## 4. Open questions
@@ -2055,6 +2108,7 @@ todo     p14e-check-edu     R2: 월간점검(CHK)·교육(EDU)·활동/캘린더
 todo     p14f-review-docs   R3: 사후검토·NearMiss·CAPA·서식 + arc-files 업로드(10MB·jpg/png/pdf) + XLSX(exceljs) + 2인승인 파기
 done     p14g-stock-par     DONE: arc_items/arc_otc_items 안전재고(min_qty)·보충량(reorder_qty) 시드 + OTC 부족 알림 + suggestedOrderQty
 done     p14g-training      DONE: arc_training_sessions/attendees + arcTraining.js(모듈15·상황연습21·금지30) + /admin/arc/training(달력·출석·자료)
+done     p14h-care-form      DONE: AS-REC-001 별첨 A ② 비현장 보고 6필드 + 기록자 서명 + 기록성격 고지 + 목록에서 서식원본 등록
 ```
 
 ---
