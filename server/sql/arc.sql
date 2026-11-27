@@ -816,3 +816,128 @@ alter table public.arc_purchases
 
 alter table public.arc_purchases
   add column if not exists settle_due_on date;
+
+-- ── P14G: 재고 안전선 미리 세팅(구급상자·직원 상비약) ─────────────────────────
+-- 원본(AS-KIT-001)은 기준수량만 있어서 '재고 부족' 알림이 실제로는 한 번도 뜨지
+-- 않았습니다. 안전재고(min_qty)와 보충 권장량(reorder_qty)을 함께 두어 실사 때
+-- "몇 개 더 채워야 하는지"까지 바로 보이게 합니다.
+-- 현장에서 손으로 넣은 값(0 이 아닌 값)은 덮어쓰지 않습니다.
+alter table public.arc_items
+  add column if not exists reorder_qty numeric(12, 2) not null default 0;
+
+alter table public.arc_otc_items
+  add column if not exists min_qty numeric(12, 2) not null default 0;
+
+alter table public.arc_otc_items
+  add column if not exists reorder_qty numeric(12, 2) not null default 0;
+
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'arc_items_reorder_qty_check') then
+    alter table public.arc_items
+      add constraint arc_items_reorder_qty_check check (reorder_qty >= 0);
+  end if;
+
+  if not exists (select 1 from pg_constraint where conname = 'arc_otc_items_par_check') then
+    alter table public.arc_otc_items
+      add constraint arc_otc_items_par_check check (min_qty >= 0 and reorder_qty >= 0);
+  end if;
+end $$;
+
+-- 구급상자: 안전재고 = 기준수량의 50%(최소 1, 기준수량 상한), 보충 권장 = 75%.
+-- 아직 한 번도 설정하지 않은 품목만 채웁니다.
+update public.arc_items
+   set min_qty = least(baseline_qty, greatest(1, ceil(baseline_qty * 0.5))),
+       reorder_qty = least(baseline_qty, greatest(1, ceil(baseline_qty * 0.75)))
+ where baseline_qty > 0
+   and min_qty = 0
+   and reorder_qty = 0;
+
+update public.arc_items
+   set reorder_qty = least(baseline_qty, greatest(1, ceil(baseline_qty * 0.75)))
+ where baseline_qty > 0
+   and reorder_qty = 0;
+
+-- 직원 개인 상비약 13종은 포장 단위를 감안해 안전선을 직접 지정합니다.
+update public.arc_otc_items o
+   set min_qty = v.min_qty,
+       reorder_qty = v.reorder_qty
+  from (values
+         ('OTC-001', 6::numeric, 10::numeric),
+         ('OTC-002', 3::numeric, 5::numeric),
+         ('OTC-003', 3::numeric, 5::numeric),
+         ('OTC-004', 3::numeric, 5::numeric),
+         ('OTC-005', 1::numeric, 1::numeric),
+         ('OTC-006', 3::numeric, 5::numeric),
+         ('OTC-007', 3::numeric, 5::numeric),
+         ('OTC-008', 3::numeric, 5::numeric),
+         ('OTC-009', 3::numeric, 5::numeric),
+         ('OTC-010', 1::numeric, 1::numeric),
+         ('OTC-011', 3::numeric, 5::numeric),
+         ('OTC-012', 3::numeric, 5::numeric),
+         ('OTC-013', 6::numeric, 10::numeric)
+       ) as v(code, min_qty, reorder_qty)
+ where o.code = v.code
+   and o.min_qty = 0
+   and o.reorder_qty = 0;
+
+-- ── P14G: 월간 교육·OT ────────────────────────────────────────────────────────
+-- AS-CAL-001(월 1회 정기교육·OT) + AS-KIT-001(직원 정기교육·신규직원 7일 기본교육,
+-- 30일 실습형) + AS-GDE-001(상황연습·절대금지)을 한 화면에서 관리합니다.
+-- 세션을 먼저 잡고(계획) 참석자를 붙인 뒤(출석) 교육자료·사진을 증빙으로 남깁니다.
+create table if not exists public.arc_training_sessions (
+  id            uuid primary key default gen_random_uuid(),
+  -- EDU-YYYYMMDD-nn (한국시간 교육일 기준 일련번호)
+  session_no    text not null,
+  -- 달력 배치용 YYYY-MM
+  period        text not null,
+  -- OT=월간 OT·운영회의 / REGULAR=월 1회 정기교육 / NEWBIE=신규직원 기본교육
+  -- DRILL=상황연습·모의훈련 / REFRESH=보수·재교육
+  kind          text not null default 'REGULAR'
+                check (kind in ('OT', 'REGULAR', 'NEWBIE', 'DRILL', 'REFRESH')),
+  title         text not null default '',
+  scheduled_on  date not null,
+  start_time    text not null default '15:00',
+  duration_min  integer not null default 30 check (duration_min between 5 and 480),
+  place         text not null default '',
+  instructor    text not null default '',
+  -- arcTraining.js 의 모듈키 배열(교육 커리큘럼)과 상황연습 키 배열
+  module_keys   jsonb not null default '[]'::jsonb,
+  scenario_keys jsonb not null default '[]'::jsonb,
+  -- 자료·사진·서명본 등 준비물 체크리스트
+  materials     jsonb not null default '[]'::jsonb,
+  status        text not null default 'PLANNED'
+                check (status in ('PLANNED', 'DONE', 'CANCELED')),
+  -- AS-CARE/사건 기록 연결(선택). 증빙 사진·서명 사본을 파일로 붙일 때 씁니다.
+  evidence_id   text not null default '',
+  note          text not null default '',
+  created_by    text not null default '',
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  unique (session_no)
+);
+
+create index if not exists arc_training_sessions_period_idx
+  on public.arc_training_sessions (period, scheduled_on);
+
+create table if not exists public.arc_training_attendees (
+  session_id    uuid not null
+                references public.arc_training_sessions (id) on delete cascade,
+  employee_id   text not null,
+  employee_name text not null default '',
+  attended      boolean not null default false,
+  signed_at     timestamptz,
+  -- 구두평가 점수(100점 만점)와 결과
+  score         numeric(5, 2),
+  -- PENDING=미평가 / PASS=통과 / MAKEUP=보충교육 필요 / FAIL=재교육 / EXCUSED=사유 불참
+  result        text not null default 'PENDING'
+                check (result in ('PENDING', 'PASS', 'MAKEUP', 'FAIL', 'EXCUSED')),
+  -- 불참·보충은 14일 이내 재교육(AS-KIT-001)
+  makeup_due_on date,
+  note          text not null default '',
+  updated_at    timestamptz not null default now(),
+  primary key (session_id, employee_id)
+);
+
+create index if not exists arc_training_attendees_employee_idx
+  on public.arc_training_attendees (employee_id, result);

@@ -96,6 +96,10 @@
                   @change="saveItem(item)"
                 />
                 <span class="dim">{{ item.unit }}</span>
+                <div v-if="item.lowStock" class="dim restock-hint">
+                  최소 {{ item.minQty }}{{ item.unit }} ·
+                  {{ item.suggestedOrderQty }}{{ item.unit }} 보충
+                </div>
               </td>
               <td>
                 <input
@@ -715,6 +719,12 @@ onMounted(load);
 
 .critical {
   color: #fca5a5;
+}
+
+.restock-hint {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #fcd34d;
 }
 
 .qty-input {

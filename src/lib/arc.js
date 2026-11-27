@@ -1096,3 +1096,57 @@ export async function fetchArcRoutine(period = "") {
 export async function saveArcRoutineStep(stepKey, payload = {}) {
   return apiPatch(`${ROUTINE_PATH}/${encodeURIComponent(stepKey)}`, payload);
 }
+
+// ── 월간 교육·OT ────────────────────────────────────────────────────────
+// 등록·수정은 ARC 총괄(최윤희)만 가능합니다. 화면은 canWrite 로 버튼만 숨기고,
+// 최종 차단은 서버(POST/PATCH /api/arc/training)가 다시 합니다.
+
+const TRAINING_PATH = "/api/arc/training";
+
+export const ARC_TRAINING_KIND_LABELS = {
+  OT: "월간 OT",
+  REGULAR: "정기교육",
+  NEWBIE: "신규직원 기본교육",
+  DRILL: "상황연습",
+  REFRESH: "보수·재교육",
+};
+
+export const ARC_TRAINING_STATUS_LABELS = {
+  PLANNED: "예정",
+  DONE: "완료",
+  CANCELED: "취소",
+};
+
+export const ARC_TRAINING_RESULT_LABELS = {
+  PENDING: "미평가",
+  PASS: "통과",
+  MAKEUP: "보충 필요",
+  FAIL: "재교육",
+  EXCUSED: "사유 불참",
+};
+
+export async function fetchArcTraining(period = "") {
+  return apiGet(`${TRAINING_PATH}${queryString({ period })}`);
+}
+
+export async function createArcTrainingSession(payload) {
+  return apiPost(TRAINING_PATH, payload);
+}
+
+export async function updateArcTrainingSession(sessionId, payload) {
+  return apiPatch(`${TRAINING_PATH}/${encodeURIComponent(sessionId)}`, payload);
+}
+
+export async function saveArcTrainingAttendees(sessionId, attendees = []) {
+  return apiPost(
+    `${TRAINING_PATH}/${encodeURIComponent(sessionId)}/attendees`,
+    { attendees }
+  );
+}
+
+export async function deleteArcTrainingSession(sessionId) {
+  return apiPost(
+    `${TRAINING_PATH}/${encodeURIComponent(sessionId)}/delete`,
+    {}
+  );
+}

@@ -92,6 +92,16 @@ import {
 import { writeAuditLog } from "../../auth/audit.js";
 import { isArcDirector, PERMISSIONS } from "../../auth/permissions.js";
 import { createStaffGuard } from "../../auth/sessions.js";
+import {
+  arcTrainingCatalog,
+  arcTrainingSummary,
+  createArcTrainingSession,
+  deleteArcTrainingSession,
+  listArcTrainingSessions,
+  listArcTrainingStaff,
+  saveArcTrainingAttendees,
+  updateArcTrainingSession,
+} from "../../arcTraining.js";
 import { HttpError } from "../../http/errors.js";
 
 // 응급안전관리센터는 사장(대표)·매니저, 그리고 ARC 총괄 계정(yoonhee1021)만 씁니다.
@@ -1005,5 +1015,136 @@ export function registerArcRoutes(app) {
         request.params?.paymentId,
         currentEmployee(request)
       )
+  );
+
+  // ── 월간 교육·OT ────────────────────────────────────────────────────
+  // 조회는 ARC 사용자 전체, 등록·수정은 총괄(최윤희)만 할 수 있습니다.
+
+  const requireDirector = async (request, reply) => {
+    await requireView(request, reply);
+
+    if (!isArcDirector(currentEmployee(request)?.loginId)) {
+      throw new HttpError(403, "HJ403", "교육·OT 등록은 ARC 총괄만 할 수 있어요.");
+    }
+  };
+
+  app.get("/api/arc/training", { preHandler: requireView }, async (request) => {
+    const employee = currentEmployee(request);
+    const list = await listArcTrainingSessions({
+      period: request.query?.period || null,
+      limit: request.query?.limit,
+    });
+
+    return {
+      ...list,
+      catalog: arcTrainingCatalog(),
+      staff: await listArcTrainingStaff(),
+      stats: await arcTrainingSummary({ period: list.period }),
+      canWrite: isArcDirector(employee?.loginId),
+    };
+  });
+
+  app.get("/api/arc/training/catalog", { preHandler: requireView }, async () =>
+    arcTrainingCatalog()
+  );
+
+  app.post("/api/arc/training", { preHandler: requireDirector }, async (request) => {
+    const employee = currentEmployee(request);
+    const session = await createArcTrainingSession(readBody(request), employee);
+
+    await writeAuditLog({
+      employee,
+      action: "arc.training.create",
+      targetType: "arc_training_session",
+      targetId: session.id,
+      detail: {
+        sessionNo: session.sessionNo,
+        kind: session.kind,
+        scheduledOn: session.scheduledOn,
+      },
+      ip: clientIp(request),
+      log: request.log,
+    });
+
+    return { session };
+  });
+
+  app.patch(
+    "/api/arc/training/:sessionId",
+    { preHandler: requireDirector },
+    async (request) => {
+      const employee = currentEmployee(request);
+      const session = await updateArcTrainingSession(
+        request.params?.sessionId,
+        readBody(request),
+        employee
+      );
+
+      await writeAuditLog({
+        employee,
+        action: "arc.training.update",
+        targetType: "arc_training_session",
+        targetId: session.id,
+        detail: {
+          sessionNo: session.sessionNo,
+          status: session.status,
+          evidenceId: session.evidenceId,
+        },
+        ip: clientIp(request),
+        log: request.log,
+      });
+
+      return { session };
+    }
+  );
+
+  app.post(
+    "/api/arc/training/:sessionId/attendees",
+    { preHandler: requireDirector },
+    async (request) => {
+      const employee = currentEmployee(request);
+      const session = await saveArcTrainingAttendees(
+        request.params?.sessionId,
+        readBody(request).attendees,
+        employee
+      );
+
+      await writeAuditLog({
+        employee,
+        action: "arc.training.attendees",
+        targetType: "arc_training_session",
+        targetId: session.id,
+        detail: {
+          sessionNo: session.sessionNo,
+          attendeeCount: session.attendeeCount,
+          followupCount: session.followupCount,
+        },
+        ip: clientIp(request),
+        log: request.log,
+      });
+
+      return { session };
+    }
+  );
+
+  app.post(
+    "/api/arc/training/:sessionId/delete",
+    { preHandler: requireDirector },
+    async (request) => {
+      const employee = currentEmployee(request);
+      const result = await deleteArcTrainingSession(request.params?.sessionId);
+
+      await writeAuditLog({
+        employee,
+        action: "arc.training.delete",
+        targetType: "arc_training_session",
+        targetId: request.params?.sessionId,
+        detail: { sessionNo: result.sessionNo },
+        ip: clientIp(request),
+        log: request.log,
+      });
+
+      return result;
+    }
   );
 }

@@ -13,6 +13,9 @@
         <router-link to="/admin/arc/routine" class="link-button">
           월간 루틴
         </router-link>
+        <router-link to="/admin/arc/training" class="link-button">
+          교육·OT
+        </router-link>
         <router-link to="/admin/arc/stock" class="link-button">
           재고·유효기간
         </router-link>

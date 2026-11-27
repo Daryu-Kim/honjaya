@@ -149,7 +149,10 @@
                   ({{ item.lotCount }}개 로트)
                 </span>
               </td>
-              <td class="num dim">{{ item.baselineQty }}</td>
+              <td class="num dim">
+                {{ item.baselineQty }}
+                <span v-if="item.minQty > 0"> / 최소 {{ item.minQty }}</span>
+              </td>
               <td>
                 <span v-if="item.expiresOn">
                   {{ item.expiresOn }}
@@ -174,7 +177,9 @@
                 <span
                   v-else-if="item.lowStock || item.belowBaseline"
                   class="status-badge tone-warn"
-                  >보충 필요</span
+                  >보충 필요<span v-if="item.suggestedOrderQty > 0" class="dim">
+                    (+{{ item.suggestedOrderQty }}{{ item.unit }})</span
+                  ></span
                 >
                 <span
                   v-else-if="item.daysLeft !== null && item.daysLeft <= 30"
@@ -442,6 +447,15 @@
           />
         </label>
         <label class="field">
+          <span>보충 주문량 (권장 발주 수량)</span>
+          <input
+            v-model.number="editForm.reorderQty"
+            type="number"
+            min="0"
+            step="0.01"
+          />
+        </label>
+        <label class="field">
           <span>보관 위치</span>
           <input v-model.trim="editForm.storageLocation" type="text" />
         </label>
@@ -558,6 +572,7 @@ const editForm = reactive({
   accessLevel: "A",
   baselineQty: 0,
   minQty: 0,
+  reorderQty: 0,
   storageLocation: "",
   ownerKind: "SHOP",
   checkNote: "",
@@ -679,6 +694,7 @@ function openCreate() {
     accessLevel: "A",
     baselineQty: 0,
     minQty: 0,
+    reorderQty: 0,
     storageLocation: "",
     ownerKind: "SHOP",
     checkNote: "",
@@ -699,6 +715,7 @@ function openEdit(item) {
     accessLevel: item.accessLevel,
     baselineQty: item.baselineQty,
     minQty: item.minQty,
+    reorderQty: item.reorderQty,
     storageLocation: item.storageLocation,
     ownerKind: item.ownerKind,
     checkNote: item.checkNote,
@@ -719,6 +736,7 @@ async function submitEdit() {
     accessLevel: editForm.accessLevel,
     baselineQty: editForm.baselineQty,
     minQty: editForm.minQty,
+    reorderQty: editForm.reorderQty,
     storageLocation: editForm.storageLocation,
     ownerKind: editForm.ownerKind,
     checkNote: editForm.checkNote,

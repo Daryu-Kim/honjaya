@@ -60,6 +60,15 @@ function requireQty(value, field = "수량", { allowZero = false, allowNegative 
   return round2(parsed);
 }
 
+// 비어 있으면 기본값으로 채우고, 값이 있으면 0 이상 숫자로 검증합니다.
+function optionalQty(value, fallback, field) {
+  if (value === undefined || value === null || value === "") {
+    return round2(Math.max(num(fallback), 0));
+  }
+
+  return requireQty(value, field, { allowZero: true });
+}
+
 function requireDate(value, field) {
   const raw = text(value, 20);
 
@@ -174,6 +183,8 @@ function mapItem(row) {
   const qty = round2(row.qty);
   const baselineQty = round2(row.baseline_qty);
   const minQty = round2(row.min_qty);
+  const reorderQty = round2(row.reorder_qty);
+  const lowStock = minQty > 0 && qty < minQty;
   const openedOverdue = useByAt !== null && useByAt.getTime() <= Date.now();
 
   return {
@@ -187,6 +198,12 @@ function mapItem(row) {
     isDevice: Boolean(row.is_device),
     baselineQty,
     minQty,
+    reorderQty,
+    // 부족하거나 기준 미달일 때 "몇 개 채우면 되는지"를 한 번에 보여줍니다.
+    suggestedOrderQty:
+      lowStock || qty < baselineQty
+        ? round2(Math.max(reorderQty, baselineQty - qty, 1))
+        : 0,
     storageLocation: row.storage_location,
     ownerKind: row.owner_kind,
     checkNote: row.check_note,
@@ -202,7 +219,7 @@ function mapItem(row) {
     useByDaysLeft,
     openedOverdue,
     belowBaseline: qty < baselineQty,
-    lowStock: minQty > 0 && qty < minQty,
+    lowStock,
     updatedAt: row.updated_at,
   };
 }
@@ -287,6 +304,7 @@ function normalizeItemInput(input = {}, current = null) {
     isDevice: Boolean(input.isDevice ?? current?.isDevice ?? false),
     baselineQty: round2(input.baselineQty ?? current?.baselineQty ?? 0),
     minQty: round2(input.minQty ?? current?.minQty ?? 0),
+    reorderQty: round2(input.reorderQty ?? current?.reorderQty ?? 0),
     storageLocation: text(input.storageLocation ?? current?.storageLocation, 120),
     ownerKind,
     checkNote: text(input.checkNote ?? current?.checkNote, 400),
@@ -310,8 +328,8 @@ export async function createArcItem(input = {}, employee = null) {
     const { rows } = await pool.query(
       `insert into public.arc_items
          (id, code, name, category, spec, unit, access_level, is_device, baseline_qty, min_qty,
-          storage_location, owner_kind, check_note, note, active, sort_order)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+          reorder_qty, storage_location, owner_kind, check_note, note, active, sort_order)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
        returning id`,
       [
         randomUUID(),
@@ -324,6 +342,7 @@ export async function createArcItem(input = {}, employee = null) {
         item.isDevice,
         item.baselineQty,
         item.minQty,
+        item.reorderQty,
         item.storageLocation,
         item.ownerKind,
         item.checkNote,
@@ -363,11 +382,12 @@ export async function updateArcItem(itemId, patch = {}, employee = null) {
               is_device = $8,
               baseline_qty = $9,
               min_qty = $10,
-              storage_location = $11,
-              owner_kind = $12,
-              check_note = $13,
-              note = $14,
-              active = $15,
+              reorder_qty = $11,
+              storage_location = $12,
+              owner_kind = $13,
+              check_note = $14,
+              note = $15,
+              active = $16,
               updated_at = now()
         where id = $1`,
       [
@@ -381,6 +401,7 @@ export async function updateArcItem(itemId, patch = {}, employee = null) {
         item.isDevice,
         item.baselineQty,
         item.minQty,
+        item.reorderQty,
         item.storageLocation,
         item.ownerKind,
         item.checkNote,
@@ -1007,6 +1028,31 @@ export async function scanArcStockAlerts({ force = false } = {}) {
     if (notification) created.push(notification);
   }
 
+  // 직원 개인 상비약이 안전재고 아래로 내려가면 소유 직원에게 바로 알립니다.
+  const { rows: otcLow } = await pool.query(
+    `select id, code, name, qty, unit, min_qty, reorder_qty, owner_employee_id
+       from public.arc_otc_items
+      where active
+        and min_qty > 0
+        and qty < min_qty`
+  );
+
+  for (const row of otcLow) {
+    const reorderQty = round2(row.reorder_qty) || 1;
+    const notification = await createArcNotification({
+      kind: "OTC",
+      level: "WARN",
+      title: `[개인 상비약 부족] ${row.code} ${row.name}`,
+      body: `현재 ${round2(row.qty)}${row.unit} · 안전재고 ${round2(row.min_qty)}${row.unit}. ${reorderQty}${row.unit} 이상 채워 주세요.`,
+      link: "/admin/arc/otc",
+      targetEmployeeId: row.owner_employee_id,
+      dedupeKey: `arc:otc-low:${row.id}:${todayIso()}`,
+      createdBy: "arc-stock",
+    });
+
+    if (notification) created.push(notification);
+  }
+
   return { skipped: false, created: created.length, notifications: created };
 }
 
@@ -1522,14 +1568,21 @@ export async function settleArcPurchase(purchaseId, { settledAmount, approve = f
 function mapOtcItem(row) {
   const daysLeft = daysUntil(row.expires_on);
   const period = currentArcPeriod();
+  const qty = round2(row.qty);
+  const minQty = round2(row.min_qty);
+  const reorderQty = round2(row.reorder_qty);
 
   return {
     id: row.id,
     code: row.code,
     name: row.name,
     category: row.category,
-    qty: round2(row.qty),
+    qty,
     unit: row.unit,
+    minQty,
+    reorderQty,
+    lowStock: minQty > 0 && qty < minQty,
+    suggestedOrderQty: minQty > 0 && qty < minQty ? round2(Math.max(reorderQty, 1)) : 0,
     expiresOn: row.expires_on ? String(row.expires_on).slice(0, 10) : null,
     daysLeft,
     expiryBucket: expiryBucket(daysLeft),
@@ -1618,23 +1671,30 @@ export async function createArcOtcItem(input = {}, { employee = null, canManageA
     `select coalesce(max(sort_order), 0) + 10 as next_sort from public.arc_otc_items`
   );
 
+  const qty = requireQty(input.qty ?? 0, "수량", { allowZero: true });
+  // 안전재고·보충 권장량을 비우면 포장 규모를 보고 자동으로 잡아 둡니다.
+  const minQty = optionalQty(input.minQty, Math.ceil(qty * 0.3), "안전재고");
+  const reorderQty = optionalQty(input.reorderQty, Math.ceil(qty * 0.5), "보충 권장량");
+
   try {
     const { rows } = await pool.query(
       `insert into public.arc_otc_items
          (id, code, name, category, qty, unit, expires_on, owner_employee_id, owner_name,
-          note, active, sort_order)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, $11)
+          min_qty, reorder_qty, note, active, sort_order)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, $13)
        returning *`,
       [
         randomUUID(),
         code,
         name,
         text(input.category, 40),
-        requireQty(input.qty ?? 0, "수량", { allowZero: true }),
+        qty,
         text(input.unit ?? "정", 10) || "정",
         input.expiresOn ? requireDate(input.expiresOn, "유효기간") : null,
         ownerId,
         ownerName,
+        minQty,
+        reorderQty,
         text(input.note, 300),
         Number(sortRows[0]?.next_sort ?? 10),
       ]
@@ -1684,6 +1744,8 @@ export async function updateArcOtcItem(otcItemId, patch = {}, { employee = null,
             active = $6,
             owner_employee_id = $7,
             owner_name = $8,
+            min_qty = $9,
+            reorder_qty = $10,
             updated_at = now()
       where id = $1
       returning *`,
@@ -1698,6 +1760,10 @@ export async function updateArcOtcItem(otcItemId, patch = {}, { employee = null,
       patch.active === undefined ? current.active : Boolean(patch.active),
       ownerId,
       ownerName,
+      patch.minQty === undefined ? round2(current.min_qty) : optionalQty(patch.minQty, 0, "안전재고"),
+      patch.reorderQty === undefined
+        ? round2(current.reorder_qty)
+        : optionalQty(patch.reorderQty, 0, "보충 권장량"),
     ]
   );
 

@@ -287,6 +287,14 @@ const arcMenuList = [
     color: "#38bdf8",
   },
   {
+    to: "/admin/arc/training",
+    label: "월간 교육·OT",
+    description: "정기교육·상황연습·출석",
+    matchStartsWith: "/admin/arc/training",
+    permission: "arc.view",
+    color: "#34d399",
+  },
+  {
     to: "/admin/arc/stock",
     label: "구급상자 재고",
     description: "재고·유효기간·수불",

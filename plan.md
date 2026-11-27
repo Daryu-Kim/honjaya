@@ -1806,6 +1806,7 @@ Server-side rules that must be enforced (not just hidden in UI):
 | --- | --- | --- | --- |
 | **P14D** | 사용대장 + 단가·소모금액 + 정산(부분입금) | usages/usage_items/expenses/expense_payments | P14B 재고 위에서만 성립. INC는 P14C에서 이미 존재 |
 | **P14E** | 월간점검·교육·캘린더·실적 CSV | checks/check_items/edu/activities/calendar_tasks | AS-CAL-001 주기 자동화. 개인정보는 참석자 이름뿐 |
+| **P14G** | 재고 안전선(par level) 미리 세팅 + 월간 교육·OT(달력 포함) | training_sessions/training_attendees | 원본의 "기준수량"만으로는 부족 알림이 안 떠서 안전재고를 먼저 채운다. 교육은 최윤희 단독 등록 |
 
 **R3** — 기록 품질
 
@@ -1850,7 +1851,7 @@ Mapping (no new accounts — owner decision 2026-11-27):
 ### F. UI
 
 `/admin/arc` (대시보드: 8 실적카드 + 8 빠른업무 + 알림 + 이번 달 운영 루틴), `/admin/arc/routine`,
-`/admin/arc/stock`, `/admin/arc/otc`,
+`/admin/arc/training` (월간 교육·OT: 달력·출석·교육자료), `/admin/arc/stock`, `/admin/arc/otc`,
 `/admin/arc/usages`, `/admin/arc/expenses`, `/admin/arc/checks`, `/admin/arc/edu`, `/admin/arc/calendar`,
 `/admin/arc/incidents` (사건 접수), `/admin/arc/care` (AS-CARE 기록 목록), `/admin/arc/care/:incidentId`
 (AS-CARE 작성·첨부), `/admin/arc/reviews`, `/admin/arc/docs`.
@@ -1914,6 +1915,46 @@ Because the owner rejected excluding ARC tables from the Discord backup, the pro
    Limits: `MAX_FILES=20000`, `MAX_BYTES=512MB` per bundle → per-file cap 10MB, allowed types
    `image/jpeg|png|webp`, `application/pdf`; when the cap is hit only the SERVER run fails (DB run is a
    separate job), so the bundle size is surfaced on `/admin/arc` and in `arc_notifications`.
+
+### J. P14G implementation notes (2026-11-28 — stock par levels + monthly 교육·OT)
+
+Owner request: "구급상자·직원 상비약 재고를 효율적으로 관리할 수 있게 미리 세팅" + "달마다 하는 OT·교육을
+관리하는 메뉴를 하나 만들어 달라(항목은 아주 세부적으로, 달력 버전 포함, 등록은 최윤희만)".
+
+**1. Stock par levels (why the alert never fired).** `arc_items.min_qty` existed but was never seeded, so
+`lowStock` (`minQty > 0 && qty < minQty`) was always false, and `arc_otc_items` had no `min_qty` at all.
+`server/sql/arc.sql` now backfills `min_qty = least(baseline_qty, greatest(1, ceil(baseline_qty*0.5)))` and
+`reorder_qty = 75%` for the 구급상자 items, and pins par levels for the 13 OTC codes (OTC-001…013).
+Both backfills are guarded by `min_qty = 0 and reorder_qty = 0` so a hand-entered value is never overwritten
+(the file is re-runnable).
+
+**2. `reorder_qty` + `suggestedOrderQty`.** New column `reorder_qty numeric(12,2) not null default 0` on both
+tables. `server/src/arcStock.js` exposes `reorderQty`, `lowStock` and `suggestedOrderQty`
+(`max(reorderQty, baselineQty - qty, 1)` when low or below baseline, else 0), so 실사 화면에서 "몇 개 더
+채워야 하는지"까지 보인다. `createArcOtcItem` auto-defaults `min_qty = ceil(qty*0.3)` /
+`reorder_qty = ceil(qty*0.5)` when blank. `scanArcStockAlerts` now also raises OTC low-stock notifications
+(`arc:otc-low:<id>:<today>`, level WARN, target = owner employee).
+
+**3. New tables.** `public.arc_training_sessions` (`EDU-YYYYMMDD-nn`, `period YYYY-MM`, kind
+`OT|REGULAR|NEWBIE|DRILL|REFRESH`, module/scenario keys as jsonb, `status PLANNED|DONE|CANCELED`,
+`evidence_id`) and `public.arc_training_attendees` (`PK (session_id, employee_id)`, `result
+PENDING|PASS|MAKEUP|FAIL|EXCUSED`, `score`, `makeup_due_on`, `signed_at`).
+
+**4. `server/src/arcTraining.js`.** Catalogue = 15 modules (기본/생명위협/손상/주취·복부/감염/운영/기록/마감)
+with per-module goal·items·materials·evaluation, the 21 상황연습 of AS-GDE-001 §15 and the 30 절대금지 of §16.
+Sessions: attendance save is transactional (delete+insert), 불참인데 통과 ⇒ `MAKEUP`,
+`makeup_due_on = 교육일 + 14일` (AS-KIT-001 보충 규칙), 최초 출석 입력 시 `PLANNED → DONE` auto,
+`DONE` requires `evidence_id`.
+
+**5. Permission.** 조회는 `arc.view` 그대로, **등록·수정·삭제는 `isArcDirector` 전용**
+(`requireDirector` in `server/src/routes/api/arc.js`, 403 "교육·OT 등록은 ARC 총괄만 할 수 있어요.").
+사장(OWNER)도 등록할 수 없다 — owner decision "등록은 최윤희만".
+
+**6. UI.** `/admin/arc/training` (`AdminArcTrainingView.vue`) — ①달력 탭: 월 그리드에 교육 세션 칩(구분별
+색) + `fetchArcRoutine` 의 루틴 단계 칩(교육 창 16~20일 등)을 같은 날짜에 겹쳐 보여줌, ②일정·출석 탭:
+세션 카드 + 직원별 참석·결과·점수·비고 표(`전원 참석` 버튼 포함) + 상태/증빙ID 즉시 저장 + 삭제(confirm),
+③교육자료 탭: 모듈 15종 아코디언·상황연습 21·절대금지 30. 사이드바 「월간 교육·OT」 + `/admin/arc` 헤더
+링크 추가.
 
 ---
 
@@ -2012,6 +2053,8 @@ todo     p14c-care          DONE(b10eba5): 사건(INC-YYYYMMDD-nn)·AS-CARE 암�
 todo     p14d-usage-expense DONE(44c9089): 사용대장(USE-)·단가 자동계산·소모금액·실비정산(EXP-)·부분입금·대표확인·월 일괄 정산
 todo     p14e-check-edu     R2: 월간점검(CHK)·교육(EDU)·활동/캘린더(ACT)·실적 CSV
 todo     p14f-review-docs   R3: 사후검토·NearMiss·CAPA·서식 + arc-files 업로드(10MB·jpg/png/pdf) + XLSX(exceljs) + 2인승인 파기
+done     p14g-stock-par     DONE: arc_items/arc_otc_items 안전재고(min_qty)·보충량(reorder_qty) 시드 + OTC 부족 알림 + suggestedOrderQty
+done     p14g-training      DONE: arc_training_sessions/attendees + arcTraining.js(모듈15·상황연습21·금지30) + /admin/arc/training(달력·출석·자료)
 ```
 
 ---

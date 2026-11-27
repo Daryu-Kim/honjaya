@@ -31,6 +31,7 @@ import AdminShopView from "@/views/Admin/AdminShopView.vue";
 import AdminReservationView from "@/views/Admin/AdminReservationView.vue";
 import AdminArcView from "@/views/Admin/AdminArcView.vue";
 import AdminArcRoutineView from "@/views/Admin/AdminArcRoutineView.vue";
+import AdminArcTrainingView from "@/views/Admin/AdminArcTrainingView.vue";
 import AdminArcStockView from "@/views/Admin/AdminArcStockView.vue";
 import AdminArcStocktakeView from "@/views/Admin/AdminArcStocktakeView.vue";
 import AdminArcPurchaseView from "@/views/Admin/AdminArcPurchaseView.vue";
@@ -197,6 +198,13 @@ const routes = [
         path: "arc/routine",
         name: "admin-arc-routine",
         component: AdminArcRoutineView,
+        meta: { permission: "arc.view" },
+      },
+      {
+        // 월간 교육·OT. 등록·수정은 서버가 ARC 총괄만 허용합니다.
+        path: "arc/training",
+        name: "admin-arc-training",
+        component: AdminArcTrainingView,
         meta: { permission: "arc.view" },
       },
       {
