@@ -10,6 +10,18 @@
         </p>
       </div>
       <nav class="header-links">
+        <router-link to="/admin/arc/stock" class="link-button">
+          재고·유효기간
+        </router-link>
+        <router-link to="/admin/arc/stocktakes" class="link-button">
+          월 실사
+        </router-link>
+        <router-link to="/admin/arc/purchases" class="link-button">
+          보충·정산
+        </router-link>
+        <router-link to="/admin/arc/otc" class="link-button">
+          개인 상비약
+        </router-link>
         <router-link to="/admin/arc/consents" class="link-button">
           동의서 관리
         </router-link>
@@ -51,6 +63,34 @@
       <article class="summary-card">
         <span class="summary-label">최근 30일 열람</span>
         <strong>{{ summary.readsLast30Days ?? 0 }}건</strong>
+      </article>
+      <article
+        class="summary-card"
+        :class="{ alert: (stock.expired ?? 0) > 0 }"
+      >
+        <span class="summary-label">유효기간 지난 품목</span>
+        <strong>{{ stock.expired ?? 0 }}개</strong>
+      </article>
+      <article
+        class="summary-card"
+        :class="{ alert: (stock.expiring30 ?? 0) > 0 }"
+      >
+        <span class="summary-label">30일 내 만료</span>
+        <strong>{{ stock.expiring30 ?? 0 }}개</strong>
+      </article>
+      <article
+        class="summary-card"
+        :class="{ alert: (stock.lowStock ?? 0) > 0 }"
+      >
+        <span class="summary-label">재고 부족</span>
+        <strong>{{ stock.lowStock ?? 0 }}개</strong>
+      </article>
+      <article
+        class="summary-card"
+        :class="{ alert: (stock.openedOverdue ?? 0) > 0 }"
+      >
+        <span class="summary-label">개봉 후 기한 초과</span>
+        <strong>{{ stock.openedOverdue ?? 0 }}개</strong>
       </article>
     </section>
 
@@ -152,6 +192,7 @@ import {
 import { hasPermission } from "@/lib/staffAuth";
 
 const summary = ref({});
+const stock = ref({});
 const notifications = ref([]);
 const isKeyReady = ref(true);
 const unreadOnly = ref(false);
@@ -163,7 +204,10 @@ const canAdmin = computed(() => hasPermission("arc.admin"));
 
 async function loadSummary() {
   try {
-    summary.value = (await fetchArcDashboard()) ?? {};
+    const data = await fetchArcDashboard();
+
+    summary.value = data?.summary ?? {};
+    stock.value = data?.stock ?? {};
   } catch (error) {
     errorMessage.value = error?.message || "현황을 불러오지 못했어요.";
   }

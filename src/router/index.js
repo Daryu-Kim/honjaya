@@ -30,6 +30,10 @@ import ReservationLookupView from "@/views/User/ReservationLookupView.vue";
 import AdminShopView from "@/views/Admin/AdminShopView.vue";
 import AdminReservationView from "@/views/Admin/AdminReservationView.vue";
 import AdminArcView from "@/views/Admin/AdminArcView.vue";
+import AdminArcStockView from "@/views/Admin/AdminArcStockView.vue";
+import AdminArcStocktakeView from "@/views/Admin/AdminArcStocktakeView.vue";
+import AdminArcPurchaseView from "@/views/Admin/AdminArcPurchaseView.vue";
+import AdminArcOtcView from "@/views/Admin/AdminArcOtcView.vue";
 import AdminArcSettingsView from "@/views/Admin/AdminArcSettingsView.vue";
 import AdminArcConsentView from "@/views/Admin/AdminArcConsentView.vue";
 import AdminArcAccessView from "@/views/Admin/AdminArcAccessView.vue";
@@ -174,6 +178,30 @@ const routes = [
         path: "arc",
         name: "admin-arc",
         component: AdminArcView,
+        meta: { permission: "arc.view" },
+      },
+      {
+        path: "arc/stock",
+        name: "admin-arc-stock",
+        component: AdminArcStockView,
+        meta: { permission: "arc.view" },
+      },
+      {
+        path: "arc/stocktakes",
+        name: "admin-arc-stocktakes",
+        component: AdminArcStocktakeView,
+        meta: { permission: "arc.view" },
+      },
+      {
+        path: "arc/purchases",
+        name: "admin-arc-purchases",
+        component: AdminArcPurchaseView,
+        meta: { permission: "arc.view" },
+      },
+      {
+        path: "arc/otc",
+        name: "admin-arc-otc",
+        component: AdminArcOtcView,
         meta: { permission: "arc.view" },
       },
       {

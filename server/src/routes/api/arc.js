@@ -20,6 +20,30 @@ import {
   updateArcSettings,
   withdrawArcConsent,
 } from "../../arc.js";
+import {
+  applyArcStocktake,
+  arcStockSummary,
+  claimArcOtcItems,
+  createArcItem,
+  createArcOtcCheck,
+  createArcPurchase,
+  createArcStocktake,
+  getArcItem,
+  getArcStocktake,
+  listArcItemLots,
+  listArcItems,
+  listArcOtcChecks,
+  listArcOtcItems,
+  listArcPurchases,
+  listArcStockMoves,
+  listArcStocktakes,
+  recordArcStockMove,
+  saveArcStocktakeItem,
+  scanArcStockAlerts,
+  settleArcPurchase,
+  updateArcItem,
+  updateArcOtcItem,
+} from "../../arcStock.js";
 import { writeAuditLog } from "../../auth/audit.js";
 import { PERMISSIONS } from "../../auth/permissions.js";
 import { createStaffGuard } from "../../auth/sessions.js";
@@ -46,6 +70,8 @@ function hasPermission(request, permission) {
 
 export function registerArcRoutes(app) {
   const requireView = createStaffGuard(PERMISSIONS.ARC_VIEW);
+  const requireStock = createStaffGuard(PERMISSIONS.ARC_STOCK);
+  const requireCheck = createStaffGuard(PERMISSIONS.ARC_CHECK);
   const requireCare = createStaffGuard(PERMISSIONS.ARC_CARE);
   const requireSensitive = createStaffGuard(PERMISSIONS.ARC_SENSITIVE);
   const requireApprove = createStaffGuard(PERMISSIONS.ARC_APPROVE);
@@ -57,9 +83,14 @@ export function registerArcRoutes(app) {
     status: arcHealth(),
   }));
 
-  app.get("/api/arc/dashboard", { preHandler: requireView }, async (request) => ({
-    summary: await arcDashboardSummary(currentEmployee(request)?.id ?? null),
-  }));
+  app.get("/api/arc/dashboard", { preHandler: requireView }, async (request) => {
+    const employee = currentEmployee(request);
+
+    return {
+      summary: await arcDashboardSummary(employee?.id ?? null),
+      stock: await arcStockSummary({ employee }),
+    };
+  });
 
   // ── 설정 ───────────────────────────────────────────────────────────
 
@@ -218,4 +249,218 @@ export function registerArcRoutes(app) {
       }),
     };
   });
+
+  // ── 재고·유효기간(구급상자 실물 마스터 / 로트 / 수불) ────────────────
+
+  app.get("/api/arc/stock", { preHandler: requireView }, async (request) => {
+    const query = request.query || {};
+
+    return {
+      items: await listArcItems({
+        category: query.category || null,
+        accessLevel: query.accessLevel || null,
+        search: query.search || "",
+        includeInactive: isTruthyFlag(query.includeInactive),
+        lowOnly: isTruthyFlag(query.lowOnly),
+        expiringWithinDays: query.expiringWithinDays ? Number(query.expiringWithinDays) : null,
+      }),
+      summary: await arcStockSummary({ employee: currentEmployee(request) }),
+      canManage: hasPermission(request, PERMISSIONS.ARC_ADMIN),
+      canStock: hasPermission(request, PERMISSIONS.ARC_STOCK),
+    };
+  });
+
+  app.post("/api/arc/stock/items", { preHandler: requireAdmin }, async (request) => {
+    const employee = currentEmployee(request);
+    const item = await createArcItem(readBody(request), employee);
+
+    await writeAuditLog({
+      employee,
+      action: "arc.stock.item.create",
+      targetType: "arc_item",
+      targetId: item.id,
+      detail: { code: item.code, name: item.name, accessLevel: item.accessLevel },
+      ip: clientIp(request),
+      log: request.log,
+    });
+
+    return { item };
+  });
+
+  app.patch("/api/arc/stock/items/:itemId", { preHandler: requireAdmin }, async (request) => {
+    const employee = currentEmployee(request);
+    const item = await updateArcItem(request.params?.itemId, readBody(request), employee);
+
+    await writeAuditLog({
+      employee,
+      action: "arc.stock.item.update",
+      targetType: "arc_item",
+      targetId: item.id,
+      detail: { code: item.code, active: item.active, minQty: item.minQty },
+      ip: clientIp(request),
+      log: request.log,
+    });
+
+    return { item };
+  });
+
+  app.get("/api/arc/stock/items/:itemId", { preHandler: requireView }, async (request) => ({
+    item: await getArcItem(request.params?.itemId),
+    lots: await listArcItemLots(request.params?.itemId, { includeEmptied: true }),
+    moves: await listArcStockMoves({ itemId: request.params?.itemId, limit: 40 }),
+  }));
+
+  app.get("/api/arc/stock/moves", { preHandler: requireView }, async (request) => ({
+    moves: await listArcStockMoves({
+      itemId: request.query?.itemId || null,
+      limit: request.query?.limit,
+    }),
+  }));
+
+  app.post("/api/arc/stock/moves", { preHandler: requireStock }, async (request) =>
+    recordArcStockMove(readBody(request), currentEmployee(request))
+  );
+
+  app.get("/api/arc/stock/expiry-scan", { preHandler: requireView }, async (request) => ({
+    result: await scanArcStockAlerts({ force: isTruthyFlag(request.query?.force) }),
+  }));
+
+  // ── 월 1회 실사 ─────────────────────────────────────────────────────
+
+  app.get("/api/arc/stocktakes", { preHandler: requireView }, async (request) => ({
+    stocktakes: await listArcStocktakes({ limit: request.query?.limit }),
+    canCount: hasPermission(request, PERMISSIONS.ARC_STOCK),
+    canApply: hasPermission(request, PERMISSIONS.ARC_CHECK),
+  }));
+
+  app.get("/api/arc/stocktakes/:stocktakeId", { preHandler: requireView }, async (request) =>
+    getArcStocktake(request.params?.stocktakeId)
+  );
+
+  app.post("/api/arc/stocktakes", { preHandler: requireStock }, async (request) => ({
+    ...(await createArcStocktake(readBody(request), currentEmployee(request))),
+  }));
+
+  app.patch(
+    "/api/arc/stocktakes/:stocktakeId/items/:itemId",
+    { preHandler: requireStock },
+    async (request) =>
+      saveArcStocktakeItem(
+        request.params?.stocktakeId,
+        request.params?.itemId,
+        readBody(request)
+      )
+  );
+
+  app.post(
+    "/api/arc/stocktakes/:stocktakeId/apply",
+    { preHandler: requireCheck },
+    async (request) => {
+      const employee = currentEmployee(request);
+      const result = await applyArcStocktake(request.params?.stocktakeId, employee);
+
+      await writeAuditLog({
+        employee,
+        action: "arc.stocktake.apply",
+        targetType: "arc_stocktake",
+        targetId: request.params?.stocktakeId,
+        detail: { period: result.stocktake.period, adjusted: result.adjusted.length },
+        ip: clientIp(request),
+        log: request.log,
+      });
+
+      return result;
+    }
+  );
+
+  // ── 보충·구매·실비정산 ──────────────────────────────────────────────
+
+  app.get("/api/arc/purchases", { preHandler: requireView }, async (request) => {
+    const employee = currentEmployee(request);
+
+    return {
+      purchases: await listArcPurchases({
+        period: request.query?.period || null,
+        limit: request.query?.limit,
+      }),
+      canCreate: hasPermission(request, PERMISSIONS.ARC_STOCK),
+      canSettle: hasPermission(request, PERMISSIONS.ARC_APPROVE),
+      viewer: employee?.name ?? "",
+    };
+  });
+
+  app.post("/api/arc/purchases", { preHandler: requireStock }, async (request) => ({
+    purchase: await createArcPurchase(readBody(request), currentEmployee(request)),
+  }));
+
+  app.patch(
+    "/api/arc/purchases/:purchaseId",
+    { preHandler: requireApprove },
+    async (request) => {
+      const employee = currentEmployee(request);
+      const body = readBody(request);
+      const purchase = await settleArcPurchase(
+        request.params?.purchaseId,
+        { settledAmount: body.settledAmount, approve: isTruthyFlag(body.approve) },
+        employee
+      );
+
+      await writeAuditLog({
+        employee,
+        action: "arc.purchase.settle",
+        targetType: "arc_purchase",
+        targetId: purchase.id,
+        detail: { amount: purchase.amount, settled: purchase.settledAmount, status: purchase.settleStatus },
+        ip: clientIp(request),
+        log: request.log,
+      });
+
+      return { purchase };
+    }
+  );
+
+  // ── 직원 개인 상비약(OTC) 자기점검 ──────────────────────────────────
+
+  app.get("/api/arc/otc", { preHandler: requireView }, async (request) => {
+    const employee = currentEmployee(request);
+    const canManageAll = hasPermission(request, PERMISSIONS.ARC_ADMIN);
+    const scopeAll = canManageAll && isTruthyFlag(request.query?.scopeAll);
+
+    return {
+      items: await listArcOtcItems({
+        employee,
+        scopeAll,
+        period: request.query?.period || null,
+      }),
+      checks: await listArcOtcChecks({
+        period: request.query?.period || null,
+        limit: request.query?.limit,
+      }),
+      canManageAll,
+      viewerId: employee?.id ?? null,
+      viewerName: employee?.name ?? "",
+    };
+  });
+
+  app.post("/api/arc/otc/claim", { preHandler: requireStock }, async (request) => ({
+    ...(await claimArcOtcItems(currentEmployee(request))),
+  }));
+
+  app.patch("/api/arc/otc/items/:otcItemId", { preHandler: requireStock }, async (request) => ({
+    item: await updateArcOtcItem(request.params?.otcItemId, readBody(request), {
+      employee: currentEmployee(request),
+      canManageAll: hasPermission(request, PERMISSIONS.ARC_ADMIN),
+    }),
+  }));
+
+  app.post(
+    "/api/arc/otc/items/:otcItemId/checks",
+    { preHandler: requireStock },
+    async (request) => ({
+      ...(await createArcOtcCheck(request.params?.otcItemId, readBody(request), {
+        employee: currentEmployee(request),
+        canManageAll: hasPermission(request, PERMISSIONS.ARC_ADMIN),
+      })),
+    })
+  );
 }

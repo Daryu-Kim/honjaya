@@ -46,10 +46,54 @@ export const ARC_ACCESS_STATUS_LABELS = {
   EXPIRED: "만료",
 };
 
+export const ARC_ACCESS_LEVEL_LABELS = {
+  A: "A · 응급·SOP 승인사용",
+  B: "B · 교육·승인사용",
+  C: "C · RN 제한관리",
+};
+
+export const ARC_MOVE_KIND_LABELS = {
+  IN: "입고·보충",
+  OUT: "사용",
+  OPEN: "개봉",
+  DISPOSE: "폐기",
+  ADJUST: "실사·정정",
+};
+
+export const ARC_EXPIRY_BUCKET_LABELS = {
+  EXPIRED: "유효기간 지남",
+  D7: "7일 이내",
+  D30: "30일 이내",
+  D90: "90일 이내",
+  OK: "정상",
+};
+
+export const ARC_STOCKTAKE_STATUS_LABELS = {
+  DRAFT: "입력중",
+  APPLIED: "확정",
+};
+
+export const ARC_PAID_BY_LABELS = {
+  SHOP: "사업장 법인카드",
+  RN: "최윤희 RN 개인결제",
+  OWNER: "대표 개인결제",
+  OTHER: "기타",
+};
+
+export const ARC_SETTLE_STATUS_LABELS = {
+  UNSETTLED: "미정산",
+  PARTIAL: "일부정산",
+  SETTLED: "정산완료",
+};
+
 const NOTIFICATIONS_PATH = "/api/arc/notifications";
 const CONSENTS_PATH = "/api/arc/consents";
 const ACCESS_PATH = "/api/arc/sensitive-access";
 const READS_PATH = "/api/arc/sensitive-reads";
+const STOCK_PATH = "/api/arc/stock";
+const STOCKTAKES_PATH = "/api/arc/stocktakes";
+const PURCHASES_PATH = "/api/arc/purchases";
+const OTC_PATH = "/api/arc/otc";
 
 function queryString(params = {}) {
   const search = new URLSearchParams();
@@ -122,7 +166,10 @@ export async function fetchArcHealth() {
 export async function fetchArcDashboard() {
   const data = await apiGet("/api/arc/dashboard");
 
-  return data?.summary ?? null;
+  return {
+    summary: data?.summary ?? null,
+    stock: data?.stock ?? null,
+  };
 }
 
 export async function fetchArcSettings() {
@@ -260,4 +307,217 @@ export async function fetchArcAccessReads({
   );
 
   return Array.isArray(data?.reads) ? data.reads : [];
+}
+
+// ── 재고·유효기간 ──────────────────────────────────────────────────────────
+
+export async function fetchArcStock({
+  category = "",
+  accessLevel = "",
+  search = "",
+  includeInactive = false,
+  lowOnly = false,
+  expiringWithinDays = "",
+} = {}) {
+  const data = await apiGet(
+    `${STOCK_PATH}${queryString({
+      category,
+      accessLevel,
+      search,
+      includeInactive: includeInactive || undefined,
+      lowOnly: lowOnly || undefined,
+      expiringWithinDays,
+    })}`
+  );
+
+  return {
+    items: Array.isArray(data?.items) ? data.items : [],
+    summary: data?.summary ?? null,
+    canManage: Boolean(data?.canManage),
+    canStock: Boolean(data?.canStock),
+  };
+}
+
+export async function fetchArcStockItem(itemId) {
+  const data = await apiGet(
+    `${STOCK_PATH}/items/${encodeURIComponent(itemId)}`
+  );
+
+  return {
+    item: data?.item ?? null,
+    lots: Array.isArray(data?.lots) ? data.lots : [],
+    moves: Array.isArray(data?.moves) ? data.moves : [],
+  };
+}
+
+export async function createArcStockItem(payload) {
+  const data = await apiPost(`${STOCK_PATH}/items`, payload);
+
+  return data?.item ?? null;
+}
+
+export async function updateArcStockItem(itemId, payload) {
+  const data = await apiPatch(
+    `${STOCK_PATH}/items/${encodeURIComponent(itemId)}`,
+    payload
+  );
+
+  return data?.item ?? null;
+}
+
+export async function fetchArcStockMoves({ itemId = "", limit = 60 } = {}) {
+  const data = await apiGet(
+    `${STOCK_PATH}/moves${queryString({ itemId, limit })}`
+  );
+
+  return Array.isArray(data?.moves) ? data.moves : [];
+}
+
+/** 입고·사용·개봉·폐기·정정. 재고가 바뀌는 유일한 호출입니다. */
+export async function recordArcStockMove(payload) {
+  return apiPost(`${STOCK_PATH}/moves`, payload);
+}
+
+export async function runArcExpiryScan({ force = false } = {}) {
+  const data = await apiGet(
+    `${STOCK_PATH}/expiry-scan${queryString({ force: force || undefined })}`
+  );
+
+  return data?.result ?? null;
+}
+
+// ── 월 1회 실사 ────────────────────────────────────────────────────────────
+
+export async function fetchArcStocktakes({ limit = 24 } = {}) {
+  const data = await apiGet(`${STOCKTAKES_PATH}${queryString({ limit })}`);
+
+  return {
+    stocktakes: Array.isArray(data?.stocktakes) ? data.stocktakes : [],
+    canCount: Boolean(data?.canCount),
+    canApply: Boolean(data?.canApply),
+  };
+}
+
+export async function fetchArcStocktake(stocktakeId) {
+  const data = await apiGet(
+    `${STOCKTAKES_PATH}/${encodeURIComponent(stocktakeId)}`
+  );
+
+  return {
+    stocktake: data?.stocktake ?? null,
+    items: Array.isArray(data?.items) ? data.items : [],
+  };
+}
+
+export async function createArcStocktake({
+  period = "",
+  countedOn = "",
+  note = "",
+} = {}) {
+  const data = await apiPost(STOCKTAKES_PATH, { period, countedOn, note });
+
+  return data?.stocktake ?? null;
+}
+
+export async function saveArcStocktakeItem(
+  stocktakeId,
+  itemId,
+  { countedQty, reason = "" }
+) {
+  const data = await apiPatch(
+    `${STOCKTAKES_PATH}/${encodeURIComponent(
+      stocktakeId
+    )}/items/${encodeURIComponent(itemId)}`,
+    { countedQty, reason }
+  );
+
+  return {
+    stocktake: data?.stocktake ?? null,
+    items: Array.isArray(data?.items) ? data.items : [],
+  };
+}
+
+export async function applyArcStocktake(stocktakeId) {
+  const data = await apiPost(
+    `${STOCKTAKES_PATH}/${encodeURIComponent(stocktakeId)}/apply`,
+    {}
+  );
+
+  return {
+    stocktake: data?.stocktake ?? null,
+    adjusted: Array.isArray(data?.adjusted) ? data.adjusted : [],
+  };
+}
+
+// ── 보충·구매·실비정산 ─────────────────────────────────────────────────────
+
+export async function fetchArcPurchases({ period = "", limit = 100 } = {}) {
+  const data = await apiGet(
+    `${PURCHASES_PATH}${queryString({ period, limit })}`
+  );
+
+  return {
+    purchases: Array.isArray(data?.purchases) ? data.purchases : [],
+    canCreate: Boolean(data?.canCreate),
+    canSettle: Boolean(data?.canSettle),
+    viewer: data?.viewer ?? "",
+  };
+}
+
+export async function createArcPurchase(payload) {
+  const data = await apiPost(PURCHASES_PATH, payload);
+
+  return data?.purchase ?? null;
+}
+
+export async function settleArcPurchase(
+  purchaseId,
+  { settledAmount, approve = false }
+) {
+  const data = await apiPatch(
+    `${PURCHASES_PATH}/${encodeURIComponent(purchaseId)}`,
+    { settledAmount, approve }
+  );
+
+  return data?.purchase ?? null;
+}
+
+// ── 직원 개인 상비약(OTC) ──────────────────────────────────────────────────
+
+export async function fetchArcOtc({ period = "", scopeAll = false } = {}) {
+  const data = await apiGet(
+    `${OTC_PATH}${queryString({ period, scopeAll: scopeAll || undefined })}`
+  );
+
+  return {
+    items: Array.isArray(data?.items) ? data.items : [],
+    checks: Array.isArray(data?.checks) ? data.checks : [],
+    canManageAll: Boolean(data?.canManageAll),
+    viewerId: data?.viewerId ?? null,
+    viewerName: data?.viewerName ?? "",
+  };
+}
+
+export async function claimArcOtcItems() {
+  const data = await apiPost(`${OTC_PATH}/claim`, {});
+
+  return data?.claimed ?? 0;
+}
+
+export async function updateArcOtcItem(otcItemId, payload) {
+  const data = await apiPatch(
+    `${OTC_PATH}/items/${encodeURIComponent(otcItemId)}`,
+    payload
+  );
+
+  return data?.item ?? null;
+}
+
+export async function createArcOtcCheck(otcItemId, payload) {
+  const data = await apiPost(
+    `${OTC_PATH}/items/${encodeURIComponent(otcItemId)}/checks`,
+    payload
+  );
+
+  return data?.check ?? null;
 }
