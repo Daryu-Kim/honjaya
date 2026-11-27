@@ -336,11 +336,19 @@ const arcMenuList = [
   },
   {
     to: "/admin/arc/incidents",
-    label: "사건·응급기록",
-    description: "사건 접수·AS-CARE",
+    label: "사건 접수",
+    description: "사건·119 인계 접수",
     matchStartsWith: "/admin/arc/incidents",
     permission: "arc.view",
     color: "#06b6d4",
+  },
+  {
+    to: "/admin/arc/care",
+    label: "AS-CARE 기록",
+    description: "서식 작성·원본 첨부",
+    matchStartsWith: "/admin/arc/care",
+    permission: "arc.sensitive",
+    color: "#0ea5e9",
   },
   {
     to: "/admin/arc/consents",

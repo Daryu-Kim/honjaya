@@ -456,12 +456,41 @@ function toSummaryStep(step) {
   };
 }
 
+/** 설정의 월말 서명 기준일·서명자를 「대표 확인·서명」 단계에 반영합니다. */
+function applyGateSettings(step, settings) {
+  if (step.key !== "SIGN" || !settings) return step;
+
+  const span = step.window[1] - step.window[0];
+  const gateDay = Number.parseInt(settings.stocktake_gate_day, 10);
+  const start = Number.isFinite(gateDay)
+    ? Math.min(Math.max(gateDay, 1), 31 - span)
+    : step.window[0];
+  const signer = String(settings.gate_signer_name ?? "").trim();
+
+  return {
+    ...step,
+    window: [start, start + span],
+    owner: signer ? `${signer} 확인·서명` : step.owner,
+  };
+}
+
+async function loadGateSettings() {
+  const { rows } = await pool.query(
+    `select stocktake_gate_day, gate_signer_name from public.arc_settings where id = 1`
+  );
+
+  return rows[0] ?? null;
+}
+
 export async function listArcRoutine({ period } = {}) {
   const key = normalizePeriod(period);
   const month = Number.parseInt(key.slice(5, 7), 10);
   const days = daysInMonth(key);
   const today = seoulDateParts();
-  const steps = ARC_ROUTINE_STEPS.filter((step) => isStepInMonth(step, month));
+  const gateSettings = await loadGateSettings();
+  const steps = ARC_ROUTINE_STEPS.filter((step) => isStepInMonth(step, month)).map(
+    (step) => applyGateSettings(step, gateSettings)
+  );
 
   const { rows } = await pool.query(
     `select * from public.arc_routine_log where period = $1`,

@@ -631,12 +631,73 @@ export async function getArcCareStatus(incidentId) {
 
   return {
     exists: Boolean(rows[0]),
+    careRecordId: rows[0]?.id ?? null,
     legalBasis: rows[0]?.legal_basis ?? null,
     recordedByName: rows[0]?.recorded_by_name ?? "",
     updatedAt: rows[0]?.updated_at ?? null,
     addendaCount: rows[0]?.addenda ?? 0,
     incident,
   };
+}
+
+/**
+ * AS-CARE 목록(민감정보 복호화 없음).
+ * 사건 접수 목록과 분리해, 총괄이 작성한 서식과 첨부 파일 상태만 훑어볼 수 있게 합니다.
+ */
+export async function listArcCareRecords({
+  search = "",
+  from = null,
+  to = null,
+  hasFiles = false,
+  limit = 100,
+} = {}) {
+  const keyword = text(search, 60);
+  const { rows } = await pool.query(
+    `select c.id, c.incident_id, c.legal_basis, c.recorded_by_name, c.created_at, c.updated_at,
+            i.incident_no, i.occurred_at, i.kind, i.status, i.place, i.subject_label,
+            (select count(*)::int from public.arc_care_addenda a where a.care_id = c.id) as addenda,
+            (select count(*)::int from public.arc_care_files f where f.care_record_id = c.id) as files,
+            (select count(*)::int from public.arc_care_timeline t where t.care_id = c.id) as timeline,
+            (select count(*)::int from public.arc_care_meds m where m.care_id = c.id) as meds
+       from public.arc_care_records c
+       join public.arc_incidents i on i.id = c.incident_id
+      where ($1::date is null or i.occurred_at >= $1::date)
+        and ($2::date is null or i.occurred_at < ($2::date + interval '1 day'))
+        and ($3 = '' or i.incident_no ilike '%' || $3 || '%'
+             or i.subject_label ilike '%' || $3 || '%'
+             or i.summary ilike '%' || $3 || '%'
+             or c.recorded_by_name ilike '%' || $3 || '%')
+        and ($4::boolean is false
+             or exists (select 1 from public.arc_care_files f where f.care_record_id = c.id))
+      order by i.occurred_at desc
+      limit $5`,
+    [
+      from || null,
+      to || null,
+      keyword,
+      Boolean(hasFiles),
+      Math.min(Math.max(toInt(limit, 100), 1), 300),
+    ]
+  );
+
+  return rows.map((row) => ({
+    careRecordId: row.id,
+    incidentId: row.incident_id,
+    incidentNo: row.incident_no,
+    occurredAt: row.occurred_at,
+    kind: row.kind,
+    status: row.status,
+    place: row.place,
+    subjectLabel: row.subject_label,
+    legalBasis: row.legal_basis,
+    recordedByName: row.recorded_by_name,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    addendaCount: toInt(row.addenda, 0),
+    fileCount: toInt(row.files, 0),
+    timelineCount: toInt(row.timeline, 0),
+    medsCount: toInt(row.meds, 0),
+  }));
 }
 
 /** 반드시 assertArcSensitiveAccess 를 통과한 뒤에 호출합니다. */

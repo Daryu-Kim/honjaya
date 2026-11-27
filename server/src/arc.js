@@ -74,6 +74,12 @@ function mapSettings(row) {
     recordRetentionYears: row?.record_retention_years ?? 3,
     sensitiveRetentionYears: row?.sensitive_retention_years ?? 2,
     accessTtlMinutes: row?.access_ttl_minutes ?? 480,
+    docVersion: row?.doc_version ?? "AS-KIT-001 v1.0",
+    partnerOrg: row?.partner_org ?? "",
+    partnerContact: row?.partner_contact ?? "",
+    expiryAlertDays: row?.expiry_alert_days ?? 30,
+    stocktakeGateDay: row?.stocktake_gate_day ?? 25,
+    gateSignerName: row?.gate_signer_name ?? "",
     updatedByName: row?.updated_by_name ?? "",
     updatedAt: row?.updated_at ?? null,
   };
@@ -103,8 +109,14 @@ export async function updateArcSettings(patch = {}, employee = null) {
             record_retention_years = $4,
             sensitive_retention_years = $5,
             access_ttl_minutes = $6,
-            updated_by = $7,
-            updated_by_name = $8,
+            doc_version = $7,
+            partner_org = $8,
+            partner_contact = $9,
+            expiry_alert_days = $10,
+            stocktake_gate_day = $11,
+            gate_signer_name = $12,
+            updated_by = $13,
+            updated_by_name = $14,
             updated_at = now()
       where id = 1
       returning *`,
@@ -119,6 +131,12 @@ export async function updateArcSettings(patch = {}, employee = null) {
       clampInt(patch.recordRetentionYears ?? current.recordRetentionYears, 1, 30, 3),
       clampInt(patch.sensitiveRetentionYears ?? current.sensitiveRetentionYears, 1, 30, 2),
       clampInt(patch.accessTtlMinutes ?? current.accessTtlMinutes, 5, 10080, 480),
+      String(patch.docVersion ?? current.docVersion ?? "").trim().slice(0, 60),
+      String(patch.partnerOrg ?? current.partnerOrg ?? "").trim().slice(0, 120),
+      String(patch.partnerContact ?? current.partnerContact ?? "").trim().slice(0, 120),
+      clampInt(patch.expiryAlertDays ?? current.expiryAlertDays, 1, 365, 30),
+      clampInt(patch.stocktakeGateDay ?? current.stocktakeGateDay, 1, 31, 25),
+      String(patch.gateSignerName ?? current.gateSignerName ?? "").trim().slice(0, 60),
       employee?.id ?? null,
       employee?.name ?? "",
     ]
@@ -468,6 +486,8 @@ function mapAccess(row) {
   return {
     id: row.id,
     incidentNo: row.incident_no,
+    // 승인된 기록으로 바로 이동할 수 있도록 사건 내부 ID도 함께 내려보냅니다.
+    incidentId: row.incident_id ?? "",
     purpose: row.purpose,
     status: row.status,
     requestedById: row.requested_by,
@@ -476,6 +496,9 @@ function mapAccess(row) {
     requestedAt: row.requested_at,
     // 사장 등 총괄 이외 요청자는 사유와 함께 증빙 자료를 남깁니다.
     evidence: row.evidence ?? "",
+    // 승인 범위를 사건 전체가 아니라 특정 AS-CARE 기록으로 좁힐 때 씁니다.
+    careRecordId: row.care_record_id ?? null,
+    targetLabel: row.target_label ?? "",
     decidedByName: row.decided_by_name,
     decidedAt: row.decided_at,
     decisionReason: row.decision_reason,
@@ -490,12 +513,13 @@ export async function listArcSensitiveAccess({
   limit = 100,
 } = {}) {
   const { rows } = await pool.query(
-    `select *
-       from public.arc_sensitive_access
-      where ($1::text is null or incident_no = $1)
-        and ($2::text is null or requested_by = $2)
-        and ($3::text is null or status = $3)
-      order by requested_at desc
+    `select a.*, i.id as incident_id
+       from public.arc_sensitive_access a
+       left join public.arc_incidents i on i.incident_no = a.incident_no
+      where ($1::text is null or a.incident_no = $1)
+        and ($2::text is null or a.requested_by = $2)
+        and ($3::text is null or a.status = $3)
+      order by a.requested_at desc
       limit $4`,
     [
       incidentNo || null,
@@ -525,7 +549,7 @@ export async function pendingArcSensitiveAccessCount() {
  * 요청을 올려 총괄의 승인을 받아야 합니다. 사장 요청은 정당한 사유 + 증빙이 필수입니다.
  */
 export async function requestArcSensitiveAccess(
-  { incidentNo = "", purpose = "", evidence = "" } = {},
+  { incidentNo = "", purpose = "", evidence = "", careRecordId = null } = {},
   employee = null
 ) {
   const incident = requireText(incidentNo, "사건 번호", 60);
@@ -538,6 +562,28 @@ export async function requestArcSensitiveAccess(
     throw badRequest("열람 사유를 10자 이상 구체적으로 적어 주세요.");
   }
 
+  // 사건에는 AS-CARE 기록이 1건뿐이므로 요청을 그 기록에 묶어 둡니다.
+  // (기록 ID를 직접 받으면 그 기록이 정말 이 사건의 것인지 확인합니다.)
+  const { rows: records } = await pool.query(
+    `select r.id, i.id as incident_id, i.occurred_at
+       from public.arc_care_records r
+       join public.arc_incidents i on i.id = r.incident_id
+      where i.incident_no = $1
+        and ($2::uuid is null or r.id = $2::uuid)
+      order by r.created_at desc
+      limit 1`,
+    [incident, careRecordId || null]
+  );
+
+  if (careRecordId && !records[0]) {
+    throw badRequest("이 사건의 AS-CARE 기록이 아니에요. 사건 번호를 다시 확인해 주세요.");
+  }
+
+  const targetRecordId = records[0]?.id ?? null;
+  const targetLabel = records[0]?.occurred_at
+    ? `AS-CARE ${String(records[0].occurred_at).slice(0, 10)}`
+    : "AS-CARE 상세 기록";
+
   // 이미 유효한 승인이 있으면 재사용합니다(같은 사건을 반복 승인받지 않도록).
   const { rows: existing } = await pool.query(
     `select *
@@ -546,19 +592,21 @@ export async function requestArcSensitiveAccess(
         and requested_by = $2
         and status = 'APPROVED'
         and expires_at > now()
+        and care_record_id is not distinct from $3::uuid
       order by expires_at desc
       limit 1`,
-    [incident, employee?.id ?? null]
+    [incident, employee?.id ?? null, targetRecordId]
   );
 
   if (existing[0]) {
-    return mapAccess(existing[0]);
+    return mapAccess({ ...existing[0], incident_id: records[0]?.incident_id ?? "" });
   }
 
   const { rows } = await pool.query(
     `insert into public.arc_sensitive_access
-       (id, incident_no, purpose, evidence, requested_by, requested_by_name, requested_by_role)
-     values ($1, $2, $3, $4, $5, $6, $7)
+       (id, incident_no, purpose, evidence, requested_by, requested_by_name, requested_by_role,
+        care_record_id, target_label)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      returning *`,
     [
       randomUUID(),
@@ -568,6 +616,8 @@ export async function requestArcSensitiveAccess(
       employee?.id ?? null,
       employee?.name ?? "",
       employee?.role ?? "",
+      targetRecordId,
+      targetLabel,
     ]
   );
 
@@ -576,7 +626,7 @@ export async function requestArcSensitiveAccess(
     action: "arc.access.request",
     targetType: "arc_sensitive_access",
     targetId: rows[0].id,
-    detail: { incidentNo: incident, purpose: reason },
+    detail: { incidentNo: incident, purpose: reason, careRecordId: targetRecordId },
   });
 
   await createArcNotification({
@@ -584,7 +634,7 @@ export async function requestArcSensitiveAccess(
     level: "WARN",
     title: "민감정보 열람 승인 요청",
     body: [
-      `${employee?.name || "직원"}님이 ${incident} 상세기록 열람을 요청했어요.`,
+      `${employee?.name || "직원"}님이 ${incident} ${targetLabel} 열람을 요청했어요.`,
       `사유: ${reason}`,
       proof ? `증빙: ${proof}` : "",
     ]
@@ -596,7 +646,7 @@ export async function requestArcSensitiveAccess(
     createdBy: employee?.id ?? null,
   });
 
-  return mapAccess(rows[0]);
+  return mapAccess({ ...rows[0], incident_id: records[0]?.incident_id ?? "" });
 }
 
 /**
@@ -692,11 +742,13 @@ export async function decideArcSensitiveAccess(
 export async function assertArcSensitiveAccess({
   accessId = null,
   incidentNo = "",
+  careRecordId = null,
   employee = null,
   action = "VIEW",
   ip = "",
 } = {}) {
   const incident = String(incidentNo ?? "").trim();
+  const targetRecordId = String(careRecordId ?? "").trim() || null;
 
   if (isArcDirector(employee?.loginId)) {
     await logArcSensitiveRead({
@@ -723,10 +775,11 @@ export async function assertArcSensitiveAccess({
        from public.arc_sensitive_access
       where ($1::uuid is not null and id = $1::uuid)
          or ($1::uuid is null and incident_no = $2 and requested_by = $3
-             and status = 'APPROVED' and expires_at > now())
+             and status = 'APPROVED' and expires_at > now()
+             and (care_record_id is null or $4::uuid is null or care_record_id = $4::uuid))
       order by expires_at desc nulls last
       limit 1`,
-    [accessId || null, incident, employee?.id ?? null]
+    [accessId || null, incident, employee?.id ?? null, targetRecordId]
   );
   const row = rows[0];
 
@@ -735,6 +788,15 @@ export async function assertArcSensitiveAccess({
       403,
       "HJ403",
       "상세 건강기록은 ARC 총괄만 열람할 수 있어요. 열람이 필요하면 사유와 증빙을 적어 승인을 요청해 주세요."
+    );
+  }
+
+  // 승인이 특정 AS-CARE 기록에 묶여 있으면 그 기록만 열 수 있습니다.
+  if (row.care_record_id && targetRecordId && row.care_record_id !== targetRecordId) {
+    throw new HttpError(
+      403,
+      "HJ403",
+      "이 승인은 다른 AS-CARE 기록에 대한 것이에요. 열람할 기록으로 다시 승인을 요청해 주세요."
     );
   }
 

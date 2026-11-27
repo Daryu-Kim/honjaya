@@ -907,6 +907,95 @@
               </button>
             </div>
           </template>
+
+          <h3 class="section-title">
+            04 · 서식 원본 첨부 (한글·워드·PDF·사진)
+          </h3>
+          <p class="helper-text">
+            손으로 적고 서명한 AS-CARE 원본을 올려 두면 종이 서식과 전자기록을
+            함께 남길 수 있어요. 한 파일 20MB까지 올릴 수 있고, 올리기·삭제는
+            ARC 총괄만 됩니다.
+          </p>
+          <p v-if="careFileError" class="error-box">{{ careFileError }}</p>
+          <p v-else-if="careFileOk" class="ok-box">{{ careFileOk }}</p>
+          <div v-if="!careFiles.length" class="empty-box small">
+            아직 첨부된 서식이 없어요. 서명본·스캔본을 올려 주세요.
+          </div>
+          <ul v-else class="care-file-list">
+            <li v-for="row in careFiles" :key="row.id">
+              <div class="care-file-main">
+                <strong>{{ row.fileName }}</strong>
+                <span class="care-file-meta">
+                  {{ ARC_CARE_FILE_KIND_LABELS[row.kind] || row.kind }} ·
+                  {{ (row.ext || "").toUpperCase() }} ·
+                  {{ formatBytes(row.bytes) }} ·
+                  {{ row.uploadedByName || "-" }} ·
+                  {{ formatArcDateTime(row.createdAt) }}
+                </span>
+                <span v-if="row.note" class="dim">{{ row.note }}</span>
+              </div>
+              <div class="care-file-actions">
+                <button
+                  type="button"
+                  class="preset-button tiny"
+                  :disabled="isFileBusy"
+                  @click="downloadFile(row)"
+                >
+                  내려받기
+                </button>
+                <button
+                  v-if="canCare"
+                  type="button"
+                  class="preset-button tiny danger"
+                  :disabled="isFileBusy"
+                  @click="removeFile(row)"
+                >
+                  삭제
+                </button>
+              </div>
+            </li>
+          </ul>
+          <div v-if="canCare" class="care-file-form">
+            <label class="field">
+              <span>파일</span>
+              <input
+                ref="careFileInput"
+                type="file"
+                accept=".hwp,.hwpx,.doc,.docx,.xls,.xlsx,.pdf,.jpg,.jpeg,.png,.txt"
+              />
+            </label>
+            <label class="field">
+              <span>자료 종류</span>
+              <select v-model="careFileKind">
+                <option
+                  v-for="(label, code) in ARC_CARE_FILE_KIND_LABELS"
+                  :key="code"
+                  :value="code"
+                >
+                  {{ label }}
+                </option>
+              </select>
+            </label>
+            <label class="field wide">
+              <span>메모(선택)</span>
+              <input
+                v-model.trim="careFileNote"
+                type="text"
+                maxlength="300"
+                placeholder="예) 종이 서식 서명 후 스캔, 원본은 사무실 보관"
+              />
+            </label>
+            <div class="actions">
+              <button
+                type="button"
+                class="primary-button small"
+                :disabled="isUploadingFile"
+                @click="submitCareFile"
+              >
+                {{ isUploadingFile ? "올리는 중…" : "서식 파일 올리기" }}
+              </button>
+            </div>
+          </div>
         </template>
       </section>
     </template>
@@ -918,6 +1007,7 @@ import { useRoute } from "vue-router";
 
 import {
   ARC_ACCESS_STATUS_LABELS,
+  ARC_CARE_FILE_KIND_LABELS,
   ARC_CONSENT_KIND_LABELS,
   ARC_CONSENT_STATUS_LABELS,
   ARC_INCIDENT_KIND_LABELS,
@@ -928,8 +1018,11 @@ import {
   confirmArcConsent,
   createArcConsent,
   decideArcAccess,
+  deleteArcCareFile,
+  downloadArcCareFile,
   fetchArcAccessRequests,
   fetchArcCare,
+  fetchArcCareFiles,
   fetchArcConsents,
   fetchArcIncident,
   formatArcDate,
@@ -937,6 +1030,7 @@ import {
   requestArcAccess,
   saveArcCare,
   updateArcIncident,
+  uploadArcCareFile,
 } from "@/lib/arc";
 
 const route = useRoute();
@@ -986,6 +1080,8 @@ const careDenied = ref(false);
 
 const careData = ref(null);
 const careAccess = ref(null);
+// 승인 요청을 특정 AS-CARE 기록에 묶기 위한 ID입니다.
+const careRecordId = ref("");
 const careForm = reactive({
   subjectName: "",
   subjectPhone: "",
@@ -1008,6 +1104,16 @@ const careForm = reactive({
 
 const addendumBody = ref("");
 const isSavingAddendum = ref(false);
+
+// AS-CARE 서식 원본 첨부(HWP·DOCX·PDF·사진). 올리기·삭제는 ARC 총괄만 됩니다.
+const careFiles = ref([]);
+const careFileKind = ref("CARE_SHEET");
+const careFileNote = ref("");
+const careFileInput = ref(null);
+const careFileError = ref("");
+const careFileOk = ref("");
+const isUploadingFile = ref(false);
+const isFileBusy = ref(false);
 
 const activeConsent = computed(() =>
   consents.value.find((row) => row.status === "ACTIVE")
@@ -1142,6 +1248,7 @@ async function loadCare() {
 
     careData.value = data;
     careAccess.value = data.access;
+    careRecordId.value = data.care?.id || careRecordId.value;
     fillCareForm(data);
   } catch (error) {
     if (error?.status === 403) {
@@ -1163,6 +1270,7 @@ async function loadAll() {
     const detail = await fetchArcIncident(incidentId);
 
     incident.value = detail.incident;
+    careRecordId.value = detail.careRecordId || "";
     // 작성·수정은 ARC 총괄 전용입니다(서버가 다시 확인합니다).
     canCare.value = Boolean(detail.canCare && detail.canWriteCare);
     canSensitive.value = detail.canSensitive;
@@ -1170,6 +1278,7 @@ async function loadAll() {
     resetEditForm();
     await Promise.all([loadConsents(), loadAccessRequests()]);
     await loadCare();
+    await loadCareFiles();
   } catch (error) {
     errorMessage.value = error?.message || "사건을 불러오지 못했어요.";
   } finally {
@@ -1278,6 +1387,7 @@ async function submitAccessRequest() {
       incidentNo: incident.value.incidentNo,
       purpose: accessPurpose.value,
       evidence: accessEvidence.value,
+      careRecordId: careRecordId.value,
     });
 
     accessPurpose.value = "";
@@ -1390,6 +1500,116 @@ async function submitAddendum() {
     errorMessage.value = error?.message || "추가 기록을 저장하지 못했어요.";
   } finally {
     isSavingAddendum.value = false;
+  }
+}
+
+// ── 서식 원본 첨부 ─────────────────────────────────────────────────────
+
+function formatBytes(bytes) {
+  const size = Number(bytes ?? 0);
+
+  if (!size) return "-";
+  if (size < 1024) return `${size}B`;
+  if (size < 1024 * 1024) return `${Math.round(size / 102.4) / 10}KB`;
+
+  return `${Math.round(size / (1024 * 102.4)) / 10}MB`;
+}
+
+async function loadCareFiles() {
+  careFiles.value = [];
+
+  if (!canSensitive.value) return;
+
+  try {
+    const data = await fetchArcCareFiles(incidentId);
+
+    careFiles.value = data.files;
+  } catch (error) {
+    if (error?.status !== 403) {
+      careFileError.value =
+        error?.message || "첨부된 서식 목록을 불러오지 못했어요.";
+    }
+  }
+}
+
+async function submitCareFile() {
+  if (isUploadingFile.value) return;
+
+  const file = careFileInput.value?.files?.[0];
+
+  careFileError.value = "";
+  careFileOk.value = "";
+
+  if (!file) {
+    careFileError.value = "올릴 파일을 선택해 주세요.";
+
+    return;
+  }
+
+  isUploadingFile.value = true;
+
+  try {
+    const result = await uploadArcCareFile(incidentId, {
+      file,
+      kind: careFileKind.value,
+      note: careFileNote.value,
+    });
+
+    careFileOk.value = result.duplicated
+      ? "같은 파일이 이미 첨부되어 있어요. 기존 파일을 그대로 두었어요."
+      : `'${result.file?.fileName || file.name}' 파일을 첨부했어요.`;
+    careFileNote.value = "";
+
+    if (careFileInput.value) {
+      careFileInput.value.value = "";
+    }
+
+    await loadCareFiles();
+  } catch (error) {
+    careFileError.value = error?.message || "파일을 첨부하지 못했어요.";
+  } finally {
+    isUploadingFile.value = false;
+  }
+}
+
+async function downloadFile(row) {
+  if (isFileBusy.value) return;
+
+  isFileBusy.value = true;
+  careFileError.value = "";
+
+  try {
+    await downloadArcCareFile(row);
+  } catch (error) {
+    careFileError.value = error?.message || "파일을 내려받지 못했어요.";
+  } finally {
+    isFileBusy.value = false;
+  }
+}
+
+async function removeFile(row) {
+  if (isFileBusy.value) return;
+
+  if (
+    !window.confirm(
+      `'${row.fileName}' 파일을 지울까요? 지운 파일은 되돌릴 수 없어요.`
+    )
+  ) {
+    return;
+  }
+
+  isFileBusy.value = true;
+  careFileError.value = "";
+  careFileOk.value = "";
+
+  try {
+    await deleteArcCareFile(row.id);
+    careFileOk.value = "첨부 파일을 지웠어요.";
+    await loadCareFiles();
+  } catch (error) {
+    careFileError.value = error?.message || "파일을 지우지 못했어요.";
+  } finally {
+    isFileBusy.value = false;
   }
 }
 
@@ -1834,6 +2054,59 @@ onMounted(loadAll);
   line-height: 1.6;
   color: rgba(255, 255, 255, 0.82);
   white-space: pre-wrap;
+}
+
+.care-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.05);
+  }
+}
+
+.care-file-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+
+  strong {
+    font-size: 13px;
+    word-break: break-all;
+  }
+}
+
+.care-file-meta {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.care-file-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.care-file-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.18);
 }
 
 .error-box {

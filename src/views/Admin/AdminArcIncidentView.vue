@@ -30,6 +30,17 @@
     <p v-if="errorMessage" class="error-box">{{ errorMessage }}</p>
     <p v-if="okMessage" class="ok-box">{{ okMessage }}</p>
 
+    <p v-if="arcSettings.partnerOrg" class="partner-banner">
+      <strong>{{ arcSettings.partnerOrg }}</strong>
+      <span v-if="arcSettings.partnerContact">
+        · {{ arcSettings.partnerContact }}
+      </span>
+      <span class="partner-note">
+        119 이송 후 사후 자문은 이 연락처로 진행하고, 통화 일시·안내 내용을 사건
+        기록에 남겨 주세요.
+      </span>
+    </p>
+
     <section class="summary-grid">
       <article class="summary-card" :class="{ alert: (summary.open ?? 0) > 0 }">
         <span class="summary-label">진행 중 사건</span>
@@ -308,6 +319,7 @@ import {
   createArcIncident,
   fetchArcDashboard,
   fetchArcIncidents,
+  fetchArcSettings,
   formatArcDateTime,
 } from "@/lib/arc";
 
@@ -315,6 +327,7 @@ const router = useRouter();
 
 const incidents = ref([]);
 const summary = ref({});
+const arcSettings = ref({});
 const canCare = ref(false);
 const canApprove = ref(false);
 const viewerName = ref("");
@@ -409,8 +422,16 @@ async function loadIncidents() {
   }
 }
 
+async function loadSettings() {
+  try {
+    arcSettings.value = await fetchArcSettings();
+  } catch (error) {
+    arcSettings.value = {};
+  }
+}
+
 async function loadAll() {
-  await Promise.all([loadSummary(), loadIncidents()]);
+  await Promise.all([loadSummary(), loadIncidents(), loadSettings()]);
 }
 
 function openCreate() {
@@ -450,7 +471,7 @@ async function submitCreate() {
     await loadAll();
 
     if (incident?.id) {
-      router.push(`/admin/arc/incidents/${incident.id}`);
+      router.push(`/admin/arc/care/${incident.id}`);
     }
   } catch (error) {
     errorMessage.value = error?.message || "사건을 접수하지 못했어요.";
@@ -460,7 +481,7 @@ async function submitCreate() {
 }
 
 function openIncident(incidentId) {
-  router.push(`/admin/arc/incidents/${incidentId}`);
+  router.push(`/admin/arc/care/${incidentId}`);
 }
 
 onMounted(loadAll);
@@ -801,6 +822,29 @@ onMounted(loadAll);
   background: rgba(52, 211, 153, 0.14);
   color: #6ee7b7;
   font-size: 13px;
+}
+
+.partner-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  background: rgba(59, 130, 246, 0.12);
+  color: #dbeafe;
+  font-size: 13px;
+}
+
+.partner-banner strong {
+  color: #ffffff;
+}
+
+.partner-note {
+  color: #93c5fd;
+  font-size: 12px;
 }
 
 .empty-box {

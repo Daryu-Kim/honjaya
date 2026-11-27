@@ -29,6 +29,27 @@ create table if not exists public.arc_settings (
 
 insert into public.arc_settings (id) values (1) on conflict (id) do nothing;
 
+-- 운영 기준값(문서 버전·협력사·알림 임계값·월말 Gate 서명자)은 이후 단계에서 붙였습니다.
+alter table public.arc_settings
+  add column if not exists doc_version text not null default 'AS-KIT-001 v1.0';
+
+alter table public.arc_settings
+  add column if not exists partner_org text not null default '';
+
+alter table public.arc_settings
+  add column if not exists partner_contact text not null default '';
+
+-- 유효기간 임박 알림 기준일(기본 30일).
+alter table public.arc_settings
+  add column if not exists expiry_alert_days integer not null default 30;
+
+-- 월말 Gate(대표 서명) 기준일. 이 날부터 서명 대기 알림을 띄웁니다.
+alter table public.arc_settings
+  add column if not exists stocktake_gate_day integer not null default 25;
+
+alter table public.arc_settings
+  add column if not exists gate_signer_name text not null default '';
+
 -- ── 알림함 ───────────────────────────────────────────────────────────
 create table if not exists public.arc_notifications (
   id                 uuid primary key default gen_random_uuid(),
@@ -731,3 +752,67 @@ create table if not exists public.arc_routine_log (
 
 create index if not exists arc_routine_log_period_idx
   on public.arc_routine_log (period);
+
+-- ── AS-CARE 외부 서식 파일(HWP·DOCX·PDF 등) ───────────────────────────────
+-- 실물 서식(AS-CARE)에 손으로 적고 서명한 원본을 스캔해 올리는 자리입니다.
+-- 파일 본문은 DB에 넣지 않고 ARC_FILES_DIR 아래에만 두며, DB에는 색인만 남깁니다.
+create table if not exists public.arc_care_files (
+  id               uuid primary key default gen_random_uuid(),
+  incident_id      uuid not null references public.arc_incidents(id) on delete cascade,
+  care_record_id   uuid references public.arc_care_records(id) on delete cascade,
+  -- CARE_SHEET=AS-CARE 서식, SIGNATURE=서명본, PHOTO=현장 사진, ETC=기타 증빙
+  kind             text not null default 'CARE_SHEET'
+                     check (kind in ('CARE_SHEET', 'SIGNATURE', 'PHOTO', 'ETC')),
+  file_name        text not null,
+  ext              text not null default '',
+  mime             text not null default 'application/octet-stream',
+  bytes            bigint not null default 0 check (bytes >= 0),
+  sha256           text not null default '',
+  storage_name     text not null,
+  note             text not null default '',
+  uploaded_by      text references public.employees(id) on delete set null,
+  uploaded_by_name text not null default '',
+  created_at       timestamptz not null default now()
+);
+
+create index if not exists arc_care_files_incident_idx
+  on public.arc_care_files (incident_id, created_at desc);
+
+create index if not exists arc_care_files_record_idx
+  on public.arc_care_files (care_record_id);
+
+-- 열람 승인을 "사건" 단위가 아니라 "특정 AS-CARE 기록" 단위로도 묶을 수 있게 합니다.
+-- (사장이 사유를 올리면 총괄이 그 AS-CARE 1건만 승인 → 그 기록만 열람)
+alter table public.arc_sensitive_access
+  add column if not exists care_record_id uuid
+    references public.arc_care_records(id) on delete set null;
+
+alter table public.arc_sensitive_access
+  add column if not exists target_label text not null default '';
+
+-- ── 실사 헤더·품목 상세(AS-KIT-001 §06 정기점검 16항목) ──────────────────────
+-- 실사는 실사자 혼자 끝내지 않고 참관자(입회자)를 남깁니다. 방법은 전수/표본/부분.
+alter table public.arc_stocktakes
+  add column if not exists witness_name text not null default '';
+
+alter table public.arc_stocktakes
+  add column if not exists method text not null default 'FULL';
+
+alter table public.arc_stocktakes
+  add column if not exists issues_note text not null default '';
+
+-- 품목별 외관·유효기간 상태와 그에 대한 조치(교체·폐기·구매요청 등).
+-- OK=정상 / LOW=수량부족 / DAMAGED=손상·오염 / EXPIRING=유효기간 임박 / DISPOSE=폐기대상
+alter table public.arc_stocktake_items
+  add column if not exists state text not null default 'OK';
+
+alter table public.arc_stocktake_items
+  add column if not exists action text not null default '';
+
+-- 구매 증빙 종류와 정산 예정일(AS-KIT-001 §10 — 실비정산은 증빙·지급일이 핵심).
+-- RECEIPT=영수증 / CARD=카드전표 / TAX_INVOICE=세금계산서 / CASH_RECEIPT=현금영수증 / NONE=증빙없음
+alter table public.arc_purchases
+  add column if not exists evidence_kind text not null default 'RECEIPT';
+
+alter table public.arc_purchases
+  add column if not exists settle_due_on date;

@@ -1,7 +1,7 @@
 // P14 — 응급안전관리센터(ARC SAFETY) 프런트 도우미.
 //
 // 화면 공통 라벨과 API 호출만 모읍니다. 권한 판단은 항상 서버가 다시 합니다.
-import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { apiBlob, apiGet, apiPatch, apiPost, apiRequest } from "@/lib/api";
 
 // 응급안전관리센터는 사장(대표)·매니저만 씁니다.
 // 메뉴·라우터에서 먼저 숨기고, 최종 차단은 서버(/api/arc/*)가 다시 합니다.
@@ -122,6 +122,20 @@ export const ARC_STOCKTAKE_STATUS_LABELS = {
   APPLIED: "확정",
 };
 
+export const ARC_STOCKTAKE_METHOD_LABELS = {
+  FULL: "전수 실사",
+  SAMPLE: "표본 실사",
+  PARTIAL: "부분 실사",
+};
+
+export const ARC_STOCKTAKE_STATE_LABELS = {
+  OK: "정상",
+  LOW: "수량 부족",
+  DAMAGED: "손상·오염",
+  EXPIRING: "유효기간 임박",
+  DISPOSE: "폐기 대상",
+};
+
 export const ARC_PAID_BY_LABELS = {
   SHOP: "사업장 법인카드",
   RN: "최윤희 RN 개인결제",
@@ -133,6 +147,14 @@ export const ARC_SETTLE_STATUS_LABELS = {
   UNSETTLED: "미정산",
   PARTIAL: "일부정산",
   SETTLED: "정산완료",
+};
+
+export const ARC_EVIDENCE_KIND_LABELS = {
+  RECEIPT: "영수증",
+  CARD: "카드전표",
+  TAX_INVOICE: "세금계산서",
+  CASH_RECEIPT: "현금영수증",
+  NONE: "증빙 없음",
 };
 
 export const ARC_INCIDENT_KIND_LABELS = {
@@ -164,6 +186,13 @@ export const ARC_TIMELINE_SOURCE_LABELS = {
   REPORT: "보고받음",
 };
 
+export const ARC_CARE_FILE_KIND_LABELS = {
+  CARE_SHEET: "AS-CARE 서식 원본",
+  SIGNATURE: "서명·확인본",
+  PHOTO: "현장 사진",
+  ETC: "그 외 자료",
+};
+
 const NOTIFICATIONS_PATH = "/api/arc/notifications";
 const CONSENTS_PATH = "/api/arc/consents";
 const ACCESS_PATH = "/api/arc/sensitive-access";
@@ -176,6 +205,7 @@ const INCIDENTS_PATH = "/api/arc/incidents";
 const USAGES_PATH = "/api/arc/usages";
 const EXPENSES_PATH = "/api/arc/expenses";
 const ROUTINE_PATH = "/api/arc/routine";
+const CARE_PATH = "/api/arc/care";
 
 function queryString(params = {}) {
   const search = new URLSearchParams();
@@ -360,8 +390,18 @@ export async function fetchArcAccessRequests({
   };
 }
 
-export async function requestArcAccess({ incidentNo, purpose, evidence }) {
-  const data = await apiPost(ACCESS_PATH, { incidentNo, purpose, evidence });
+export async function requestArcAccess({
+  incidentNo,
+  purpose,
+  evidence,
+  careRecordId = "",
+}) {
+  const data = await apiPost(ACCESS_PATH, {
+    incidentNo,
+    purpose,
+    evidence,
+    careRecordId: careRecordId || null,
+  });
 
   return data?.request ?? null;
 }
@@ -496,22 +536,41 @@ export async function createArcStocktake({
   period = "",
   countedOn = "",
   note = "",
+  witnessName = "",
+  method = "FULL",
+  issuesNote = "",
 } = {}) {
-  const data = await apiPost(STOCKTAKES_PATH, { period, countedOn, note });
+  const data = await apiPost(STOCKTAKES_PATH, {
+    period,
+    countedOn,
+    note,
+    witnessName,
+    method,
+    issuesNote,
+  });
 
   return data?.stocktake ?? null;
+}
+
+export async function updateArcStocktake(stocktakeId, payload) {
+  const data = await apiPatch(
+    `${STOCKTAKES_PATH}/${encodeURIComponent(stocktakeId)}`,
+    payload
+  );
+
+  return { stocktake: data?.stocktake ?? null, items: data?.items ?? [] };
 }
 
 export async function saveArcStocktakeItem(
   stocktakeId,
   itemId,
-  { countedQty, reason = "" }
+  { countedQty, reason = "", state, action }
 ) {
   const data = await apiPatch(
     `${STOCKTAKES_PATH}/${encodeURIComponent(
       stocktakeId
     )}/items/${encodeURIComponent(itemId)}`,
-    { countedQty, reason }
+    { countedQty, reason, state, action }
   );
 
   return {
@@ -587,6 +646,12 @@ export async function claimArcOtcItems() {
   return data?.claimed ?? 0;
 }
 
+export async function createArcOtcItem(payload) {
+  const data = await apiPost(`${OTC_PATH}/items`, payload);
+
+  return data?.item ?? null;
+}
+
 export async function updateArcOtcItem(otcItemId, payload) {
   const data = await apiPatch(
     `${OTC_PATH}/items/${encodeURIComponent(otcItemId)}`,
@@ -648,6 +713,7 @@ export async function fetchArcIncident(incidentId) {
 
   return {
     exists: Boolean(data?.exists),
+    careRecordId: data?.careRecordId ?? "",
     legalBasis: data?.legalBasis ?? null,
     recordedByName: data?.recordedByName ?? "",
     updatedAt: data?.updatedAt ?? null,
@@ -707,6 +773,108 @@ export async function addArcCareAddendum(incidentId, body) {
   );
 
   return data?.addendum ?? null;
+}
+
+// ── AS-CARE 서식 목록 · 첨부 파일(HWP·DOCX·PDF·사진) ──────────────────────
+
+export async function fetchArcCareRecords({
+  search = "",
+  from = "",
+  to = "",
+  hasFiles = false,
+  limit = 100,
+} = {}) {
+  const data = await apiGet(
+    `${CARE_PATH}${queryString({
+      search,
+      from,
+      to,
+      hasFiles: hasFiles || undefined,
+      limit,
+    })}`
+  );
+
+  return {
+    records: Array.isArray(data?.records) ? data.records : [],
+    canWriteCare: Boolean(data?.canWriteCare),
+    isArcDirector: Boolean(data?.isArcDirector),
+  };
+}
+
+export async function fetchArcCareFiles(incidentId) {
+  const data = await apiGet(
+    `${INCIDENTS_PATH}/${encodeURIComponent(incidentId)}/care-files`
+  );
+
+  return {
+    files: Array.isArray(data?.files) ? data.files : [],
+    canUpload: Boolean(data?.canUpload),
+    kinds: Array.isArray(data?.kinds) ? data.kinds : [],
+    maxBytes: Number(data?.maxBytes ?? 0),
+    extensions: Array.isArray(data?.extensions) ? data.extensions : [],
+  };
+}
+
+// FileReader 가 없는 환경(SSR)도 있어 업로드 시점에만 호출합니다.
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      resolve(result.slice(result.indexOf(",") + 1));
+    };
+    reader.onerror = () => reject(new Error("파일을 읽지 못했어요."));
+    reader.readAsDataURL(file);
+  });
+}
+
+export async function uploadArcCareFile(
+  incidentId,
+  { file, kind = "CARE_SHEET", note = "" } = {}
+) {
+  if (!file) {
+    throw new Error("올릴 파일을 선택해 주세요.");
+  }
+
+  const dataBase64 = await readFileAsBase64(file);
+  const data = await apiPost(
+    `${INCIDENTS_PATH}/${encodeURIComponent(incidentId)}/care-files`,
+    {
+      fileName: file.name,
+      mime: file.type || "application/octet-stream",
+      kind,
+      note,
+      dataBase64,
+    }
+  );
+
+  return {
+    file: data?.file ?? null,
+    duplicated: Boolean(data?.duplicated),
+  };
+}
+
+export async function deleteArcCareFile(fileId) {
+  await apiRequest(`/api/arc/care-files/${encodeURIComponent(fileId)}`, {
+    method: "DELETE",
+  });
+}
+
+/** 인증 헤더가 필요해 <a href> 로는 받을 수 없습니다. Blob 으로 받아 저장합니다. */
+export async function downloadArcCareFile({ id, fileName }) {
+  const blob = await apiBlob(
+    `/api/arc/care-files/${encodeURIComponent(id)}/download`
+  );
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+
+  anchor.href = url;
+  anchor.download = fileName || "AS-CARE";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 // ── 사용대장(USE) · 비용·실비정산(EXP) ─────────────────────────────────────

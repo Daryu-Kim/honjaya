@@ -30,6 +30,14 @@
             placeholder="예: INC-20250101-01"
           />
         </label>
+        <label class="field">
+          <span>AS-CARE 기록 ID (선택)</span>
+          <input
+            v-model="requestForm.careRecordId"
+            type="text"
+            placeholder="비우면 해당 사건의 AS-CARE 기록 1건"
+          />
+        </label>
         <label class="field wide">
           <span>열람 사유 (10자 이상)</span>
           <input
@@ -58,7 +66,8 @@
           {{ isSaving ? "요청 중이에요..." : "승인 요청" }}
         </button>
         <span class="helper-text">
-          이미 유효한 승인이 있으면 새로 만들지 않고 그대로 써요.
+          승인은 사건 단위가 아니라 해당 AS-CARE 기록 1건에만 적용돼요. 이미
+          유효한 승인이 있으면 새로 만들지 않고 그대로 써요.
         </span>
       </div>
     </section>
@@ -114,12 +123,22 @@
             }}</time>
           </div>
 
+          <p v-if="item.targetLabel" class="row-target">
+            열람 대상 · {{ item.targetLabel }}
+          </p>
           <p class="row-body">{{ item.purpose }}</p>
           <p v-if="item.evidence" class="row-body evidence-row">
             증빙 · {{ item.evidence }}
           </p>
 
           <div class="row-actions">
+            <router-link
+              v-if="item.incidentId"
+              :to="`/admin/arc/care/${item.incidentId}`"
+              class="row-link"
+            >
+              AS-CARE 열기
+            </router-link>
             <span v-if="item.status === 'APPROVED'" class="row-note">
               {{ formatArcRemaining(item.expiresAt) }}
             </span>
@@ -214,6 +233,7 @@ const canAdmin = computed(() => hasPermission("arc.admin"));
 
 const requestForm = reactive({
   incidentNo: "",
+  careRecordId: "",
   purpose: "",
   evidence: "",
 });
@@ -269,6 +289,7 @@ async function submitRequest() {
         ? "이미 유효한 승인이 있어 그대로 사용할 수 있어요."
         : "열람 승인을 요청했어요. 승인되면 상세 기록을 볼 수 있어요.";
     requestForm.incidentNo = "";
+    requestForm.careRecordId = "";
     requestForm.purpose = "";
     requestForm.evidence = "";
     await loadAll();
@@ -555,6 +576,23 @@ onMounted(loadAll);
 .evidence-row {
   color: rgba(255, 214, 138, 0.86);
   font-size: 12px;
+}
+
+.row-target {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(56, 189, 248, 0.9);
+}
+
+.row-link {
+  font-size: 12px;
+  color: rgba(56, 189, 248, 0.95);
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
 }
 
 .row-actions {

@@ -1683,6 +1683,59 @@ Deploy: `docker compose run --rm migrate` (새 테이블 1개) then `docker comp
 **남은 확장(미착수)**: 교육 이수 관리(`arc.edu` 화면), 회의록·사후검토 F11/F12/F13, 서식 라이브러리
 F01–F29, 개인정보 권리행사 F26(10일 법정기한), AS-NOT-001 고지 확인, 문서·설명서 관리 F24.
 
+**P14F — 등록 폼 고도화 · 사건/AS-CARE 분리 · 첨부파일** (2026-11-28, 코드 완료 · migrate/배포 대기)
+
+Owner request: ARC 8개 메뉴 전부 "작성(등록) 가능"하게 + 8개 PDF 기준으로 폼을 세부화. 아래는 실제 구현.
+
+1. **사건 접수 ↔ AS-CARE 분리**
+   - `/admin/arc/incidents` = **사건 접수** (비식별 접수·상태·119 인계), `/admin/arc/care` = **AS-CARE 기록**
+     목록(신규 `AdminArcCareListView.vue`), `/admin/arc/care/:incidentId` = 작성/추가기록.
+   - `listArcCareRecords()` (`server/src/arcIncidents.js`) + `GET /api/arc/care-records` (`arc.view`).
+     사건번호·발생일시·유형·작성여부·추가기록 수·최근 갱신만 노출(본문은 열람 승인 필요).
+   - 사이드바: 「사건 접수」 + 「AS-CARE 기록」 2개 항목. 선택 판정은 `matchStartsWith`
+     (`/admin/arc/care` 가 `/admin/arc` 보다 길어 우선 매칭).
+2. **AS-CARE 외부 파일 첨부** (owner request: HWP · WORD · PDF 등)
+   - 신규 `server/src/arcFiles.js` + 테이블 `arc_care_files`(incident_id, care_record_id, kind, file_name,
+     ext, mime, bytes, sha256, uploaded_by/name, deleted_at) + 인덱스 2개.
+   - 저장 위치 `ARC_FILES_DIR/care/<incidentId>/<uuid>.<ext>` (compose 볼륨 `./arc-files:/app/arc-files`,
+     백업 tar.gz 에 자동 포함 — §I-6). **base64 JSON 업로드 + 라우트별 `bodyLimit: 30MB`**
+     (`@fastify/multipart` 미도입, 전역 8MB 는 그대로).
+   - 허용: `pdf · hwp · hwpx · doc · docx · xls · xlsx · jpg/jpeg · png · txt`, 1건 20MB.
+     MIME 은 참고만 하고 **확장자 화이트리스트 + 매직바이트 검증**(PDF `%PDF`, ZIP 계열 `PK`,
+     OLE 계열 `D0CF11E0`, JPEG/PNG 시그니처). sha256 dedupe, 파일명 sanitize.
+   - 권한: 업로드·삭제는 **ARC 총괄 전용**(`isArcDirector`), 목록은 `arc.care`, 다운로드는
+     `assertArcSensitiveAccess` 통과 시에만(총괄 bypass · 그 외 승인+사유+증빙). 다운로드는
+     `<a href>` 로 apikey 헤더를 못 보내므로 SPA 가 `apiBlob` 으로 받아 저장.
+   - 분류 `CARE_SHEET`(AS-CARE 서식) · `SIGNATURE`(서명본) · `PHOTO`(현장 사진) · `ETC`.
+3. **민감정보 열람 = AS-CARE 기록 1건 단위 승인** (기존 "사건 단위"에서 세분화)
+   - `arc_sensitive_access` 에 `care_record_id` · `target_label` 추가. 목록은 `arc_incidents` 조인으로
+     사건번호·발생일시 라벨을 함께 반환(`mapAccess.incidentId/careRecordId/targetLabel`).
+   - `requestArcSensitiveAccess()` 는 사건의 AS-CARE 기록을 해석해 `incident_id`+`care_record_id` 를 함께
+     기록하고, `assertArcSensitiveAccess()` 는 `care_record_id` 로 좁혀 판정 → 다른 사건의 기록은 열리지 않음.
+   - 화면: 요청 폼에 AS-CARE 기록 ID 입력 + 대상 라벨 표시 + 「AS-CARE 열기」 링크,
+     안내문 "승인은 사건 단위가 아니라 해당 AS-CARE 기록 1건에만 적용돼요".
+4. **폼 고도화 (8개 PDF 근거)**
+   - **월 1회 실사**: `arc_stocktakes.witness_name`(참관자) · `method`(FULL/SAMPLE/PARTIAL) ·
+     `issues_note`(특이사항), `arc_stocktake_items.state`(OK/LOW/DAMAGED/EXPIRING/DISPOSE) · `action`(조치).
+     화면에 실사 헤더 폼(실사일·방법·참관자·메모·특이사항) + 행별 상태/조치 입력, 마감 후 잠금(`isLocked`).
+     `updateArcStocktake()` + `PATCH /api/arc/stocktakes/:stocktakeId`.
+   - **보충·구매·실비정산**: `arc_purchases.evidence_kind`(증빙 종류) · `settle_due_on`(정산 예정일).
+   - **직원 개인 상비약**: 등록 경로가 없어 신규 추가 — `createArcOtcItem()` (코드 `OTC-###` 자동 채번,
+     소유자 기본=본인, `canManageAll` 이면 타인 지정) + `POST /api/arc/otc/items` + 화면 「상비약 등록」 패널.
+   - **사용대장·소모금액 / 비용·실비정산**: 기존 폼이 이미 충분(대상자 구분·사유·장소·사건번호 /
+     비용구분·지급기한·사전승인) → 변경 없음.
+   - **응급안전 설정**: `arc_settings` 에 `doc_version`(적용 문서 버전) · `partner_org` ·
+     `partner_contact`(자문 협력사 연락처) · `expiry_alert_days`(유효기간 임박 기준, 기본 30) ·
+     `stocktake_gate_day`(월말 Gate 기준일, 기본 25) · `gate_signer_name`. 「운영 기준 · 문서」 패널 추가.
+     - `scanArcStockAlerts()` 가 `expiry_alert_days` 를 실제로 사용(품목·OTC WARN 기준, 조회창
+       `max(90, 기준일)`), `levelForDays(daysLeft, warnDays)`.
+     - `listArcRoutine()` 이 `stocktake_gate_day`·`gate_signer_name` 을 「대표 확인·서명」 단계의
+       기간·담당자에 반영(기본값이면 기존 25~27일·김원재 대표와 동일).
+     - `partner_org`/`partner_contact` 는 사건 접수 화면 상단 배너로 노출(119 이송 후 사후 자문 연락처).
+5. **DB 변경** — 전부 `add column if not exists` / `create table if not exists` (기존 행 영향 없음).
+   적용: `docker compose --profile tools run --rm migrate` → `docker compose up -d --build api`.
+   `arc-files` 디렉터리는 이미 compose 마운트 + `.dockerignore` 처리되어 있어 추가 작업 없음.
+
 Request source: `[개발 지시서] 혼자야 관리자 앱 내 ARC SAFETY 응급안전관리센터 구축` (partner request: 1 dashboard + 12 menus, 8 reference documents, ~40 record forms).
 Original reference docs (all read, 382 pages total): AS-OPS-001 통합운영문서, AS-CAL-001 1년 업무달력,
 AS-KIT-001 구급상자 운영관리대장, AS-GDE-001 현장 응급처치 교육가이드, AS-PRP-001 복수사업장 도입제안서,
@@ -1799,7 +1852,8 @@ Mapping (no new accounts — owner decision 2026-11-27):
 `/admin/arc` (대시보드: 8 실적카드 + 8 빠른업무 + 알림 + 이번 달 운영 루틴), `/admin/arc/routine`,
 `/admin/arc/stock`, `/admin/arc/otc`,
 `/admin/arc/usages`, `/admin/arc/expenses`, `/admin/arc/checks`, `/admin/arc/edu`, `/admin/arc/calendar`,
-`/admin/arc/incidents`, `/admin/arc/care/:id`, `/admin/arc/reviews`, `/admin/arc/docs`.
+`/admin/arc/incidents` (사건 접수), `/admin/arc/care` (AS-CARE 기록 목록), `/admin/arc/care/:incidentId`
+(AS-CARE 작성·첨부), `/admin/arc/reviews`, `/admin/arc/docs`.
 Entry: `/admin/dash` 빠른 메뉴 「응급안전관리센터」 + AdminLayout 「응급안전」 그룹.
 Print-only views per record (PDF는 브라우저 인쇄), lists export CSV.
 

@@ -8,7 +8,7 @@
 //   * 만료·부족 알림은 dedupeKey 로 같은 조건이 하루에 한 번만 쌓입니다.
 import { randomUUID } from "node:crypto";
 
-import { createArcNotification } from "./arc.js";
+import { createArcNotification, getArcSettings } from "./arc.js";
 import { pool } from "./db.js";
 import { badRequest, HttpError } from "./http/errors.js";
 
@@ -873,9 +873,9 @@ export async function listArcStockMoves({ itemId = null, limit = 50 } = {}) {
 
 // ── 만료·부족 알림 ──────────────────────────────────────────────────────────
 
-function levelForDays(daysLeft) {
+function levelForDays(daysLeft, warnDays) {
   if (daysLeft < 0 || daysLeft <= 7) return "CRITICAL";
-  if (daysLeft <= 30) return "WARN";
+  if (daysLeft <= warnDays) return "WARN";
 
   return "INFO";
 }
@@ -903,6 +903,10 @@ export async function scanArcStockAlerts({ force = false } = {}) {
 
   const created = [];
 
+  const settings = await getArcSettings();
+  const warnDays = Math.max(Number.parseInt(settings.expiryAlertDays, 10) || 30, 1);
+  const windowDays = Math.max(90, warnDays);
+
   const { rows: expiring } = await pool.query(
     `select l.id as lot_id, l.qty, l.expires_on, i.id as item_id, i.code, i.name, i.unit
        from public.arc_item_lots l
@@ -911,13 +915,14 @@ export async function scanArcStockAlerts({ force = false } = {}) {
         and l.disposed_at is null
         and l.qty > 0
         and l.expires_on is not null
-        and l.expires_on <= current_date + 90
-      order by l.expires_on`
+        and l.expires_on <= current_date + $1::int
+      order by l.expires_on`,
+    [windowDays]
   );
 
   for (const row of expiring) {
     const daysLeft = daysUntil(row.expires_on);
-    const level = levelForDays(daysLeft);
+    const level = levelForDays(daysLeft, warnDays);
     const label =
       daysLeft < 0 ? `유효기간이 ${Math.abs(daysLeft)}일 지났어요` : `유효기간 ${daysLeft}일 남았어요`;
     const notification = await createArcNotification({
@@ -982,14 +987,15 @@ export async function scanArcStockAlerts({ force = false } = {}) {
        from public.arc_otc_items
       where active
         and expires_on is not null
-        and expires_on <= current_date + 90`
+        and expires_on <= current_date + $1::int`,
+    [windowDays]
   );
 
   for (const row of otcExpiring) {
     const daysLeft = daysUntil(row.expires_on);
     const notification = await createArcNotification({
       kind: "OTC",
-      level: daysLeft <= 30 ? "WARN" : "INFO",
+      level: daysLeft <= warnDays ? "WARN" : "INFO",
       title: `[개인 상비약 EXP] ${row.code} ${row.name}`,
       body: `유효기간 ${String(row.expires_on).slice(0, 10)} · 잔량 ${round2(row.qty)}${row.unit}. 소유 직원이 직접 교체해 주세요.`,
       link: "/admin/arc/otc",
@@ -1006,12 +1012,18 @@ export async function scanArcStockAlerts({ force = false } = {}) {
 
 // ── 실사(월 1회) ────────────────────────────────────────────────────────────
 
+const ARC_STOCKTAKE_METHODS = ["FULL", "SAMPLE", "PARTIAL"];
+const ARC_STOCKTAKE_STATES = ["OK", "LOW", "DAMAGED", "EXPIRING", "DISPOSE"];
+
 function mapStocktake(row) {
   return {
     id: row.id,
     period: row.period,
     countedOn: row.counted_on ? String(row.counted_on).slice(0, 10) : null,
     countedByName: row.counted_by_name,
+    witnessName: row.witness_name ?? "",
+    method: row.method ?? "FULL",
+    issuesNote: row.issues_note ?? "",
     status: row.status,
     appliedAt: row.applied_at,
     appliedByName: row.applied_by_name,
@@ -1086,12 +1098,29 @@ export async function getArcStocktake(stocktakeId) {
       diffQty:
         row.counted_qty === null ? null : round2(num(row.counted_qty) - num(row.system_qty)),
       reason: row.reason,
+      state: row.state ?? "OK",
+      action: row.action ?? "",
     })),
   };
 }
 
-export async function createArcStocktake({ period = "", countedOn = "", note = "" } = {}, employee = null) {
+export async function createArcStocktake(
+  {
+    period = "",
+    countedOn = "",
+    note = "",
+    witnessName = "",
+    method = "FULL",
+    issuesNote = "",
+  } = {},
+  employee = null
+) {
   const safePeriod = normalizePeriod(period);
+  const safeMethod = text(method || "FULL", 10).toUpperCase();
+
+  if (!ARC_STOCKTAKE_METHODS.includes(safeMethod)) {
+    throw badRequest("실사 방법은 전수·표본·부분 중 하나예요.");
+  }
 
   return withTransaction(async (client) => {
     const { rows: existing } = await client.query(
@@ -1105,8 +1134,9 @@ export async function createArcStocktake({ period = "", countedOn = "", note = "
 
     const { rows } = await client.query(
       `insert into public.arc_stocktakes
-         (id, period, counted_on, counted_by, counted_by_name, note)
-       values ($1, $2, coalesce($3::date, current_date), $4, $5, $6)
+         (id, period, counted_on, counted_by, counted_by_name, note,
+          witness_name, method, issues_note)
+       values ($1, $2, coalesce($3::date, current_date), $4, $5, $6, $7, $8, $9)
        returning *`,
       [
         randomUUID(),
@@ -1115,6 +1145,9 @@ export async function createArcStocktake({ period = "", countedOn = "", note = "
         employee?.id ?? null,
         text(employee?.name, 60),
         text(note, 300),
+        text(witnessName, 60),
+        safeMethod,
+        text(issuesNote, 500),
       ]
     );
 
@@ -1136,7 +1169,59 @@ export async function createArcStocktake({ period = "", countedOn = "", note = "
   });
 }
 
-export async function saveArcStocktakeItem(stocktakeId, itemId, { countedQty, reason = "" } = {}) {
+export async function updateArcStocktake(
+  stocktakeId,
+  { countedOn, note, witnessName, method, issuesNote } = {}
+) {
+  const { rows: header } = await pool.query(
+    `select * from public.arc_stocktakes where id = $1`,
+    [stocktakeId]
+  );
+
+  if (header.length === 0) {
+    throw new HttpError(404, "HJ404", "실사를 찾을 수 없어요.");
+  }
+
+  const current = header[0];
+
+  if (current.status === "APPLIED") {
+    throw badRequest("이미 확정된 실사는 수정할 수 없어요.");
+  }
+
+  const safeMethod = text(method ?? current.method ?? "FULL", 10).toUpperCase();
+
+  if (!ARC_STOCKTAKE_METHODS.includes(safeMethod)) {
+    throw badRequest("실사 방법은 전수·표본·부분 중 하나예요.");
+  }
+
+  await pool.query(
+    `update public.arc_stocktakes
+        set counted_on = $2,
+            note = $3,
+            witness_name = $4,
+            method = $5,
+            issues_note = $6
+      where id = $1`,
+    [
+      stocktakeId,
+      countedOn === undefined || countedOn === ""
+        ? current.counted_on
+        : requireDate(countedOn, "실사일"),
+      text(note ?? current.note, 300),
+      text(witnessName ?? current.witness_name, 60),
+      safeMethod,
+      text(issuesNote ?? current.issues_note, 500),
+    ]
+  );
+
+  return getArcStocktake(stocktakeId);
+}
+
+export async function saveArcStocktakeItem(
+  stocktakeId,
+  itemId,
+  { countedQty, reason = "", state, action } = {}
+) {
   const { rows: header } = await pool.query(
     `select * from public.arc_stocktakes where id = $1`,
     [stocktakeId]
@@ -1155,18 +1240,40 @@ export async function saveArcStocktakeItem(stocktakeId, itemId, { countedQty, re
       ? null
       : requireQty(countedQty, "실사 수량", { allowZero: true });
 
-  const { rowCount } = await pool.query(
-    `update public.arc_stocktake_items
-        set counted_qty = $3,
-            reason = $4
-      where stocktake_id = $1
-        and item_id = $2`,
-    [stocktakeId, itemId, counted, text(reason, 300)]
+  const { rows: found } = await pool.query(
+    `select state, action
+       from public.arc_stocktake_items
+      where stocktake_id = $1 and item_id = $2`,
+    [stocktakeId, itemId]
   );
 
-  if (rowCount === 0) {
+  if (found.length === 0) {
     throw new HttpError(404, "HJ404", "실사 품목을 찾을 수 없어요.");
   }
+
+  const safeState = text(state ?? found[0].state ?? "OK", 20).toUpperCase();
+
+  if (!ARC_STOCKTAKE_STATES.includes(safeState)) {
+    throw badRequest("품목 상태 값이 올바르지 않아요.");
+  }
+
+  await pool.query(
+    `update public.arc_stocktake_items
+        set counted_qty = $3,
+            reason = $4,
+            state = $5,
+            action = $6
+      where stocktake_id = $1
+        and item_id = $2`,
+    [
+      stocktakeId,
+      itemId,
+      counted,
+      text(reason, 300),
+      safeState,
+      text(action ?? found[0].action, 200),
+    ]
+  );
 
   return getArcStocktake(stocktakeId);
 }
@@ -1274,6 +1381,8 @@ function mapPurchase(row) {
     purchasedOn: row.purchased_on ? String(row.purchased_on).slice(0, 10) : null,
     reason: row.reason,
     paidBy: row.paid_by,
+    evidenceKind: row.evidence_kind ?? "RECEIPT",
+    settleDueOn: row.settle_due_on ? String(row.settle_due_on).slice(0, 10) : null,
     settleStatus: row.settle_status,
     settledAmount: Number(row.settled_amount ?? 0),
     approvedByName: row.approved_by_name,
@@ -1319,9 +1428,10 @@ export async function createArcPurchase(input = {}, employee = null) {
     const { rows } = await client.query(
       `insert into public.arc_purchases
          (id, item_id, item_code, item_name, qty, unit_price, amount, vendor, receipt_no,
-          purchased_on, reason, paid_by, employee_id, employee_name)
+          purchased_on, reason, paid_by, employee_id, employee_name,
+          evidence_kind, settle_due_on)
        values ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-               coalesce($10::date, current_date), $11, $12, $13, $14)
+               coalesce($10::date, current_date), $11, $12, $13, $14, $15, $16)
        returning *`,
       [
         randomUUID(),
@@ -1340,6 +1450,12 @@ export async function createArcPurchase(input = {}, employee = null) {
           : "SHOP",
         employee?.id ?? null,
         text(employee?.name, 60),
+        ["RECEIPT", "CARD", "TAX_INVOICE", "CASH_RECEIPT", "NONE"].includes(
+          text(input.evidenceKind, 20).toUpperCase()
+        )
+          ? text(input.evidenceKind, 20).toUpperCase()
+          : "RECEIPT",
+        input.settleDueOn ? requireDate(input.settleDueOn, "정산 예정일") : null,
       ]
     );
 
@@ -1463,6 +1579,75 @@ export async function claimArcOtcItems(employee = null) {
   );
 
   return { claimed: rows.length, items: rows.map(mapOtcItem) };
+}
+
+export async function createArcOtcItem(input = {}, { employee = null, canManageAll = false } = {}) {
+  const name = text(input.name, 120);
+
+  if (!name) {
+    throw badRequest("상비약 이름을 입력해 주세요.");
+  }
+
+  const ownerId = canManageAll
+    ? text(input.ownerEmployeeId, 40) || employee?.id || null
+    : employee?.id ?? null;
+
+  if (!ownerId) {
+    throw badRequest("소유 직원을 확인할 수 없어요.");
+  }
+
+  const ownerName =
+    ownerId === employee?.id
+      ? text(employee?.name, 60)
+      : text(input.ownerName, 60);
+
+  let code = text(input.code, 40).toUpperCase();
+
+  if (!code) {
+    // OTC-001~013 은 원본 시드라 그 뒤 번호를 자동으로 붙입니다.
+    const { rows: nextRows } = await pool.query(
+      `select coalesce(max(substring(code from '[0-9]+$')::int), 0) + 1 as next_no
+         from public.arc_otc_items
+        where code ~ '^[A-Z]+-[0-9]+$'`
+    );
+
+    code = `OTC-${String(Number(nextRows[0]?.next_no ?? 1)).padStart(3, "0")}`;
+  }
+
+  const { rows: sortRows } = await pool.query(
+    `select coalesce(max(sort_order), 0) + 10 as next_sort from public.arc_otc_items`
+  );
+
+  try {
+    const { rows } = await pool.query(
+      `insert into public.arc_otc_items
+         (id, code, name, category, qty, unit, expires_on, owner_employee_id, owner_name,
+          note, active, sort_order)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, $11)
+       returning *`,
+      [
+        randomUUID(),
+        code,
+        name,
+        text(input.category, 40),
+        requireQty(input.qty ?? 0, "수량", { allowZero: true }),
+        text(input.unit ?? "정", 10) || "정",
+        input.expiresOn ? requireDate(input.expiresOn, "유효기간") : null,
+        ownerId,
+        ownerName,
+        text(input.note, 300),
+        Number(sortRows[0]?.next_sort ?? 10),
+      ]
+    );
+
+    return mapOtcItem(rows[0]);
+  } catch (error) {
+    if (uniqueViolation(error)) {
+      throw badRequest(`상비약 코드 ${code} 는 이미 등록되어 있어요.`);
+    }
+
+    throw error;
+  }
 }
 
 export async function updateArcOtcItem(otcItemId, patch = {}, { employee = null, canManageAll = false } = {}) {

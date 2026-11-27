@@ -40,6 +40,7 @@ import AdminArcConsentView from "@/views/Admin/AdminArcConsentView.vue";
 import AdminArcAccessView from "@/views/Admin/AdminArcAccessView.vue";
 import AdminArcIncidentView from "@/views/Admin/AdminArcIncidentView.vue";
 import AdminArcCareView from "@/views/Admin/AdminArcCareView.vue";
+import AdminArcCareListView from "@/views/Admin/AdminArcCareListView.vue";
 import AdminArcUsageView from "@/views/Admin/AdminArcUsageView.vue";
 import AdminArcExpenseView from "@/views/Admin/AdminArcExpenseView.vue";
 import StaffLoginView from "@/views/Staff/StaffLoginView.vue";
@@ -250,7 +251,21 @@ const routes = [
         meta: { permission: "arc.view" },
       },
       {
+        // AS-CARE 서식 목록. 사건 접수 목록과 분리해 서식·첨부 상태만 봅니다.
+        path: "arc/care",
+        name: "admin-arc-care",
+        component: AdminArcCareListView,
+        meta: { permission: "arc.view" },
+      },
+      {
         // AS-CARE 상세기록. 서버가 arc.sensitive + 사건별 접근승인을 다시 검사합니다.
+        path: "arc/care/:incidentId",
+        name: "admin-arc-care-detail",
+        component: AdminArcCareView,
+        meta: { permission: "arc.view" },
+      },
+      {
+        // 예전 링크 호환용. 사건 접수 화면에서 상세기록으로 바로 들어오던 경로입니다.
         path: "arc/incidents/:incidentId",
         name: "admin-arc-incident-detail",
         component: AdminArcCareView,

@@ -5,8 +5,9 @@
         <p class="eyebrow">ARC SAFETY</p>
         <h1>응급안전 설정</h1>
         <p class="description">
-          알림을 받을 디스코드 채널과 기록 보존기간을 정해요. 저장 즉시
-          적용되고, 변경 이력은 관리자 감사 로그에 남아요.
+          알림을 받을 디스코드 채널과 기록 보존기간, 운영 기준(문서 버전 ·
+          협력사 · 월말 Gate)을 정해요. 저장 즉시 적용되고, 변경 이력은 관리자
+          감사 로그에 남아요.
         </p>
       </div>
       <router-link to="/admin/arc" class="link-button">
@@ -93,6 +94,76 @@
       </p>
     </section>
 
+    <section class="panel">
+      <h2>운영 기준 · 문서</h2>
+
+      <div class="field-grid">
+        <label class="field">
+          <span>적용 문서 버전</span>
+          <input
+            v-model.trim="form.docVersion"
+            type="text"
+            placeholder="예: AS-KIT-001 v1.0"
+          />
+          <small
+            >구급상자 운영관리대장(AS-KIT-001) 개정 시 버전을 올려
+            주세요.</small
+          >
+        </label>
+
+        <label class="field">
+          <span>응급 자문 협력사</span>
+          <input
+            v-model.trim="form.partnerOrg"
+            type="text"
+            placeholder="예: OO응급의료지원센터"
+          />
+        </label>
+
+        <label class="field">
+          <span>협력사 담당 연락처</span>
+          <input
+            v-model.trim="form.partnerContact"
+            type="text"
+            placeholder="예: 02-000-0000 / 담당자명"
+          />
+          <small>119 이송 후 사후 자문에 쓰는 연락처예요.</small>
+        </label>
+
+        <label class="field">
+          <span>월말 Gate 서명자</span>
+          <input
+            v-model.trim="form.gateSignerName"
+            type="text"
+            placeholder="예: 김원재"
+          />
+          <small>매월 25일 이후 실사·정산을 대표가 확인·서명해요.</small>
+        </label>
+
+        <label class="field">
+          <span>Gate 기준일(일)</span>
+          <input
+            v-model.number="form.stocktakeGateDay"
+            type="number"
+            min="1"
+            max="31"
+          />
+          <small>이 날부터 '월말 서명 대기' 알림이 표시돼요.</small>
+        </label>
+
+        <label class="field">
+          <span>유효기간 임박 알림(일)</span>
+          <input
+            v-model.number="form.expiryAlertDays"
+            type="number"
+            min="1"
+            max="365"
+          />
+          <small>기본 30일. 7일 이내는 위험 알림으로 따로 표시돼요.</small>
+        </label>
+      </div>
+    </section>
+
     <div class="actions">
       <button
         type="button"
@@ -127,6 +198,12 @@ const form = reactive({
   recordRetentionYears: 3,
   sensitiveRetentionYears: 2,
   accessTtlMinutes: 480,
+  docVersion: "",
+  partnerOrg: "",
+  partnerContact: "",
+  expiryAlertDays: 30,
+  stocktakeGateDay: 25,
+  gateSignerName: "",
 });
 
 const isLoading = ref(false);
@@ -144,6 +221,12 @@ function applySettings(data) {
   form.recordRetentionYears = data.recordRetentionYears ?? 3;
   form.sensitiveRetentionYears = data.sensitiveRetentionYears ?? 2;
   form.accessTtlMinutes = data.accessTtlMinutes ?? 480;
+  form.docVersion = data.docVersion ?? "";
+  form.partnerOrg = data.partnerOrg ?? "";
+  form.partnerContact = data.partnerContact ?? "";
+  form.expiryAlertDays = data.expiryAlertDays ?? 30;
+  form.stocktakeGateDay = data.stocktakeGateDay ?? 25;
+  form.gateSignerName = data.gateSignerName ?? "";
 }
 
 async function loadSettings() {

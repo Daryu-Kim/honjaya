@@ -205,6 +205,84 @@
       </div>
     </section>
 
+    <section v-if="canStock" class="panel">
+      <h2>상비약 등록</h2>
+      <p class="helper-text">
+        내가 보관하는 상비약을 새로 등록해요. 사업장 재고(<router-link
+          to="/admin/arc/stock"
+          >재고</router-link
+        >)와 섞이지 않게 별도 대장(OTC-###)으로 번호가 자동 부여돼요. 코드를
+        비우면 다음 번호가 붙어요.
+      </p>
+
+      <div class="field-grid">
+        <label class="field">
+          <span>품명</span>
+          <input
+            v-model.trim="createForm.name"
+            type="text"
+            placeholder="예: 타이레놀 500mg"
+          />
+        </label>
+        <label class="field">
+          <span>분류</span>
+          <input
+            v-model.trim="createForm.category"
+            type="text"
+            placeholder="예: 진통·해열"
+          />
+        </label>
+        <label class="field">
+          <span>수량</span>
+          <input
+            v-model.number="createForm.qty"
+            type="number"
+            min="0"
+            step="0.5"
+          />
+        </label>
+        <label class="field">
+          <span>단위</span>
+          <input v-model.trim="createForm.unit" type="text" placeholder="정" />
+        </label>
+        <label class="field">
+          <span>유효기간</span>
+          <input v-model="createForm.expiresOn" type="date" />
+        </label>
+        <label class="field">
+          <span>코드 (선택)</span>
+          <input
+            v-model.trim="createForm.code"
+            type="text"
+            placeholder="비우면 자동 부여"
+          />
+        </label>
+        <label class="field wide">
+          <span>메모</span>
+          <input
+            v-model.trim="createForm.note"
+            type="text"
+            placeholder="예: 본인 개인 구입, 교체 주기 6개월"
+          />
+        </label>
+      </div>
+
+      <div class="actions">
+        <button
+          type="button"
+          class="primary-button"
+          :disabled="isSaving"
+          @click="submitCreate"
+        >
+          {{ isSaving ? "등록 중이에요..." : "상비약 등록" }}
+        </button>
+        <span class="helper-text">
+          등록 후에도 월 1회 점검 기록은 따로 남겨 주세요. 타인과 나눠 쓰지 않는
+          개인 보관 원칙이에요.
+        </span>
+      </div>
+    </section>
+
     <section class="panel">
       <h2>점검 이력</h2>
 
@@ -259,6 +337,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import {
   claimArcOtcItems,
   createArcOtcCheck,
+  createArcOtcItem,
   fetchArcOtc,
   updateArcOtcItem,
 } from "@/lib/arc";
@@ -275,6 +354,16 @@ const isLoading = ref(false);
 const isSaving = ref(false);
 const errorMessage = ref("");
 const okMessage = ref("");
+
+const createForm = reactive({
+  name: "",
+  category: "",
+  qty: 0,
+  unit: "정",
+  expiresOn: "",
+  code: "",
+  note: "",
+});
 
 const checkForm = reactive({
   open: false,
@@ -345,6 +434,46 @@ async function claim() {
     await load();
   } catch (error) {
     errorMessage.value = error?.message || "소유자 지정에 실패했어요.";
+  } finally {
+    isSaving.value = false;
+  }
+}
+
+async function submitCreate() {
+  if (isSaving.value) return;
+
+  if (!createForm.name) {
+    errorMessage.value = "품명을 입력해 주세요.";
+    return;
+  }
+
+  isSaving.value = true;
+  errorMessage.value = "";
+
+  try {
+    const created = await createArcOtcItem({
+      name: createForm.name,
+      category: createForm.category,
+      qty: createForm.qty,
+      unit: createForm.unit,
+      expiresOn: createForm.expiresOn || "",
+      code: createForm.code,
+      note: createForm.note,
+    });
+
+    flash(`${created?.code ?? "상비약"} 등록했어요.`);
+    Object.assign(createForm, {
+      name: "",
+      category: "",
+      qty: 0,
+      unit: "정",
+      expiresOn: "",
+      code: "",
+      note: "",
+    });
+    await load();
+  } catch (error) {
+    errorMessage.value = error?.message || "상비약을 등록하지 못했어요.";
   } finally {
     isSaving.value = false;
   }

@@ -27,6 +27,12 @@
         <h2>실사 목록</h2>
         <div class="panel-actions">
           <input v-model="newPeriod" class="inline-input" type="month" />
+          <input
+            v-model.trim="newWitness"
+            class="inline-input"
+            type="text"
+            placeholder="참관자"
+          />
           <button
             v-if="canCount"
             type="button"
@@ -126,6 +132,72 @@
         실사를 확정하면 이 화면은 더 이상 수정할 수 없어요.
       </p>
 
+      <div class="field-grid">
+        <label class="field">
+          <span>실사일</span>
+          <input
+            v-model="headerForm.countedOn"
+            type="date"
+            :disabled="isLocked"
+          />
+        </label>
+        <label class="field">
+          <span>실사 방법</span>
+          <select v-model="headerForm.method" :disabled="isLocked">
+            <option
+              v-for="(label, value) in ARC_STOCKTAKE_METHOD_LABELS"
+              :key="value"
+              :value="value"
+            >
+              {{ label }}
+            </option>
+          </select>
+        </label>
+        <label class="field">
+          <span>참관자(입회자)</span>
+          <input
+            v-model.trim="headerForm.witnessName"
+            type="text"
+            placeholder="예: 김원재 대표"
+            :disabled="isLocked"
+          />
+        </label>
+        <label class="field">
+          <span>메모</span>
+          <input
+            v-model.trim="headerForm.note"
+            type="text"
+            placeholder="예: 영업 종료 후 실시"
+            :disabled="isLocked"
+          />
+        </label>
+        <label class="field wide">
+          <span>특이사항</span>
+          <input
+            v-model.trim="headerForm.issuesNote"
+            type="text"
+            placeholder="예: 소독용 알코올 2병 부족 → 다음 구매 시 3병 요청"
+            :disabled="isLocked"
+          />
+        </label>
+      </div>
+
+      <div class="actions">
+        <button
+          v-if="!isLocked"
+          type="button"
+          class="preset-button"
+          :disabled="isSaving || !canCount"
+          @click="saveHeader"
+        >
+          실사 정보 저장
+        </button>
+        <span class="helper-text">
+          월 1회 실사는 실사자 + 참관자를 함께 남겨요(AS-KIT-001 §06). 확정
+          후에는 수정할 수 없어요.
+        </span>
+      </div>
+
       <div class="table-wrap">
         <table class="data-table">
           <thead>
@@ -136,6 +208,8 @@
               <th class="num">실사 수량</th>
               <th class="num">차이</th>
               <th>사유</th>
+              <th>상태</th>
+              <th>조치</th>
             </tr>
           </thead>
           <tbody>
@@ -153,7 +227,7 @@
                   type="number"
                   min="0"
                   step="0.01"
-                  :disabled="detail.stocktake.status === 'APPLIED' || !canCount"
+                  :disabled="isLocked || !canCount"
                   @change="saveRow(row)"
                 />
               </td>
@@ -168,7 +242,33 @@
                   class="reason-input"
                   type="text"
                   placeholder="차이 사유"
-                  :disabled="detail.stocktake.status === 'APPLIED' || !canCount"
+                  :disabled="isLocked || !canCount"
+                  @change="saveRow(row)"
+                />
+              </td>
+              <td>
+                <select
+                  v-model="row.state"
+                  class="state-select"
+                  :disabled="isLocked || !canCount"
+                  @change="saveRow(row)"
+                >
+                  <option
+                    v-for="(label, value) in ARC_STOCKTAKE_STATE_LABELS"
+                    :key="value"
+                    :value="value"
+                  >
+                    {{ label }}
+                  </option>
+                </select>
+              </td>
+              <td>
+                <input
+                  v-model.trim="row.action"
+                  class="reason-input"
+                  type="text"
+                  placeholder="예: 교체 구매 요청"
+                  :disabled="isLocked || !canCount"
                   @change="saveRow(row)"
                 />
               </td>
@@ -181,15 +281,18 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 
 import {
+  ARC_STOCKTAKE_METHOD_LABELS,
+  ARC_STOCKTAKE_STATE_LABELS,
   ARC_STOCKTAKE_STATUS_LABELS,
   applyArcStocktake,
   createArcStocktake,
   fetchArcStocktake,
   fetchArcStocktakes,
   saveArcStocktakeItem,
+  updateArcStocktake,
 } from "@/lib/arc";
 
 const stocktakes = ref([]);
@@ -201,8 +304,18 @@ const isSaving = ref(false);
 const errorMessage = ref("");
 const okMessage = ref("");
 const newPeriod = ref(currentMonth());
+const newWitness = ref("");
+
+const headerForm = reactive({
+  countedOn: "",
+  method: "FULL",
+  witnessName: "",
+  note: "",
+  issuesNote: "",
+});
 
 const selectedId = computed(() => detail.value.stocktake?.id ?? "");
+const isLocked = computed(() => detail.value.stocktake?.status === "APPLIED");
 
 function currentMonth() {
   const now = new Date();
@@ -236,7 +349,10 @@ async function startStocktake() {
   isSaving.value = true;
 
   try {
-    const stocktake = await createArcStocktake({ period: newPeriod.value });
+    const stocktake = await createArcStocktake({
+      period: newPeriod.value,
+      witnessName: newWitness.value,
+    });
 
     flash(`${stocktake.period} 실사를 만들었어요.`);
     await loadList();
@@ -248,9 +364,20 @@ async function startStocktake() {
   }
 }
 
+function syncHeaderForm(stocktake) {
+  Object.assign(headerForm, {
+    countedOn: stocktake?.countedOn || "",
+    method: stocktake?.method || "FULL",
+    witnessName: stocktake?.witnessName || "",
+    note: stocktake?.note || "",
+    issuesNote: stocktake?.issuesNote || "",
+  });
+}
+
 async function openStocktake(row) {
   try {
     detail.value = await fetchArcStocktake(row.id);
+    syncHeaderForm(detail.value.stocktake);
   } catch (error) {
     errorMessage.value = error?.message || "실사를 불러오지 못했어요.";
   }
@@ -258,6 +385,32 @@ async function openStocktake(row) {
 
 function closeDetail() {
   detail.value = { stocktake: null, items: [] };
+}
+
+async function saveHeader() {
+  const stocktakeId = detail.value.stocktake?.id;
+
+  if (!stocktakeId) return;
+
+  isSaving.value = true;
+
+  try {
+    detail.value = await updateArcStocktake(stocktakeId, {
+      countedOn: headerForm.countedOn,
+      method: headerForm.method,
+      witnessName: headerForm.witnessName,
+      note: headerForm.note,
+      issuesNote: headerForm.issuesNote,
+    });
+    syncHeaderForm(detail.value.stocktake);
+    await loadList();
+    okMessage.value = "실사 정보를 저장했어요.";
+    errorMessage.value = "";
+  } catch (error) {
+    errorMessage.value = error?.message || "실사 정보를 저장하지 못했어요.";
+  } finally {
+    isSaving.value = false;
+  }
 }
 
 async function saveRow(row) {
@@ -269,6 +422,8 @@ async function saveRow(row) {
     detail.value = await saveArcStocktakeItem(stocktakeId, row.itemId, {
       countedQty: row.countedQty,
       reason: row.reason,
+      state: row.state,
+      action: row.action,
     });
     okMessage.value = `${row.code} 저장했어요.`;
     errorMessage.value = "";
@@ -303,6 +458,7 @@ async function applyCurrent() {
     );
     await loadList();
     detail.value = await fetchArcStocktake(stocktakeId);
+    syncHeaderForm(detail.value.stocktake);
   } catch (error) {
     errorMessage.value = error?.message || "확정에 실패했어요.";
   } finally {
@@ -397,6 +553,41 @@ onMounted(loadList);
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+
+  &.wide {
+    grid-column: 1 / -1;
+  }
+
+  input,
+  select {
+    padding: 8px 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+    font-size: 13px;
+  }
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   flex-wrap: wrap;
 }
 
@@ -503,6 +694,15 @@ onMounted(loadList);
 .reason-input {
   width: 100%;
   min-width: 160px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  font-size: 13px;
+}
+
+.state-select {
   padding: 6px 8px;
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.18);

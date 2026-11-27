@@ -107,6 +107,25 @@
         </label>
 
         <label class="field">
+          <span>증빙 종류</span>
+          <select v-model="form.evidenceKind">
+            <option
+              v-for="(label, value) in ARC_EVIDENCE_KIND_LABELS"
+              :key="value"
+              :value="value"
+            >
+              {{ label }}
+            </option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>정산 예정일</span>
+          <input v-model="form.settleDueOn" type="date" />
+          <small>개인결제는 이 날짜에 실비 정산해요.</small>
+        </label>
+
+        <label class="field">
           <span>유효기간(입고 시)</span>
           <input v-model="form.expiresOn" type="date" />
         </label>
@@ -189,6 +208,9 @@
               <td class="num">{{ row.amount.toLocaleString("ko-KR") }}</td>
               <td class="dim">
                 {{ ARC_PAID_BY_LABELS[row.paidBy] || row.paidBy }}
+                <div class="mono dim">
+                  {{ ARC_EVIDENCE_KIND_LABELS[row.evidenceKind] || "-" }}
+                </div>
               </td>
               <td class="dim">{{ row.vendor || "-" }}</td>
               <td>
@@ -205,6 +227,9 @@
                 </span>
                 <div v-if="row.settledAmount" class="dim">
                   {{ row.settledAmount.toLocaleString("ko-KR") }}원
+                </div>
+                <div v-else-if="row.settleDueOn" class="dim">
+                  예정 {{ row.settleDueOn }}
                 </div>
               </td>
               <td>
@@ -245,6 +270,7 @@
 import { computed, onMounted, reactive, ref } from "vue";
 
 import {
+  ARC_EVIDENCE_KIND_LABELS,
   ARC_PAID_BY_LABELS,
   ARC_SETTLE_STATUS_LABELS,
   createArcPurchase,
@@ -273,6 +299,8 @@ const form = reactive({
   vendor: "",
   receiptNo: "",
   paidBy: "SHOP",
+  evidenceKind: "RECEIPT",
+  settleDueOn: "",
   expiresOn: "",
   reason: "",
   applyToStock: true,
@@ -359,6 +387,8 @@ async function submitPurchase() {
       vendor: form.vendor,
       receiptNo: form.receiptNo,
       paidBy: form.paidBy,
+      evidenceKind: form.evidenceKind,
+      settleDueOn: form.settleDueOn || undefined,
       expiresOn: form.expiresOn,
       reason: form.reason,
       applyToStock: form.applyToStock,
@@ -372,6 +402,7 @@ async function submitPurchase() {
     form.receiptNo = "";
     form.reason = "";
     form.expiresOn = "";
+    form.settleDueOn = "";
     flash("구매 기록을 저장했어요.");
     await load();
   } catch (error) {

@@ -21,11 +21,20 @@ import {
   withdrawArcConsent,
 } from "../../arc.js";
 import {
+  ARC_CARE_FILE_KINDS,
+  arcFilesHealth,
+  deleteArcCareFile,
+  listArcCareFiles,
+  readArcCareFile,
+  saveArcCareFile,
+} from "../../arcFiles.js";
+import {
   addArcCareAddendum,
   arcIncidentSummary,
   createArcIncident,
   getArcCareDetail,
   getArcCareStatus,
+  listArcCareRecords,
   listArcIncidents,
   saveArcCare,
   updateArcIncident,
@@ -50,6 +59,7 @@ import {
   applyArcStocktake,
   arcStockSummary,
   claimArcOtcItems,
+  createArcOtcItem,
   createArcItem,
   createArcOtcCheck,
   createArcPurchase,
@@ -69,6 +79,7 @@ import {
   settleArcPurchase,
   updateArcItem,
   updateArcOtcItem,
+  updateArcStocktake,
 } from "../../arcStock.js";
 import {
   arcUsageSummary,
@@ -466,6 +477,10 @@ export function registerArcRoutes(app) {
       )
   );
 
+  app.patch("/api/arc/stocktakes/:stocktakeId", { preHandler: requireStock }, async (request) => ({
+    ...(await updateArcStocktake(request.params?.stocktakeId, readBody(request))),
+  }));
+
   app.post(
     "/api/arc/stocktakes/:stocktakeId/apply",
     { preHandler: requireCheck },
@@ -560,6 +575,26 @@ export function registerArcRoutes(app) {
     ...(await claimArcOtcItems(currentEmployee(request))),
   }));
 
+  app.post("/api/arc/otc/items", { preHandler: requireStock }, async (request) => {
+    const employee = currentEmployee(request);
+    const item = await createArcOtcItem(readBody(request), {
+      employee,
+      canManageAll: hasPermission(request, PERMISSIONS.ARC_ADMIN),
+    });
+
+    await writeAuditLog({
+      employee,
+      action: "arc.otc.create",
+      targetType: "arc_otc_item",
+      targetId: item.id,
+      detail: { code: item.code, name: item.name, ownerName: item.ownerName },
+      ip: clientIp(request),
+      log: request.log,
+    });
+
+    return { item };
+  });
+
   app.patch("/api/arc/otc/items/:otcItemId", { preHandler: requireStock }, async (request) => ({
     item: await updateArcOtcItem(request.params?.otcItemId, readBody(request), {
       employee: currentEmployee(request),
@@ -645,6 +680,7 @@ export function registerArcRoutes(app) {
 
       const access = await assertArcSensitiveAccess({
         incidentNo: status.incident.incidentNo,
+        careRecordId: status.careRecordId,
         employee,
         action: "VIEW",
         ip: clientIp(request),
@@ -671,6 +707,7 @@ export function registerArcRoutes(app) {
 
       await assertArcSensitiveAccess({
         incidentNo: status.incident.incidentNo,
+        careRecordId: status.careRecordId,
         employee: currentEmployee(request),
         action: "UPDATE",
         ip: clientIp(request),
@@ -685,6 +722,120 @@ export function registerArcRoutes(app) {
       };
     }
   );
+
+  // ── AS-CARE 서식 목록 · 첨부 파일 ────────────────────────────────────
+  // 손으로 적고 서명한 AS-CARE 원본(HWP·DOCX·PDF·사진)을 사건에 붙여 둡니다.
+  // 올리기·지우기는 ARC 총괄만, 내려받기는 총괄 또는 그 기록의 열람 승인을 받은 직원만.
+
+  app.get("/api/arc/care", { preHandler: requireSensitive }, async (request) => {
+    const employee = currentEmployee(request);
+    const query = request.query || {};
+
+    return {
+      records: await listArcCareRecords({
+        search: query.search || "",
+        from: query.from || null,
+        to: query.to || null,
+        hasFiles: isTruthyFlag(query.hasFiles),
+        limit: query.limit,
+      }),
+      canWriteCare: isArcDirector(employee?.loginId),
+      isArcDirector: isArcDirector(employee?.loginId),
+    };
+  });
+
+  app.get(
+    "/api/arc/incidents/:incidentId/care-files",
+    { preHandler: requireSensitive },
+    async (request) => {
+      const employee = currentEmployee(request);
+      const status = await getArcCareStatus(request.params?.incidentId);
+
+      // 파일명만 나오지만 그 자체로 기록의 존재를 알 수 있으므로 승인을 먼저 확인합니다.
+      await assertArcSensitiveAccess({
+        incidentNo: status.incident.incidentNo,
+        careRecordId: status.careRecordId,
+        employee,
+        action: "VIEW",
+        ip: clientIp(request),
+      });
+
+      return {
+        files: await listArcCareFiles({ incidentId: status.incident.id }),
+        canUpload: isArcDirector(employee?.loginId),
+        kinds: ARC_CARE_FILE_KINDS,
+        maxBytes: arcFilesHealth().maxFileBytes,
+        extensions: arcFilesHealth().extensions,
+      };
+    }
+  );
+
+  app.post(
+    "/api/arc/incidents/:incidentId/care-files",
+    // 파일 본문을 base64 로 받으므로 이 경로만 본문 한도를 올립니다(파일 1개 최대 20MB).
+    { preHandler: requireCare, bodyLimit: 30 * 1024 * 1024 },
+    async (request) => {
+      const employee = currentEmployee(request);
+      const status = await getArcCareStatus(request.params?.incidentId);
+      const result = await saveArcCareFile(
+        { ...readBody(request), incidentId: status.incident.id },
+        employee
+      );
+
+      await writeAuditLog({
+        employee,
+        action: "arc.care.file.upload",
+        targetType: "arc_care_files",
+        targetId: result.file.id,
+        detail: {
+          incidentNo: status.incident.incidentNo,
+          fileName: result.file.fileName,
+          bytes: result.file.bytes,
+          kind: result.file.kind,
+        },
+      });
+
+      return result;
+    }
+  );
+
+  app.get(
+    "/api/arc/care-files/:fileId/download",
+    { preHandler: requireSensitive },
+    async (request, reply) => {
+      const file = await readArcCareFile(request.params?.fileId, currentEmployee(request), {
+        ip: clientIp(request),
+        action: "DOWNLOAD",
+      });
+      const encoded = encodeURIComponent(file.fileName);
+      const fallback = file.fileName.replace(/[^\w.-]+/g, "_") || "as-care";
+
+      reply.header("content-type", file.mime);
+      reply.header("cache-control", "no-store");
+      reply.header("content-length", String(file.buffer.length));
+      reply.header(
+        "content-disposition",
+        `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`
+      );
+
+      return reply.send(file.buffer);
+    }
+  );
+
+  app.delete("/api/arc/care-files/:fileId", { preHandler: requireCare }, async (request) => {
+    const employee = currentEmployee(request);
+    const result = await deleteArcCareFile(request.params?.fileId, employee);
+
+    await writeAuditLog({
+      employee,
+      action: "arc.care.file.delete",
+      targetType: "arc_care_files",
+      targetId: result.file.id,
+      detail: { fileName: result.file.fileName, incidentId: result.file.incidentId },
+    });
+
+    return result;
+  });
 
   // ── 사용대장(USE) · 소모금액 ────────────────────────────────────────
 
