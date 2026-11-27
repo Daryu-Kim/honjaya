@@ -549,7 +549,11 @@ export async function createArcStocktake({
     issuesNote,
   });
 
-  return data?.stocktake ?? null;
+  return {
+    stocktake: data?.stocktake ?? null,
+    items: Array.isArray(data?.items) ? data.items : [],
+    reused: Boolean(data?.reused),
+  };
 }
 
 export async function updateArcStocktake(stocktakeId, payload) {
@@ -1127,6 +1131,10 @@ export const ARC_TRAINING_RESULT_LABELS = {
 
 export async function fetchArcTraining(period = "") {
   return apiGet(`${TRAINING_PATH}${queryString({ period })}`);
+}
+
+export async function fetchArcTrainingGuide() {
+  return apiGet(`${TRAINING_PATH}/guide`);
 }
 
 export async function createArcTrainingSession(payload) {

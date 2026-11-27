@@ -32,6 +32,7 @@ import AdminReservationView from "@/views/Admin/AdminReservationView.vue";
 import AdminArcView from "@/views/Admin/AdminArcView.vue";
 import AdminArcRoutineView from "@/views/Admin/AdminArcRoutineView.vue";
 import AdminArcTrainingView from "@/views/Admin/AdminArcTrainingView.vue";
+import AdminArcTrainingGuideView from "@/views/Admin/AdminArcTrainingGuideView.vue";
 import AdminArcStockView from "@/views/Admin/AdminArcStockView.vue";
 import AdminArcStocktakeView from "@/views/Admin/AdminArcStocktakeView.vue";
 import AdminArcPurchaseView from "@/views/Admin/AdminArcPurchaseView.vue";
@@ -207,6 +208,13 @@ const routes = [
         path: "arc/training",
         name: "admin-arc-training",
         component: AdminArcTrainingView,
+        meta: { permission: "arc.view" },
+      },
+      {
+        // 교육자료·오랄테스트 대비 인쇄용. AS-GDE-001 §15·§16·§17 기반.
+        path: "arc/training/guide",
+        name: "admin-arc-training-guide",
+        component: AdminArcTrainingGuideView,
         meta: { permission: "arc.view" },
       },
       {

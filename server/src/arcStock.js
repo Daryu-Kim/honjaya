@@ -1175,7 +1175,9 @@ export async function createArcStocktake(
     );
 
     if (existing.length > 0) {
-      throw badRequest(`${safePeriod} 실사가 이미 있어요. 기존 실사를 열어 주세요.`);
+      // 같은 달 실사가 이미 있으면 새로 만들지 않고 그 실사를 그대로 돌려줍니다.
+      // (등록을 두 번 누르거나 지난 기록을 이어서 쓸 때 막히지 않도록)
+      return { ...(await getArcStocktake(existing[0].id)), reused: true };
     }
 
     const { rows } = await client.query(
@@ -1211,7 +1213,7 @@ export async function createArcStocktake(
       [stocktakeId]
     );
 
-    return getArcStocktake(stocktakeId);
+    return { ...(await getArcStocktake(stocktakeId)), reused: false };
   });
 }
 

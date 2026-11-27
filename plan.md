@@ -82,6 +82,7 @@ Guest phone / staff tablet
 | **P11** | 혼자야 기프티콘 (code-based single-use gift, 링크/문자 전달, 태블릿 사용) | **DONE (lint/build 통과, 커밋 완료 — 서버 마이그레이션 대기)** |
 | **Ops** | Cloudflare cutover (`api.honjaya-server.xyz` live, Tailscale → backup, `vercel.json` rewrite swapped) | **DONE** |
 | **P12** | Discord 통합 관리 시스템: 봇(서버 전체 관리) + 암호화 자동 백업 → Discord 업로드 + 웹 관리자 `/admin/discord` | **IN PROGRESS** — P12A~P12E 커밋 완료(`333dafa`), see §3-13 |
+| **P14K** | ARC 운영 안정화 + 교육자료: 스키마 자기치유(해시 지문), 월 1회 실사 재등록 허용, 인쇄용 교육자료(오랄테스트 대비) | **DONE (code + 9/9 schema harness, 7/7 boot smoke)** |
 
 ---
 
@@ -2109,6 +2110,48 @@ Two real defects were found and fixed during verification: `arc_event_staff` had
 
 ---
 
+### O. P14K — 스키마 자기치유 + 실사 재등록 + 인쇄용 교육자료 (2026-xx-xx)
+
+**Why (three user reports, one turn).**
+1. 「테이블을 찾을 수 없어요」 across *most* ARC menus and 「실사 등록이 안 됨」 — both were the same bug.
+2. 「품질관리 · 사후검토」 specifically — the table never existed in the live DB.
+3. 「월간교육 및 OT」 needed real study material: 교육 목표 / 상황연습 / 절대금지 written for a general
+   public audience, with tips, so staff and the owner can pass a verbal test — and printable as a 교재.
+
+**Root cause (1 + 2).** `server/src/index.js` `ensureSchema()` gated the whole boot-time schema apply on a
+hardcoded `REQUIRED_TABLES` list of 10 sentinels. Once those 10 existed it returned early and never re-applied
+`server/sql/arc.sql`, so every table/column added later (`arc_quality_records`, `arc_quality_actions`,
+`arc_events*`, `arc_stocktakes.method`, …) stayed missing on the live DB. `apply-schema.mjs` itself was fine —
+it just never ran. `server/src/db.js` maps PostgREST-style `PGRST205` to 「테이블을 찾을 수 없어요」, which is the
+message the user saw.
+
+| layer | change |
+| --- | --- |
+| `server/scripts/apply-schema.mjs` | `schemaFiles()` (single ordered list: `supabase/schema.sql` → non-skipped `supabase/patch-*.sql` → `server/sql/*.sql`, `arc.sql` last), `schemaFingerprint()` (sha256 of basename+contents, hex 32), `expectedTables()` (parses `create table public.X` and nets out `drop table` chunks). `applySchema()` now upserts the fingerprint into `public.schema_state`. |
+| `server/src/index.js` | Static `REQUIRED_TABLES` removed. `ensureSchema()` compares the stored `schema_state.sql_hash` + `expectedTables()` drift against the live DB and re-applies when either mismatches, then re-verifies. Still never blocks boot (Korean warning on failure). |
+| `server/src/arcStock.js` | `createArcStocktake` no longer throws when that month already exists — returns the existing sheet with `reused: true`. |
+| `src/lib/arc.js` · `AdminArcStocktakeView.vue` | client returns `{ stocktake, items, reused }`; view opens the existing sheet and says so, plus an empty-items hint pointing at 「재고」. |
+| `server/src/arcTrainingGuide.js` (new) | `MODULE_GUIDE` (15 modules), `SCENARIO_GUIDE` (21 scenarios), `FORBIDDEN_GUIDE` (30 금지), `EXAM_GUIDE` (4단계 진행법) — all keyed to `arcTraining.js` catalogs, general-public Korean with numbers/tips/mistakes/oral Q&A. `arcTrainingGuide()` merges catalog + guide. |
+| `server/src/routes/api/arc.js` | `GET /api/arc/training/guide` (`requireView`). |
+| `src/views/Admin/AdminArcTrainingGuideView.vue` (new) | paper-style printable sheet: 3분 요약 카드 → 진행 방법 → 1부 모듈 → 2부 상황연습 → 3부 절대금지, module/category/금지 filters, 「인쇄 · PDF 저장」. Print CSS (global block keyed on `body.arc-guide-open`) hides `.admin-sidebar`/`.admin-topbar`, collapses `.admin-layout` grid, forces white paper + `@page` margins. |
+| router/menu | `/admin/arc/training/guide` (`admin-arc-training-guide`, `arc.view`) + 「교육자료·출력」 link in the training view header. |
+
+**Verified.**
+- Schema harness on an ephemeral Postgres: **9/9** — 69 expected tables created, fingerprint stored, apply
+  idempotent, simulated drift (dropped `arc_quality_actions`, `arc_quality_records`,
+  `arc_stocktakes.method`, `arc_stocktakes.witness_name`) healed on boot, second boot logs
+  `[schema] 스키마 최신 상태 확인`.
+- Guide data: **15/15 modules, 21/21 scenarios, 30/30 forbidden** entries resolved.
+- API boot smoke on an ephemeral Postgres: **7/7** — boot ok, no `DUPLICATED_ROUTE`, `[schema]` logged,
+  `GET /health` 200, `GET /api/arc/training/guide` 401 (registered, session required),
+  `GET /api/arc/training/catalog` 401, unknown path 404.
+- SFC compile check (`@vue/compiler-sfc`): script + template + both style blocks ok.
+
+**Deploy note.** First boot after this deploy re-applies the whole schema once (no stored fingerprint yet) —
+idempotent, 1–2 min; subsequent boots print `[schema] 스키마 최신 상태 확인`.
+
+---
+
 ## 4. Open questions
 
 1. ~~**₩30,000 point-redemption threshold**: before or after discount?~~ → **resolved in P5**: after discount, before point deduction.
@@ -2210,6 +2253,9 @@ done     p14h-care-form      DONE: AS-REC-001 별첨 A ② 비현장 보고 6필
 done     ops-auto-schema     DONE: api 기동 시 필수 테이블 점검 → 없으면 스키마 자동 적용(AUTO_SCHEMA=1). "테이블을 찾을 수 없어요" 재발 방지
 done     p14i-quality        DONE: arc_quality_records/actions + arcQuality.js(F11·F12·F13·F14) + /admin/arc/quality(대시보드 KPI·사건 연동·개선조치 추적)
 done     p14j-events         DONE: arc_events/tasks/staff + arcEvents.js(행사 7종·지원수준 4단계·L×S 위험평가·3단계 체크리스트·AS-NOT-001 고지서) + /admin/arc/events + 사건↔행사 연결
+done     p14k-schema-heal     스키마 해시 지문(schema_state) + expectedTables 대조로 기동 시 자기치유 → 「테이블을 찾을 수 없어요」 근본 해결
+done     p14k-stocktake-reuse 월 1회 실사: 같은 달 재등록 시 기존 실사를 열어주고 안내 (예외 대신 재사용)
+done     p14k-training-guide  AS-GDE-001 기반 인쇄용 교육자료(모듈 15·상황연습 21·절대금지 30·진행법) + /admin/arc/training/guide + 인쇄 CSS
 ```
 
 ---
@@ -2221,6 +2267,10 @@ done     p14j-events         DONE: arc_events/tasks/staff + arcEvents.js(행사 
 - Fastify JSON parser accepts empty bodies (postgrest-js sends `content-type: application/json` on DELETEs).
 - CORS `allowedHeaders` must keep `accept-profile` / `content-profile` (supabase-js 2.116+).
 - `apply-schema.mjs` handles `do $$ ... $$` blocks; `staff.sql` is safe.
+- **P14K:** `ensureSchema()` no longer uses a sentinel table list. It compares `public.schema_state.sql_hash`
+  with `schemaFingerprint()` **and** probes every table from `expectedTables()`. Editing any SQL file changes
+  the hash → the next boot re-applies the whole (idempotent) pipeline once. If you add a `create table` inside
+  a file that a later patch drops, add it to the drop list or `expectedTables()` will demand it.
 - Do **not** add staff tables to `server/src/tables.js` (same for `prepaid_*`, `gift_*`, and the future `discord_*` / `backup_*`).
 - `process.exit()` with embedded-postgres prints a benign termination notice and a non-zero exit code.
 - Console output of Korean text is CP949 mojibake; read files with `-Encoding UTF8`.

@@ -4,41 +4,60 @@ import { config } from "./config.js";
 import { closePool, pool } from "./db.js";
 import { messagingReadiness } from "./messaging.js";
 import { startEventBroadcast, stopEventBroadcast } from "./routes/events.js";
-import { applySchema } from "../scripts/apply-schema.mjs";
+import {
+  applySchema,
+  expectedTables,
+  schemaFingerprint,
+} from "../scripts/apply-schema.mjs";
 
 // 배포 후 migrate 를 잊으면 화면마다 "테이블을 찾을 수 없어요." 가 뜹니다.
-// AUTO_SCHEMA=1 이면 기동할 때 꼭 있어야 할 테이블을 확인하고, 빠진 게 있으면 스키마를 적용합니다.
+// AUTO_SCHEMA=1 이면 기동할 때 (1) SQL 이 만들어야 하는 테이블이 다 있는지,
+// (2) 마지막으로 적용한 SQL 지문과 지금 SQL 지문이 같은지 확인하고,
+// 둘 중 하나라도 어긋나면 스키마를 적용합니다.
 // (모든 SQL 이 멱등이라 이미 적용된 DB 에서는 조회 한 번으로 끝납니다)
-const REQUIRED_TABLES = [
-  "products",
-  "employees",
-  "order_sheets",
-  "customers",
-  "coupons",
-  "arc_items",
-  "arc_settings",
-  "arc_care_records",
-  "arc_care_files",
-  "arc_training_sessions",
-];
-
 async function missingTables() {
-  const select = REQUIRED_TABLES.map(
-    (name) => `to_regclass('public.${name}') is not null as ${name}`
-  ).join(", ");
+  const tables = expectedTables();
+  const select = tables
+    .map((name) => `to_regclass('public.${name}') is not null as ${name}`)
+    .join(", ");
   const { rows } = await pool.query(`select ${select}`);
 
-  return REQUIRED_TABLES.filter((name) => !rows[0][name]);
+  return tables.filter((name) => !rows[0][name]);
+}
+
+async function appliedSchemaHash() {
+  try {
+    const { rows } = await pool.query(
+      "select sql_hash from public.schema_state where id = 'schema'"
+    );
+
+    return rows[0]?.sql_hash || "";
+  } catch (error) {
+    // schema_state 가 없는 예전 DB 는 아직 아무것도 기록되지 않은 상태입니다.
+    if (error.code === "42P01" || error.code === "42703") {
+      return "";
+    }
+
+    throw error;
+  }
 }
 
 async function ensureSchema(log) {
   const missing = await missingTables();
+  const applied = await appliedSchemaHash();
+  const expected = schemaFingerprint();
 
-  if (missing.length === 0) {
+  if (missing.length === 0 && applied === expected) {
+    log.info("[schema] 스키마 최신 상태 확인");
     return;
   }
 
-  log.info(`[schema] 없는 테이블 ${missing.length}개: ${missing.join(", ")}`);
+  if (missing.length > 0) {
+    log.info(`[schema] 없는 테이블 ${missing.length}개: ${missing.join(", ")}`);
+  } else {
+    log.info("[schema] SQL 파일이 바뀌어서 스키마를 다시 적용합니다.");
+  }
+
   log.info("[schema] 기동 중 스키마를 적용합니다. 첫 배포에서는 1~2분 걸릴 수 있어요.");
 
   await applySchema(config.databaseUrl, log);

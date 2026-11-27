@@ -111,6 +111,7 @@ import {
   saveArcTrainingAttendees,
   updateArcTrainingSession,
 } from "../../arcTraining.js";
+import { arcTrainingGuide } from "../../arcTrainingGuide.js";
 import { HttpError } from "../../http/errors.js";
 import {
   addArcEventTask,
@@ -1070,6 +1071,10 @@ export function registerArcRoutes(app) {
 
   app.get("/api/arc/training/catalog", { preHandler: requireView }, async () =>
     arcTrainingCatalog()
+  );
+
+  app.get("/api/arc/training/guide", { preHandler: requireView }, async () =>
+    arcTrainingGuide()
   );
 
   app.post("/api/arc/training", { preHandler: requireDirector }, async (request) => {

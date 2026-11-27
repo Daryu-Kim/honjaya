@@ -17,6 +17,9 @@
         <router-link to="/admin/arc/routine" class="link-button">
           월간 운영 루틴
         </router-link>
+        <router-link to="/admin/arc/training/guide" class="link-button">
+          교육자료·출력
+        </router-link>
       </nav>
     </header>
 

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -28,6 +29,12 @@ begin
     create publication supabase_realtime;
   end if;
 end $$;
+
+create table if not exists public.schema_state (
+  id         text primary key,
+  sql_hash   text not null default '',
+  applied_at timestamptz not null default now()
+);
 `;
 
 function splitStatements(sql) {
@@ -180,6 +187,107 @@ async function runSqlFile(client, path, log) {
   log.info?.(`[schema] ${label}: ${applied}개 적용, ${skipped}개 이미 적용됨`);
 }
 
+// applySchema 가 실제로 실행하는 SQL 파일 목록(순서 중요).
+// 목록을 여기 한 곳에서만 관리해서, 기동 시 점검(index.js)과 실제 적용이 어긋나지 않게 합니다.
+export function schemaFiles(log = null) {
+  const files = [join(repoRoot, "supabase", "schema.sql")];
+
+  const patches = readdirSync(join(repoRoot, "supabase"))
+    .filter((file) => /^patch-\d+.*\.sql$/i.test(file))
+    .sort();
+
+  for (const patch of patches) {
+    const number = (/^patch-(\d+)/i.exec(patch)?.[1] || "").padStart(3, "0");
+
+    if (SKIP_PATCH_NUMBERS.has(number)) {
+      log?.info?.(`[schema] ${patch}: 건너뜀(Supabase/데이터 전용)`);
+      continue;
+    }
+
+    files.push(join(repoRoot, "supabase", patch));
+  }
+
+  return [
+    ...files,
+    // 마스터 표가 먼저 있어야 events.sql 의 트리거 생성 루프가 bar_tables 를 잡습니다.
+    join(serverRoot, "sql", "tables.sql"),
+    join(serverRoot, "sql", "events.sql"),
+    join(serverRoot, "sql", "staff.sql"),
+    // guest.sql 은 orders 를 alter 하므로 schema.sql 이후에 실행되어야 합니다.
+    join(serverRoot, "sql", "guest.sql"),
+    // payments.sql 은 order_sheets 에 paid_amount 를 추가하고 기존 결제를 이관합니다.
+    // staff.sql(employees) 이후여야 employee_id 참조가 성립합니다.
+    join(serverRoot, "sql", "payments.sql"),
+    // points.sql 은 customers/point_ledger 를 만들고 order_sheets 에 points_used 를 추가합니다.
+    // employees, payments 가 먼저 있어야 참조가 성립합니다.
+    join(serverRoot, "sql", "points.sql"),
+    // crm.sql 은 customers 를 확장하고 payments.customer_id 를 붙입니다(방문 이력 계산용).
+    join(serverRoot, "sql", "crm.sql"),
+    join(serverRoot, "sql", "marketing.sql"),
+    // coupons.sql 은 customers 를 참조하므로 맨 마지막에 실행합니다.
+    join(serverRoot, "sql", "coupons.sql"),
+    // prepaid.sql(선불권) 도 customers/payments 를 참조하므로 그 뒤에 실행합니다.
+    join(serverRoot, "sql", "prepaid.sql"),
+    // gifts.sql(기프티콘) 은 products/customers/employees 를 참조하므로 맨 마지막입니다.
+    join(serverRoot, "sql", "gifts.sql"),
+    // discord.sql(P12). 다른 테이블을 참조하지 않는 독립 스키마라 순서는 상관없지만,
+    // 봇 컨테이너가 가장 늦게 투입되므로 마지막에 둡니다.
+    join(serverRoot, "sql", "discord.sql"),
+    // arc.sql(P14 응급안전). employees 를 참조하므로 staff.sql 뒤에 둡니다.
+    join(serverRoot, "sql", "arc.sql"),
+  ];
+}
+
+// 적용 대상 SQL 파일 내용으로 만든 지문.
+// 배포된 SQL 과 DB 에 마지막으로 적용된 SQL 이 같은지 비교하는 데 씁니다.
+export function schemaFingerprint() {
+  const hash = createHash("sha256");
+
+  for (const file of schemaFiles()) {
+    hash.update(basename(file));
+    hash.update(readFileSync(file, "utf8"));
+  }
+
+  return hash.digest("hex").slice(0, 32);
+}
+
+// SQL 파일이 만들어야 하는 테이블 이름 목록.
+// 목록을 손으로 관리하면 꼭 빠뜨리기 때문에 파일에서 직접 읽습니다.
+// 중간에 drop table 로 지우는 테이블(예: chat_messages)은 최종 목록에서 뺍니다.
+export function expectedTables() {
+  const tables = new Set();
+
+  for (const file of schemaFiles()) {
+    const sql = readFileSync(file, "utf8").replace(/--[^\n]*/g, "");
+
+    for (const match of sql.matchAll(
+      /create\s+table\s+(?:if\s+not\s+exists\s+)?public\.([a-z0-9_]+)/gi
+    )) {
+      tables.add(match[1].toLowerCase());
+    }
+
+    for (const match of sql.matchAll(
+      /drop\s+table\s+(?:if\s+exists\s+)?([^;]+)/gi
+    )) {
+      for (const chunk of match[1].split(",")) {
+        const name = chunk
+          .replace(/\b(cascade|restrict)\b/gi, "")
+          .split(".")
+          .pop()
+          .replace(/"/g, "")
+          .trim()
+          .toLowerCase();
+
+        if (/^[a-z0-9_]+$/.test(name)) {
+          tables.delete(name);
+        }
+      }
+    }
+  }
+
+  return [...tables];
+}
+
 export async function applySchema(connectionString, log = console) {
   const client = new pg.Client({ connectionString });
 
@@ -187,49 +295,19 @@ export async function applySchema(connectionString, log = console) {
 
   try {
     await client.query(BOOTSTRAP_SQL);
-    await runSqlFile(client, join(repoRoot, "supabase", "schema.sql"), log);
 
-    const patches = readdirSync(join(repoRoot, "supabase"))
-      .filter((file) => /^patch-\d+.*\.sql$/i.test(file))
-      .sort();
-
-    for (const patch of patches) {
-      const number = (/^patch-(\d+)/i.exec(patch)?.[1] || "").padStart(3, "0");
-
-      if (SKIP_PATCH_NUMBERS.has(number)) {
-        log.info?.(`[schema] ${patch}: 건너뜀(Supabase/데이터 전용)`);
-        continue;
-      }
-
-      await runSqlFile(client, join(repoRoot, "supabase", patch), log);
+    for (const file of schemaFiles(log)) {
+      await runSqlFile(client, file, log);
     }
 
-    // 마스터 표가 먼저 있어야 events.sql 의 트리거 생성 루프가 bar_tables 를 잡습니다.
-    await runSqlFile(client, join(serverRoot, "sql", "tables.sql"), log);
-    await runSqlFile(client, join(serverRoot, "sql", "events.sql"), log);
-    await runSqlFile(client, join(serverRoot, "sql", "staff.sql"), log);
-    // guest.sql 은 orders 를 alter 하므로 schema.sql 이후에 실행되어야 합니다.
-    await runSqlFile(client, join(serverRoot, "sql", "guest.sql"), log);
-    // payments.sql 은 order_sheets 에 paid_amount 를 추가하고 기존 결제를 이관합니다.
-    // staff.sql(employees) 이후여야 employee_id 참조가 성립합니다.
-    await runSqlFile(client, join(serverRoot, "sql", "payments.sql"), log);
-    // points.sql 은 customers/point_ledger 를 만들고 order_sheets 에 points_used 를 추가합니다.
-    // employees, payments 가 먼저 있어야 참조가 성립합니다.
-    await runSqlFile(client, join(serverRoot, "sql", "points.sql"), log);
-    // crm.sql 은 customers 를 확장하고 payments.customer_id 를 붙입니다(방문 이력 계산용).
-    await runSqlFile(client, join(serverRoot, "sql", "crm.sql"), log);
-    await runSqlFile(client, join(serverRoot, "sql", "marketing.sql"), log);
-    // coupons.sql 은 customers 를 참조하므로 맨 마지막에 실행합니다.
-    await runSqlFile(client, join(serverRoot, "sql", "coupons.sql"), log);
-    // prepaid.sql(선불권) 도 customers/payments 를 참조하므로 그 뒤에 실행합니다.
-    await runSqlFile(client, join(serverRoot, "sql", "prepaid.sql"), log);
-    // gifts.sql(기프티콘) 은 products/customers/employees 를 참조하므로 맨 마지막입니다.
-    await runSqlFile(client, join(serverRoot, "sql", "gifts.sql"), log);
-    // discord.sql(P12). 다른 테이블을 참조하지 않는 독립 스키마라 순서는 상관없지만,
-    // 봇 컨테이너가 가장 늦게 투입되므로 마지막에 둡니다.
-    await runSqlFile(client, join(serverRoot, "sql", "discord.sql"), log);
-    // arc.sql(P14 응급안전). employees 를 참조하므로 staff.sql 뒤에 둡니다.
-    await runSqlFile(client, join(serverRoot, "sql", "arc.sql"), log);
+    // 어디까지 적용된 DB 인지 지문을 남깁니다. 기동할 때 이 값과 비교해서
+    // SQL 파일이 바뀌었으면 스키마를 자동으로 다시 적용합니다(server/src/index.js).
+    await client.query(
+      `insert into public.schema_state (id, sql_hash, applied_at)
+       values ('schema', $1, now())
+       on conflict (id) do update set sql_hash = excluded.sql_hash, applied_at = now()`,
+      [schemaFingerprint()]
+    );
   } finally {
     await client.end();
   }

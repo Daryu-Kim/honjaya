@@ -198,6 +198,11 @@
         </span>
       </div>
 
+      <p v-if="!detail.items.length" class="empty-box">
+        실사 품목이 아직 없어요. 「재고」 화면에서 품목을 먼저 등록하면 실사를
+        만들 때 시스템 수량과 함께 자동으로 채워져요.
+      </p>
+
       <div class="table-wrap">
         <table class="data-table">
           <thead>
@@ -349,14 +354,22 @@ async function startStocktake() {
   isSaving.value = true;
 
   try {
-    const stocktake = await createArcStocktake({
+    const result = await createArcStocktake({
       period: newPeriod.value,
       witnessName: newWitness.value,
     });
 
-    flash(`${stocktake.period} 실사를 만들었어요.`);
+    if (!result.stocktake) {
+      throw new Error("실사를 만들지 못했어요.");
+    }
+
+    flash(
+      result.reused
+        ? `${result.stocktake.period} 실사는 이미 있어서 그 실사를 열었어요.`
+        : `${result.stocktake.period} 실사를 만들었어요.`
+    );
     await loadList();
-    await openStocktake(stocktake);
+    await openStocktake(result.stocktake);
   } catch (error) {
     errorMessage.value = error?.message || "실사를 만들지 못했어요.";
   } finally {
