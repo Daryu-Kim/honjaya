@@ -44,7 +44,12 @@ import AdminArcExpenseView from "@/views/Admin/AdminArcExpenseView.vue";
 import StaffLoginView from "@/views/Staff/StaffLoginView.vue";
 import AdminLayout from "@/layouts/AdminLayout.vue";
 import { startGlobalBusy } from "@/lib/globalBusy";
-import { arcHomePath, canUseArc, hasArcLanded, markArcLanded } from "@/lib/arc";
+import {
+  arcHomePath,
+  canAccessArc,
+  hasArcLanded,
+  markArcLanded,
+} from "@/lib/arc";
 import { hasPermission, loadStaffSession } from "@/lib/staffAuth";
 
 const routes = [
@@ -339,7 +344,7 @@ router.beforeEach(async (to) => {
   if (employee) {
     // 응급안전관리센터는 사장·매니저 전용입니다.
     // 직원 계정에 arc.* 권한이 직접 들어 있어도 화면부터 막습니다.
-    if (to.path.startsWith("/admin/arc") && !canUseArc(employee.role)) {
+    if (to.path.startsWith("/admin/arc") && !canAccessArc(employee)) {
       return { path: "/admin/dashboard" };
     }
 

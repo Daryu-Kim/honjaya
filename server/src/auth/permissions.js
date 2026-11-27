@@ -344,23 +344,28 @@ export function permissionsForEmployee(row) {
   }
 
   const overrides = normalizePermissions(row.permissions);
+  // ARC 총괄 계정(yoonhee1021)은 역할·개별 권한 설정과 무관하게 응급안전 9종을 항상 가집니다.
+  const isDirector = isArcDirector(row.login_id);
 
-  if (overrides) {
-    if (row.role === "MANAGER") {
-      const roleDefaults = permissionsForRole("MANAGER");
+  if (overrides || isDirector) {
+    const base = overrides || permissionsForRole(row.role);
+    const roleDefaults = permissionsForRole(row.role);
 
-      return ALL_PERMISSIONS.filter((permission) => {
-        if (overrides.includes(permission)) {
-          return true;
-        }
+    return ALL_PERMISSIONS.filter((permission) => {
+      if (base.includes(permission)) {
+        return true;
+      }
 
-        return (
-          ARC_PERMISSION_SET.has(permission) && roleDefaults.includes(permission)
-        );
-      });
-    }
+      if (!ARC_PERMISSION_SET.has(permission)) {
+        return false;
+      }
 
-    return overrides;
+      if (isDirector) {
+        return true;
+      }
+
+      return row.role === "MANAGER" && roleDefaults.includes(permission);
+    });
   }
 
   return permissionsForRole(row.role);

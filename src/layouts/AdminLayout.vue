@@ -48,7 +48,7 @@
           >
             <div class="nav-button-main">
               <strong>응급안전관리센터</strong>
-              <span>사장·매니저 전용</span>
+              <span>사장·매니저·ARC 총괄 전용</span>
             </div>
             <span class="arc-group-caret" aria-hidden="true">{{
               isArcMenuOpen ? "−" : "+"
@@ -120,7 +120,7 @@ import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { staffAuthState, hasPermission, staffLogout } from "@/lib/staffAuth.js";
-import { canUseArc } from "@/lib/arc.js";
+import { canAccessArc } from "@/lib/arc.js";
 
 const router = useRouter();
 const route = useRoute();
@@ -376,7 +376,7 @@ const visibleMenuList = computed(() => {
 // 응급안전관리센터는 역할 자체가 사장·매니저여야 열립니다.
 // (직원 계정에 arc.* 권한이 직접 들어 있어도 숨깁니다 — 서버도 같은 기준으로 막습니다.)
 const visibleArcMenuList = computed(() => {
-  if (!canUseArc(currentEmployee.value?.role)) {
+  if (!canAccessArc(currentEmployee.value)) {
     return [];
   }
 

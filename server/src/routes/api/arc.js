@@ -74,11 +74,11 @@ import {
   voidArcUsage,
 } from "../../arcUsage.js";
 import { writeAuditLog } from "../../auth/audit.js";
-import { PERMISSIONS } from "../../auth/permissions.js";
+import { isArcDirector, PERMISSIONS } from "../../auth/permissions.js";
 import { createStaffGuard } from "../../auth/sessions.js";
 import { HttpError } from "../../http/errors.js";
 
-// 응급안전관리센터는 사장(대표)·매니저만 씁니다.
+// 응급안전관리센터는 사장(대표)·매니저, 그리고 ARC 총괄 계정(yoonhee1021)만 씁니다.
 // 직원 계정에 arc.* 권한을 직접 넣어도 여기서 다시 막습니다. (2026-11-28 대표 지시)
 const ARC_ROLES = ["OWNER", "MANAGER"];
 
@@ -88,13 +88,13 @@ function arcGuard(permission) {
   return async (request, reply) => {
     await base(request, reply);
 
-    const role = request.staff?.employee?.role;
+    const employee = request.staff?.employee;
 
-    if (!ARC_ROLES.includes(role)) {
+    if (!ARC_ROLES.includes(employee?.role) && !isArcDirector(employee?.loginId)) {
       throw new HttpError(
         403,
         "HJ403",
-        "응급안전관리센터는 사장·매니저만 사용할 수 있어요."
+        "응급안전관리센터는 사장·매니저·ARC 총괄만 사용할 수 있어요."
       );
     }
   };

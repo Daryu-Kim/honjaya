@@ -11,14 +11,18 @@ export function canUseArc(role) {
   return ARC_ALLOWED_ROLES.includes(String(role || ""));
 }
 
+// 화면·라우터는 역할이 아니라 "직원 정보"로 판단합니다.
+// ARC 총괄 계정(yoonhee1021)은 역할과 상관없이 통과시킵니다.
+export function canAccessArc(employee) {
+  return Boolean(employee?.isArcDirector) || canUseArc(employee?.role);
+}
+
 // 응급안전관리센터 총괄(yoonhee1021) 계정의 첫 화면입니다.
 // 서버가 직원 정보에 isArcDirector 를 내려 주면 그 계정은 로그인 직후 ARC 로 들어갑니다.
 export const ARC_HOME_PATH = "/admin/arc";
 
 export function arcHomePath(employee) {
-  return employee?.isArcDirector && canUseArc(employee?.role)
-    ? ARC_HOME_PATH
-    : "";
+  return employee?.isArcDirector ? ARC_HOME_PATH : "";
 }
 
 // 첫 화면 이동은 브라우저 탭당 1회만 적용합니다.

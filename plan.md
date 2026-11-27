@@ -1757,6 +1757,14 @@ Mapping (no new accounts — owner decision 2026-11-27):
   When set, the SPA (a) lands on `/admin/arc` right after login (`arcHomePath()` in `src/lib/arc.js`),
   (b) sends the first `/admin/dashboard` entry to `/admin/arc` (one-shot per browser tab via
   `sessionStorage`), and (c) opens the ARC sidebar group by default. No schema change; no new role.
+  **Full register access (owner decision 2026-11-28, follow-up)** — the director flag is honored at all
+  three gates so she can create records in every ARC menu regardless of her live `role`:
+  `permissionsForEmployee()` always returns the 9 `arc.*` codes for the director (even when she has an
+  explicit override array), `arcGuard()` in `server/src/routes/api/arc.js` accepts
+  `role in (OWNER, MANAGER) || isArcDirector(loginId)` (message: 사장·매니저·ARC 총괄), and the SPA uses
+  `canAccessArc(employee)` (`src/lib/arc.js`) for the router guard and the sidebar group.
+  Unchanged: the detailed health record (상세 건강기록) still needs a per-incident `arc_sensitive_access`
+  approval by another ARC approver (사장) — the 2-person rule from AS-CARE is not relaxed.
 - **임시은 (직원, STAFF)** — `arc.view` + `arc.stock` + 본인 OTC 자기점검(`arc_otc_checks`는 본인 행만). `arc.sensitive` 없음.
 
 ### F. UI
