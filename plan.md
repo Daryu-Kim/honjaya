@@ -1580,7 +1580,7 @@ Shared: `src/lib/shop.js` (client + formatters + slot builder) and
 
 ---
 
-## 3-15. P14 — ARC SAFETY 응급안전관리센터 (P14A+P14B SHIPPED 2026-11-27, rev 2026-11-27)
+## 3-15. P14 — ARC SAFETY 응급안전관리센터 (P14A+P14B+P14C SHIPPED 2026-11-27, rev 2026-11-27)
 
 Rev 2 changes (owner decisions): 혼자야 단일 사업장 · 상세 건강기록 R1 포함 · 백업은 ARC 포함(→ 앱 레벨
 암호화) · 김원재=사장/임시은=직원 · 최윤희는 기존 MANAGER 계정 재사용 · **2FA 범위 제외**.
@@ -1606,6 +1606,32 @@ OTC self-check. `routes/api/arc.js` gains ~20 endpoints; `GET /api/arc/dashboard
 `/admin/arc/otc` (+ router + menu + dashboard cards). Verified: eslint 0 errors, `node --check`,
 `vue-cli-service build` OK. Deploy: run `docker compose run --rm migrate` so the new tables/seed
 exist before opening the screens.
+
+**P14C shipped** (commit `b10eba5`): `server/sql/arc.sql` adds `arc_incidents`, `arc_care_records`,
+`arc_care_timeline`, `arc_care_meds`, `arc_care_addenda`. Identifiable health detail lives only in
+`*_enc` columns (AES-256-GCM `v1:` envelope via `arcCrypto.js`); the incident row keeps a
+**비식별** `summary/place/subject_label` in plaintext so lists never need decryption.
+`server/src/arcIncidents.js` (13 exports) owns incident numbering (`INC-YYYYMMDD-nn`, KST, 5 retries
+on `23505`), status/종결 handling, `safeSummary()` (rejects 6+ digit runs and `@`), the care-basis
+matrix, timeline/meds normalization (`HH:MM`) and append-only addenda. `findActiveArcConsent()` was
+added to `arc.js`; `hasValidArcConsent()` now delegates to it. `routes/api/arc.js` gains 7 endpoints
+(`GET/POST /api/arc/incidents`, `GET/PATCH /api/arc/incidents/:id`, `GET/PATCH .../care`,
+`POST .../addenda`) and `GET /api/arc/dashboard` now also returns `incidents`
+(`open/thisMonth/emergencyLast90Days/transferredLast90Days/total/withCare`). New admin screens
+`/admin/arc/incidents` (list + 접수) and `/admin/arc/incidents/:incidentId` (사건 정보 · 동의서 ·
+열람 승인 gate · AS-CARE 01/02/03 · 추가기록), plus menu entry, dashboard link and 3 cards.
+
+**P14C access decision (important):** creating a care record needs `arc.care` **and** a legal basis
+that permits identifiable detail, then the writer is auto-granted an APPROVED `arc_sensitive_access`
+row (purpose `기록 작성자 자동 승인(작성·확인 목적)`, decision reason `자동: 기록 작성자`, TTL from
+`arc_settings`, audit `arc.access.auto`) so the author can read/finish their own record without a
+self-approval deadlock. **Reading** (`GET .../care`) and **addenda** (`POST .../addenda`) still
+require `arc.sensitive` + `assertArcSensitiveAccess` + `logArcSensitiveRead`. Care basis matrix
+(server-enforced, mirrored in the UI): GUEST → `CONSENT_F27 | OTHER_LEGAL`; STAFF_OTC →
+`CONSENT_F25 | OTHER_LEGAL`; EMERGENCY → `NOT_APPLICABLE | CONSENT_F27 | OTHER_LEGAL`;
+`DEIDENTIFIED` can never store care detail. STAFF(임시은) has no `arc.care`/`arc.sensitive`, so she
+cannot open the care payload at all. Verified: eslint 0 errors, `node --check` x3,
+`vue-cli-service build` OK. Deploy: `docker compose up -d --build` + `docker compose run --rm migrate`.
 
 Request source: `[개발 지시서] 혼자야 관리자 앱 내 ARC SAFETY 응급안전관리센터 구축`
 (partner request: 1 dashboard + 12 menus, 8 reference documents, ~40 record forms).
@@ -1856,7 +1882,7 @@ todo     p14-plan            ARC SAFETY 지시서+원본8종 분석 → plan §3
 todo     p13-first          P13(전자담배 예약) lint/build 검증 → 커밋·푸시. P14 착수 전 선행
 todo     p14a-base          DONE(03f2af5): arc.* 9권한 · ARC_FIELD_KEY 암복호화 · 종이동의 게이트 · 열람로그 · 알림함+디스코드 #응급안전
 todo     p14b-stock         DONE(d78375d): AS-KIT-001 49종+OTC 13종 시드 · 로트/EXP/개봉기한 알림 · 수불 단일경로 · 월 실사 확정 · 실비정산 · OTC 본인 자기점검
-todo     p14c-care          R1: 사건(INC-YYYYMMDD-nn) + AS-CARE 암호화 저장 + 동의(F25/F27) + 사건별 접근승인
+todo     p14c-care          DONE(b10eba5): 사건(INC-YYYYMMDD-nn)·AS-CARE 암호화 저장·동의(F25/F27)·사건별 접근승인(작성자 자동승인)
 todo     p14d-usage-expense R2: 사용대장 + 단가 자동계산 + 정산(EXP) 부분입금
 todo     p14e-check-edu     R2: 월간점검(CHK)·교육(EDU)·활동/캘린더(ACT)·실적 CSV
 todo     p14f-review-docs   R3: 사후검토·NearMiss·CAPA·서식 + arc-files 업로드(10MB·jpg/png/pdf) + XLSX(exceljs) + 2인승인 파기
