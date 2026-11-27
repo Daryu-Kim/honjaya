@@ -23,6 +23,12 @@ import AdminEmployeeView from "@/views/Admin/AdminEmployeeView.vue";
 import AdminDiscordView from "@/views/Admin/AdminDiscordView.vue";
 import UnsubscribeView from "@/views/User/UnsubscribeView.vue";
 import GiftCardView from "@/views/User/GiftCardView.vue";
+import ShopListView from "@/views/User/ShopListView.vue";
+import ShopDetailView from "@/views/User/ShopDetailView.vue";
+import ReservationCompleteView from "@/views/User/ReservationCompleteView.vue";
+import ReservationLookupView from "@/views/User/ReservationLookupView.vue";
+import AdminShopView from "@/views/Admin/AdminShopView.vue";
+import AdminReservationView from "@/views/Admin/AdminReservationView.vue";
 import StaffLoginView from "@/views/Staff/StaffLoginView.vue";
 import AdminLayout from "@/layouts/AdminLayout.vue";
 import { startGlobalBusy } from "@/lib/globalBusy";
@@ -87,6 +93,27 @@ const routes = [
     component: GiftCardView,
   },
   {
+    // 전자담배 예약 판매. 로그인 없이 열립니다(픽업 시 매장에서 신분증 확인).
+    path: "/shop",
+    name: "shop",
+    component: ShopListView,
+  },
+  {
+    path: "/shop/:productId",
+    name: "shop-detail",
+    component: ShopDetailView,
+  },
+  {
+    path: "/reserve/complete",
+    name: "reserve-complete",
+    component: ReservationCompleteView,
+  },
+  {
+    path: "/reserve/lookup",
+    name: "reserve-lookup",
+    component: ReservationLookupView,
+  },
+  {
     path: "/admin",
     component: AdminLayout,
     meta: { requiresStaff: true },
@@ -126,6 +153,18 @@ const routes = [
         name: "admin-gifts",
         component: AdminGiftView,
         meta: { permission: "gift.view" },
+      },
+      {
+        path: "shop/products",
+        name: "admin-shop",
+        component: AdminShopView,
+        meta: { permission: "shop.view" },
+      },
+      {
+        path: "shop/reservations",
+        name: "admin-shop-reservations",
+        component: AdminReservationView,
+        meta: { permission: "shop.view" },
       },
       {
         path: "customers",

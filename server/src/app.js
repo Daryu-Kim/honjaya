@@ -13,6 +13,7 @@ import { registerMarketingRoutes } from "./routes/api/marketing.js";
 import { registerPaymentRoutes } from "./routes/api/payments.js";
 import { registerPointRoutes } from "./routes/api/points.js";
 import { registerPrepaidRoutes } from "./routes/api/prepaid.js";
+import { registerShopRoutes } from "./routes/api/shop.js";
 import { registerStaffAuthRoutes } from "./routes/api/staffAuth.js";
 import { registerEventRoutes } from "./routes/events.js";
 import { registerRestRoutes } from "./routes/rest.js";
@@ -197,6 +198,8 @@ export async function buildApp(options = {}) {
       "/api/marketing/campaigns",
       "/api/marketing/unsubscribe",
       "/api/discord",
+      "/api/shop/products",
+      "/api/public/shop/products",
       "/health",
     ],
   }));
@@ -214,6 +217,7 @@ export async function buildApp(options = {}) {
   registerCrmRoutes(app);
   registerMarketingRoutes(app);
   registerDiscordRoutes(app);
+  registerShopRoutes(app);
 
   return app;
 }

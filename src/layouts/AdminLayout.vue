@@ -149,6 +149,20 @@ const menuList = [
     permission: "gift.view",
   },
   {
+    to: "/admin/shop/products",
+    label: "전자담배 상품 관리",
+    description: "예약 판매 상품·카테고리",
+    matchStartsWith: "/admin/shop/products",
+    permission: "shop.view",
+  },
+  {
+    to: "/admin/shop/reservations",
+    label: "전자담배 예약 관리",
+    description: "픽업 예약 접수·처리",
+    matchStartsWith: "/admin/shop/reservations",
+    permission: "shop.view",
+  },
+  {
     to: "/admin/customers",
     label: "고객 관리",
     description: "방문 이력·마케팅 동의",

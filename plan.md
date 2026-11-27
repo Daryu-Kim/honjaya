@@ -1481,6 +1481,270 @@ Key behaviours decided during implementation:
 
 ---
 
+## 3-14. P13 — 전자담배 예약(픽업) 판매 (IN PROGRESS — 코드 완료, SQL 적용 대기)
+
+### A. Why a separate module, not blendon
+
+The user's `blendon` repo (Nuxt 3 + Supabase, 587 files / 92k lines, live at `api.octoverse.kr`)
+was evaluated as a source. Porting or merging it was rejected:
+
+- stack mismatch (Nuxt 3 islands/SSR vs this Vue CLI SPA + Fastify), 317 server routes,
+  and a Supabase-only auth/payment model that does not fit a table-session bar.
+- honjaya's consumer ordering is **table-bound** (`UserCartView` bails without `tableNumber` +
+  `orderSheetId`). A reservation must work from home, with no table and no order sheet.
+- `scripts/menu/import-menu.mjs` soft-deletes any `products` row absent from `menu.json`.
+  Goods therefore **must not** live in `products`.
+- 담배사업법 제25조 bans online tobacco *sales*. The flow is **reserve now, pay + ID check at
+  pickup** — no online payment, no delivery.
+
+So P13 borrows blendon's *data model* (brand / flavor profile / nicotine type /
+adult-only / option groups) but implements a fresh, small module inside honjaya.
+
+### B. Data model (`server/sql/shop.sql`, standalone — not in `scripts/apply-schema.mjs`)
+
+| table | purpose |
+| --- | --- |
+| `shop_categories` | 액상 / 기기 / 액세서리 grouping |
+| `shop_products` | price, stock, `option_groups` jsonb (same camelCase shape as `products`), `flavor_profile`, `nicotine_type`, `is_nicotine_free`, `is_adult_only`, soft delete |
+| `reservations` | `reservation_no` unique (`R` + yyMMdd + 4 chars), pickup_at, status, totals, `is_adult_order`, `adult_checked_at/by`, memos |
+| `reservation_items` | price snapshot per line (`product_name`, `option_text`, `unit_price`, `line_amount`) |
+
+Tables are **not** added to `server/src/tables.js`, so `/rest/v1` cannot reach them.
+Access is only through `/api/shop/*` and `/api/public/shop/*`.
+
+### C. Availability model (deviation from the approved sketch)
+
+The first plan had a `shop_stock_holds` table. It was dropped: availability is computed at read
+time as `stock - sum(quantity of REQUESTED/CONFIRMED/READY items)`, and `stock` is only
+decremented on `PICKED_UP`. This removes a whole class of stale-hold bugs (crashed requests,
+abandoned holds) with one subquery in `PRODUCT_SELECT`, and `createReservation` already takes
+`select ... for update` on the product rows inside a transaction, so concurrent reservations
+still cannot oversell.
+
+### D. Status transitions (server-enforced, `ALLOWED_TRANSITIONS`)
+
+```
+REQUESTED → CONFIRMED | READY | CANCELED
+CONFIRMED → READY | PICKED_UP | CANCELED
+READY     → PICKED_UP | CANCELED | NO_SHOW
+PICKED_UP / CANCELED / NO_SHOW → terminal
+```
+
+`PICKED_UP` on an order containing any `is_adult_only` product requires `adult_checked_at`
+first — the API returns `HJ409` otherwise, and the admin UI disables the button until the
+"신분증 확인" checkbox is ticked.
+
+### E. API surface
+
+```
+public  GET    /api/public/shop/products[?categoryId=&q=]   → { categories, products }
+public  GET    /api/public/shop/products/:productId          → { product }
+public  POST   /api/public/reservations                      (20 req / 10 min / IP)
+public  POST   /api/public/reservations/lookup               → { reservation }
+public  POST   /api/public/reservations/cancel               → { reservation }
+staff   GET    /api/shop/categories | /api/shop/products | /api/shop/reservations | /api/shop/summary
+staff   POST   /api/shop/categories | /api/shop/products
+staff   PATCH  /api/shop/categories/:id | /api/shop/products/:id | /api/shop/reservations/:id
+staff   DELETE /api/shop/categories/:id | /api/shop/products/:id
+```
+
+- Lookup and cancel are **POST** on purpose: the phone number must not land in access logs.
+- Every staff write calls `writeAuditLog`.
+- `PATCH /api/shop/reservations/:id` is guarded by `shop.view` (not `shop.manage`) so STAFF can
+  process pickups; catalog edits need OWNER (`shop.manage`).
+
+### F. Permissions
+
+`SHOP_VIEW = "shop.view"` (STAFF + OWNER) · `SHOP_MANAGE = "shop.manage"` (OWNER only),
+registered in `PERMISSION_LABELS` and a new `PERMISSION_GROUPS` entry 「전자담배」.
+
+### G. Frontend
+
+| route | view | notes |
+| --- | --- | --- |
+| `/shop` | `ShopListView` | category chips, sold-out / low-stock states, 예약 조회 link |
+| `/shop/:productId` | `ShopDetailView` | option chips, qty stepper, pickup slot grid, 19세 동의, preview total only |
+| `/reserve/complete` | `ReservationCompleteView` | reads `lastReservation`; on refresh falls back to 조회 안내 |
+| `/reserve/lookup` | `ReservationLookupView` | 예약번호 + 연락처, self-cancel while REQUESTED/CONFIRMED |
+| `/admin/shop/products` | `AdminShopView` | 상품/카테고리 탭, option group editor, `shop.manage` gating |
+| `/admin/shop/reservations` | `AdminReservationView` | summary cards, filters, transition buttons, 성인 확인 |
+
+Shared: `src/lib/shop.js` (client + formatters + slot builder) and
+`src/components/shop/ReservationCard.vue`. Entry point is the 🛍️ card on `HomeView`.
+
+### H. Remaining
+
+1. Apply `server/sql/shop.sql` to the live PostgreSQL (server side).
+2. P13-4 notifications (Solapi 문자 / Discord 예약 알림) — not started.
+3. Optional: link reservation history into `/admin/customers`.
+
+---
+
+## 3-15. P14 — ARC SAFETY 응급안전관리센터 (PLANNED — no code written, rev 2026-11-27)
+
+Rev 2 changes (owner decisions): 혼자야 단일 사업장 · 상세 건강기록 R1 포함 · 백업은 ARC 포함(→ 앱 레벨
+암호화) · 김원재=사장/임시은=직원 · 최윤희는 기존 MANAGER 계정 재사용 · **2FA 범위 제외**.
+Rev 3 (2026-11-27, 13개 확인항목 전부 확정): 출력=인쇄+CSV+XLSX · 알림=디스코드 #응급안전+앱 ·
+파일=server/arc-files(백업 포함) · 번호=INC-YYYYMMDD-nn · 파기=2인 승인 · 실DB 즉시 적용 · P13 선행. See §H.
+
+Request source: `[개발 지시서] 혼자야 관리자 앱 내 ARC SAFETY 응급안전관리센터 구축`
+(partner request: 1 dashboard + 12 menus, 8 reference documents, ~40 record forms).
+Original reference docs (all read, 382 pages total): AS-OPS-001 통합운영문서, AS-CAL-001 1년 업무달력,
+AS-KIT-001 구급상자 운영관리대장, AS-GDE-001 현장 응급처치 교육가이드, AS-PRP-001 복수사업장 도입제안서,
+AS-REC-001 관리기록 서식집(AS-CARE, F01~F32), AS-PRIV-001 개인정보 처리방침, AS-NOT-001 외부인 개입금지 고지서.
+
+### A. Facts taken from the originals (not invented)
+
+| Item | Value from source docs |
+| --- | --- |
+| Sites | **혼자야 only (owner decision 2026-11-27).** Site B (베이프 소매 운영구역) and Site C (혼자야 bar) share one address, one 사업자등록 unit and **one physical first-aid kit**, so they are modelled as **one site**. Site A 쿠모랩스 (Incheon, separate 사업자등록) is **out of scope** → no site column / site selector / per-site rollups; printed forms hard-code 사업장 = 혼자야 |
+| People | 최윤희 (ARC SAFETY 대표·RN — 관리기준·교육·점검·기록품질), **김원재 = 사장 (OWNER)**, **임시은 = 직원 (STAFF)** — owner decision 2026-11-27. 최윤희 already has an account under her own name in the **live DB** (not in repo/seed/migrations — confirm role+permissions on the 관리자 직원 화면; see §H-1) |
+| Operating period | 2026.10.01 ~ 2027.09.30; 계약 2026.10.01~2027.03.31 자문 인력비 0원, 2027.03.15~03.31 평가 후 서면합의 |
+| Item master | AS-KIT-001 §02: ~40 codes (`DRS-*`, `BAN-*`, `GAU-001`, `PPE-*`, `TOOL-*`, `DEV-*`, `SYR-*`, `IRR-*`, `ANT-*`, `TOP-*`, ...), each with 규격 / 기준수량 / Level A·B·C / 점검 포인트 |
+| OTC master | `OTC-001`~`OTC-013` (직원 개인 상비약, 직원 본인 소유·본인 관리, 고객 제공 금지) |
+| EXP rules | 예: `IRR-1000` EXP 2029-07-02, 개봉 후 24시간 내 외용만, 잔량 폐기. EXP 알림 90/30/7일 |
+| Cycles | 매월 1~7일 재고·OTC 자기점검, 매월 20~말일 장부·정산 검토, 분기 기기 기능점검, 월 1회 구급상자 실물점검. 원본의 "점검표 Site별 분리 + 동일 증빙ID 연결"은 **불필요**(혼자야 단일 사업장·구급상자 1개) |
+| Record deadlines | 응급 기록 24시간, 비응급 3일 (내부 기준, 법정 의료기록 아님) |
+| Retention | 접근권한·감사로그 3년 이상, 민감정보 접근·열람·다운로드 로그 2년 이상 |
+| Official store | NAVER WORKS Works Drive 제한 폴더 — **API 연동 없음 → 자동동기화 표시 금지** |
+| Numbering | 문서에 형식 미규정 (INC/EXP/CHK/EDU/ACT/CAPA/AS-CARE 접두어만 존재) → 우리 규칙을 정의해 문서화한다 |
+
+### B. Constraints found in the current codebase (why this is not a "add 12 screens" task)
+
+| # | Constraint | Evidence | Consequence |
+| --- | --- | --- | --- |
+| 1 | Full-DB dump is uploaded to Discord and **must keep covering ARC** (owner decision 2026-11-27: no table exclusion) | `server/bot/src/backup.js` runs `pg_dump -Fc` with **no** `--exclude-table`; gzip+AES-256-GCM → split → Discord | ARC tables **stay in the dump**. Therefore the sensitive columns are **encrypted in the application** (AES-256-GCM, `ARC_FIELD_KEY` from env, stored as `v1:<base64 iv|tag|ct>`), so a dump/restore yields ciphertext only for health data |
+| 2 | No file upload anywhere — must be built | no `@fastify/multipart`, no storage module | `@fastify/multipart` + `server/arc-files/` 로컬 볼륨 + compose 마운트 + `.dockerignore`. 다운로드는 `arc.view` + (사건 첨부는) 접근승인 필요 |
+| 3 | No PDF/Excel generation | no pdf/xlsx dependency | **XLSX는 `exceljs`(MIT) 추가**, CSV는 기존 방식, PDF는 브라우저 인쇄로 대체 (사장 확정) |
+| 4 | No 2FA / MFA — **and 2FA is out of scope permanently** (owner decision 2026-11-27) | nothing matching `totp|otp|mfa` in `server/src/auth/` | 지시서의 "2단계 인증 지원"은 **명시적 제외 항목**. 관리자 화면은 `arc.*` 권한을 가진 사장·직원만 접근 가능하므로 `arc.sensitive` 권한 + 사건별 접근승인 + 열람사유 필수 + 30분 세션 + 열람로그로 갈음. 파트너 회신 시 제외 사유를 서면 기재 |
+| 5 | Roles are OWNER/MANAGER/STAFF only | `employees_role_check` in `server/sql/staff.sql` | 새 계정을 만들지 않는다. 최윤희 = 기존 계정 + `arc.*` override, 김원재 = 사장(OWNER) 계정, 임시은 = 직원(STAFF) — 역할 스키마 변경 없음 |
+| 6 | No e-signature | — | 1차는 계정 귀속 전자확인(누가·언제·IP) + 감사로그. 서명 이미지는 후속 |
+| 7 | Single sensitive-data blast radius | one DB, one admin UI, `audit.view` sees everything else | ARC tables stay out of `server/src/tables.js` (`/rest/v1` 403) and out of generic CSV exports |
+| 8 | Backup key and (new) field key both live in `server/.env`, which the server-bundle backup excludes | `.env` is auto-excluded from `BACKUP_SOURCE_DIR` | 필드키를 잃으면 상세 건강기록은 **복구 불가**. 오프라인 사본 보관 + 복구 훈련 절차에 필드키 단계 추가 (see §I-2) |
+
+### C. Domain model (new tables, all excluded from `/rest/v1`)
+
+Grouped so that personal data stays in the fewest possible tables:
+
+- **Master**: `arc_items` (code, name, category, spec, unit, level A/B/C, baseline_qty, min_qty, storage_location, owner_kind), `arc_item_lots` (EXP, opened_at, after_open_hours), `arc_stock_moves` (in/out/adjust, reason, ref), `arc_purchases` (구매단가 → 단가 계산 근거). No `arc_sites`: 혼자야 단일 사업장.
+- **Staff OTC**: `arc_otc_items` (OTC-001~013), `arc_otc_checks` (월간 자기점검, 본인확인)
+- **Ops**: `arc_incidents` (INC), `arc_usages` + `arc_usage_items` (사용대장, 재고 역분개 idempotent), `arc_expenses` + `arc_expense_payments` (EXP 정산, 부분입금)
+- **Inspection/edu/calendar**: `arc_checks` + `arc_check_items` (CHK), `arc_edu_sessions` + `arc_edu_attendance` (EDU), `arc_activities` (ACT), `arc_calendar_tasks` (AS-CAL-001 시드)
+- **Sensitive (gated)**: `arc_care_records` (AS-CARE-01), `arc_care_timeline`, `arc_care_meds`, `arc_consents` (F25/F27 동의·철회·보유기간, `kind='PAPER'` + `confirmed_by`/`confirmed_at`), `arc_sensitive_access` (사건별 접근 승인 + 열람 로그), `arc_purge_requests` (보존 만료 파기 — 사장+최윤희 2인 승인)
+  - Encrypted-by-application columns (`_enc` suffix, `v1:` envelope): 상대방/목격자 성명·연락처, 생년월일·성별, 병력·복약·알레르기, 사고 경위·처치 자유서술, 후송 결과. `arc_care_records.incident_no`, 상태, 일시, 담당자 id는 평문(색인·통계용).
+- **Review/documents**: `arc_reviews` (F11), `arc_near_miss` (F12), `arc_capa` (F13/F14), `arc_notices` (AS-NOT-001 교부), `arc_docs` (8종 메타데이터 + NAVER WORKS 수동 확인 필드), `arc_files` (업로드 메타데이터)
+- **Common**: `arc_notifications` (13종 알림 → 클릭 시 해당 업무로 이동), `arc_settings` (알림 채널 id, 보존기간, 업로드 한도)
+
+Server-side rules that must be enforced (not just hidden in UI):
+- 상세 건강정보는 `arc_consents` 유효 동의(또는 명시적 적법근거) + `arc.sensitive` 권한 + `arc_sensitive_access` 승인 3개가 모두 있어야 저장/조회. 없으면 비식별 카운트만.
+- 민감 컬럼은 **쓰기·읽기 모두 서버에서만** 암복호화하고, 응답·로그·에러 메시지에 평문을 남기지 않는다. 열람 1건당 `arc_sensitive_access` 1행(누가·언제·IP·사유).
+- 재고 차감은 `arc_stock_moves` 단일 경로로만. 사용기록 수정/취소 시 역분개 1회.
+- 금액은 서버 계산. 단가 미등록이면 `0원`이 아니라 `UNPRICED`.
+- `PICKED_UP`/완료 계열 전이는 감사로그 필수.
+
+### D. Phases — revised 2026-11-27 (상세 건강기록 is now in the first release)
+
+**R1 = 1차 배포 범위** (사장 확정: 식별 가능한 상세 건강기록 포함)
+
+| Phase | Scope | New tables | Why this order |
+| --- | --- | --- | --- |
+| **P14A** | 기반: `arc.*` 9개 권한, 필드 암호화 유틸(`ARC_FIELD_KEY`), 동의 게이트, `arc_sensitive_access` 열람로그, 알림함 + 디스코드 #응급안전 연동, `/admin/arc` 셸 | notifications, settings | 민감정보를 저장하기 **전에** 암호화·접근통제·로그가 먼저 있어야 한다 |
+| **P14B** | 재고·EXP 마스터 + 실사 + 수불 + 상비약 자기점검 | items/lots/stock_moves/purchases/otc | 개인정보 0건. 원본 마스터 시드로 즉시 업무효과 |
+| **P14C** | 사건 접수(INC) + AS-CARE 상세(암호화) + 동의(F25/F27) + 사건별 접근승인 | incidents/care/consents/sensitive_access | **R1의 핵심**. 상세 건강기록은 여기서 처음 저장된다 |
+
+**R2** — 업무 자동화
+
+| Phase | Scope | New tables | Why this order |
+| --- | --- | --- | --- |
+| **P14D** | 사용대장 + 단가·소모금액 + 정산(부분입금) | usages/usage_items/expenses/expense_payments | P14B 재고 위에서만 성립. INC는 P14C에서 이미 존재 |
+| **P14E** | 월간점검·교육·캘린더·실적 CSV | checks/check_items/edu/activities/calendar_tasks | AS-CAL-001 주기 자동화. 개인정보는 참석자 이름뿐 |
+
+**R3** — 기록 품질
+
+| Phase | Scope | New tables | Why this order |
+| --- | --- | --- | --- |
+| **P14F** | 사후검토(F11)·Near Miss(F12)·CAPA(F13/F14)·서식 라이브러리·**파일 업로드**·**XLSX/CSV/인쇄 출력**·보존만료 파기 승인 | reviews/near_miss/capa/docs/files/purge_requests | F01~F32 전자화는 지시서도 1차 축소 허용 |
+
+### E. Permission codes (add to `PERMISSION_GROUPS`, new group 「응급안전」)
+
+`arc.view` (조회) · `arc.stock` (재고·사용등록) · `arc.expense` (비용·정산) · `arc.approve` (승인·확인) ·
+`arc.check` (점검) · `arc.edu` (교육) · `arc.care` (사건·기록 작성) · `arc.sensitive` (민감 상세 열람) ·
+`arc.admin` (문서·권한·설정)
+
+Mapping (no new accounts — owner decision 2026-11-27):
+- **김원재 (사장, OWNER)** — 전체. OWNER는 override가 강제로 null이 되므로 role default로 전부 통과.
+- **최윤희 (기존 계정, 이름 그대로)** — `arc.view` `arc.stock` `arc.expense` `arc.approve` `arc.check` `arc.edu` `arc.care` `arc.sensitive` `arc.admin` override.
+  ⚠️ Repo/seed/migrations contain no such name, so her current role must be read from the live DB (`/admin` 직원 화면) before assigning — see §H-1.
+- **임시은 (직원, STAFF)** — `arc.view` + `arc.stock` + 본인 OTC 자기점검(`arc_otc_checks`는 본인 행만). `arc.sensitive` 없음.
+
+### F. UI
+
+`/admin/arc` (대시보드: 8 실적카드 + 8 빠른업무 + 알림), `/admin/arc/stock`, `/admin/arc/otc`,
+`/admin/arc/usages`, `/admin/arc/expenses`, `/admin/arc/checks`, `/admin/arc/edu`, `/admin/arc/calendar`,
+`/admin/arc/incidents`, `/admin/arc/care/:id`, `/admin/arc/reviews`, `/admin/arc/docs`.
+Entry: `/admin/dash` 빠른 메뉴 「응급안전관리센터」 + AdminLayout 「응급안전」 그룹.
+Print-only views per record (PDF는 브라우저 인쇄), lists export CSV.
+
+### G. Reuse (do not rebuild)
+
+`employees` + `permissions` override + `createStaffGuard` + `admin_audit_logs` (= AS-REC-F29 감사로그),
+`server/src/http/{sql,errors}.js`, `businessDay.toBusinessDate` (KST), Discord 채널 알림, `src/lib/api.js`,
+AdminLayout/table/modal 토큰. Do **not** put ARC data into `customers` or the sales statistics.
+Envelope-encryption reference: `server/bot/src/backupFiles.js` already does AES-256-GCM with
+`{ authTagLength }` + `v`-style framing — copy the pattern into `server/src/arcCrypto.js` (bot and api
+are separate services, so import the code, not the module).
+
+### H. Decisions
+
+**Confirmed by the owner (2026-11-27)**
+
+| # | Decision | Consequence in this plan |
+| --- | --- | --- |
+| 1 | 사업장은 **혼자야만** 관리 (쿠모랩스 제외) | `arc_sites` 테이블·사업장 선택 UI·사업장별 집계 없음. B/C는 한 사업장으로 취급, 인쇄물 사업장 칸 고정 |
+| 2 | 식별 가능한 **상세 건강기록을 1차(R1)에 포함** | P14C(사건+AS-CARE+동의)가 R1으로 승격. 암호화·접근승인·열람로그가 R1 필수 선행(P14A) |
+| 3 | **디스코드 백업에 ARC 데이터 포함** (테이블 제외 안 함) | `backup.js` 무변경. 대신 민감 컬럼 앱 레벨 암호화 → §I |
+| 4 | 김원재 = **사장(OWNER)**, 임시은 = **직원(STAFF)** | 역할명은 기존 `OWNER`/`STAFF` 라벨 그대로 사용(스키마 변경 없음) |
+| 5 | 최윤희 = **기존 계정 그대로**, 현재 역할은 **MANAGER(매니저)** | 신규 계정 생성 없음. 권한은 **매니저 기본값 유지 + `arc.*` 9종 추가** |
+| 6 | 최윤희는 매니저 기본 권한을 **그대로 유지** | ⚠️ 매출·고객·감사로그 열람 권한도 남는다(외부 파트너 — 사장이 수용). ARC 화면은 `arc.*`로 별도 통제하고 열람은 `arc_sensitive_access`에 남긴다 |
+| 7 | 동의는 **종이 서식 서명 → 직원이 앱에 '동의 확인' 체크** | `arc_consents.kind='PAPER'` + `confirmed_by`(직원 id) + `confirmed_at` 필수. 서명본 스캔은 증빙파일로 첨부(선택) |
+| 8 | 증빙 파일은 **서버 로컬 볼륨**에 저장하고 **매일 05:00 백업에 포함** | `server/arc-files/` — compose 볼륨 + `.dockerignore` 추가. 봇이 `/src`로 읽어 tar.gz로 함께 업로드(암호화 동일) |
+| 9 | 출력은 **인쇄 뷰 + CSV + XLSX** (PDF 파일 생성 없음) | `exceljs`(MIT)를 서버 의존성으로 추가. PDF는 브라우저 인쇄로 갈음 |
+| 10 | 알림은 **디스코드 신규 #응급안전 + 앱 알림함** | 문자 발송 없음(솔라피 미사용). 채널 id는 `arc_settings.alert_channel_id` |
+| 11 | 번호 규칙 = **`INC-YYYYMMDD-nn`** (EXP/CHK/EDU/ACT/CAPA 동일) | 일자별 순번. 동시 생성은 advisory lock으로 중복 방지 |
+| 12 | 품목 기준수량은 **원본 값 그대로 시드** | `baseline_qty` = AS-KIT-001 값. 현재고는 실사 컬럼으로 분리 유지 |
+| 13 | 직원 개인 상비약(OTC) **등록 + 매월 본인 자기점검** | `arc_otc_checks`는 본인 행만 조회/작성. "고객 제공 금지" 문구 고정 노출 |
+| 14 | 보존 만료는 **알림만**, 실제 파기는 **사장 + 최윤희 둘 다 승인** | `arc_purge_requests` 2인 승인 + 파기대장. **자동 삭제 없음** |
+| 15 | 실DB에는 **즉시 적용 가능** (신규 테이블만) | 적용 직전 수동 백업 1회 → `docker compose run --rm migrate` |
+| 16 | **P13 먼저** 검증·커밋·푸시 후 P14 착수 | 미커밋 P13을 먼저 정리해 같은 파일 충돌 방지 |
+
+**No blocking questions remain.**
+
+**Excluded by the owner (do not build)**
+
+- 2FA / TOTP / OTP — 관리자 접근 권한이 사장·직원으로 제한되어 있어 불필요. 지시서 요구에서 제외.
+
+### I. Backup impact — decided: ARC stays in the dump, so encrypt in the app
+
+Because the owner rejected excluding ARC tables from the Discord backup, the protection has to live **inside the data**, not in the backup config:
+
+1. **App-level field encryption.** Sensitive columns (`_enc`) are encrypted with AES-256-GCM using `ARC_FIELD_KEY` (32B base64, `server/.env`), stored as `v1:<base64 iv|tag|ciphertext>`. Key id is embedded so a future rotation can co-exist (`v2:`).
+2. **The key is never in the DB, never in the dump, never in the server-bundle backup** (`BACKUP_SOURCE_DIR` excludes `.env` by design). 오프라인 사본 필수 — 키 분실 = 상세 건강기록 영구 복구 불가. plan §6 참조.
+3. **Restore drill changes.** `pg_restore` 왕복 검증은 암호문 상태로도 통과하므로 기존 검증은 유효. 단, 복구 후 상세 열람 확인은 필드키가 있어야만 가능 → 복구 매뉴얼에 "필드키 주입 → 표본 1건 복호화 확인" 단계 추가.
+4. **Residual risk (must be told to the partner, in writing).** 디스코드 백업 채널 권한자 + `BACKUP_ENCRYPTION_KEY` + `ARC_FIELD_KEY`가 동시에 유출되면 건강정보가 노출된다. 완화: 백업 채널을 관리자 전용으로 두고 **디스코드 계정 자체의** 2FA를 켜 두며(우리 앱 기능 아님), 두 키를 서로 다른 곳에 보관, `arc_sensitive_access`로 열람 이력 상시 감시.
+5. No change to `server/bot/src/backup.js` in R1 — ARC 테이블은 자동으로 포함된다.
+
+6. **Attachments are backed up too (owner decision 2026-11-27).** Files go to `server/arc-files/` on the
+   host: mounted **rw** into `api` (new compose volume, e.g. `/app/arc-files`) and visible to `bot` through
+   the existing `../:/src:ro` mount at `/src/server/arc-files`, so `bundleSource` picks them up and the
+   05:00 run ships them inside the encrypted `server-*.tar.gz` parts. **Do not name the folder `backups`
+   or `csv`** — `serverBundle.js` `SKIP_DIRS` drops those names. Add `arc-files` to `.dockerignore`
+   (otherwise it inflates the api image) and keep it out of git.
+   Limits: `MAX_FILES=20000`, `MAX_BYTES=512MB` per bundle → per-file cap 10MB, allowed types
+   `image/jpeg|png|webp`, `application/pdf`; when the cap is hit only the SERVER run fails (DB run is a
+   separate job), so the bundle size is surfaced on `/admin/arc` and in `arc_notifications`.
+
+---
+
 ## 4. Open questions
 
 1. ~~**₩30,000 point-redemption threshold**: before or after discount?~~ → **resolved in P5**: after discount, before point deduction.
@@ -1560,8 +1824,22 @@ done     p12c-discord-readonly /admin/discord 읽기 전용: 개요·채널 트�
 done     p12d-discord-live     라이브 편집: 멤버(역할/닉네임/타임아웃/킥/밴)·메시지·스레드·초대·음성
 done     p12e-discord-struct   구조 편집 + apply 엔진: 채널/카테고리/역할 CRUD·재정렬·권한 매트릭스·diff·적용·롤백
                               → 코드 완료 (discordApply/discordRunner/structOps + 구조 편집 탭). 실 서버 스모크 대기
-todo     p12f-discord-extras   백업 설정 편집 + 확장 탭(이모지·스티커·AutoMod·예약 이벤트)
-                              → 코드 완료. 웹훅 알림·Discord OAuth2 로그인은 미착수
+done     p12f-discord-extras   백업 설정 편집 + 확장 탭(이모지·스티커·AutoMod·예약 이벤트)
+                              → 커밋 `65d6756`. 웹훅 알림·Discord OAuth2 로그인은 미착수
+todo     p13-shop-schema       shop.sql (shop_categories / shop_products / reservations / reservation_items) 서버 적용 대기
+done     p13-shop-domain       server/src/shop.js — 검증·가격·재고·상태전이·예약번호·rate limit
+done     p13-shop-routes       /api/public/shop/*, /api/public/reservations*, /api/shop/* + 감사 로그
+done     p13-shop-consumer-ui  /shop, /shop/:productId, /reserve/complete, /reserve/lookup + 홈 진입 버튼
+done     p13-shop-admin-ui     /admin/shop/products, /admin/shop/reservations + 네비 2개
+todo     p13-shop-notify       예약 접수·확정 알림(솔라피 문자 / 디스코드) — P13-4, 미착수
+todo     p14-plan            ARC SAFETY 지시서+원본8종 분석 → plan §3-15. 13개 확인항목 전부 확정(2026-11-27)
+todo     p13-first          P13(전자담배 예약) lint/build 검증 → 커밋·푸시. P14 착수 전 선행
+todo     p14a-base          R1: arc.* 9권한 + 최윤희(MANAGER) override · ARC_FIELD_KEY 암복호화 · 종이동의 체크 게이트 · 열람로그 · 알림함+디스코드 #응급안전
+todo     p14b-stock         R1: AS-KIT-001 기준수량 시드 · 로트/EXP 90/30/7일 · 수불 단일경로 · OTC 본인 자기점검
+todo     p14c-care          R1: 사건(INC-YYYYMMDD-nn) + AS-CARE 암호화 저장 + 동의(F25/F27) + 사건별 접근승인
+todo     p14d-usage-expense R2: 사용대장 + 단가 자동계산 + 정산(EXP) 부분입금
+todo     p14e-check-edu     R2: 월간점검(CHK)·교육(EDU)·활동/캘린더(ACT)·실적 CSV
+todo     p14f-review-docs   R3: 사후검토·NearMiss·CAPA·서식 + arc-files 업로드(10MB·jpg/png/pdf) + XLSX(exceljs) + 2인승인 파기
 ```
 
 ---
@@ -1693,3 +1971,12 @@ todo     p12f-discord-extras   백업 설정 편집 + 확장 탭(이모지·스�
 - **P12E:** no concurrency guard on `discord_apply_runs` — two admins can apply at the same time.
   Acceptable only while `discord.manage` is OWNER-only; add a guild-scoped advisory lock before
   granting it to MANAGER.
+- **P14 (decided 2026-11-27):** `server/bot/src/backup.js` dumps **every** table and uploads it to
+  Discord, and the owner wants ARC data **included**. So the dump cannot be the control point —
+  sensitive ARC columns must be encrypted in the app (`ARC_FIELD_KEY`) before the first such row is
+  written. `.env` (and therefore the key) is excluded from the server-bundle backup → keep an
+  off-line copy, otherwise detailed health records become unrecoverable.
+- **P14 attachments:** `server/arc-files/` is picked up by `serverBundle.js` through the bot's
+  `../:/src:ro` mount, so uploaded evidence leaves the server every 05:00 too — but the API container has
+  **no volume** today, so a compose mount + `.dockerignore` entry must be added before the first upload.
+  Never name the folder `backups`/`csv` (`SKIP_DIRS`).

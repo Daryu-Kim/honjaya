@@ -43,6 +43,8 @@ export const PERMISSIONS = {
   DISCORD_MANAGE: "discord.manage",
   DISCORD_BACKUP: "discord.backup",
   DISCORD_SETTINGS: "discord.settings",
+  SHOP_VIEW: "shop.view",
+  SHOP_MANAGE: "shop.manage",
 };
 
 const STAFF_PERMISSIONS = [
@@ -57,6 +59,7 @@ const STAFF_PERMISSIONS = [
   PERMISSIONS.GIFT_ISSUE,
   PERMISSIONS.MENU_TOGGLE,
   PERMISSIONS.DISCORD_VIEW,
+  PERMISSIONS.SHOP_VIEW,
 ];
 
 const MANAGER_PERMISSIONS = [
@@ -85,6 +88,7 @@ const OWNER_PERMISSIONS = [
   PERMISSIONS.DISCORD_MANAGE,
   PERMISSIONS.DISCORD_BACKUP,
   PERMISSIONS.DISCORD_SETTINGS,
+  PERMISSIONS.SHOP_MANAGE,
 ];
 
 const ROLE_PERMISSIONS = {
@@ -127,6 +131,8 @@ export const PERMISSION_LABELS = {
   [PERMISSIONS.DISCORD_MANAGE]: "Discord 서버 구조 관리",
   [PERMISSIONS.DISCORD_BACKUP]: "Discord 백업·복원",
   [PERMISSIONS.DISCORD_SETTINGS]: "Discord 봇 설정 변경",
+  [PERMISSIONS.SHOP_VIEW]: "전자담배 예약 조회·처리",
+  [PERMISSIONS.SHOP_MANAGE]: "전자담배 상품·카테고리 관리",
 };
 
 export const PERMISSION_GROUPS = [
@@ -208,6 +214,11 @@ export const PERMISSION_GROUPS = [
       PERMISSIONS.DISCORD_BACKUP,
       PERMISSIONS.DISCORD_SETTINGS,
     ],
+  },
+  {
+    key: "shop",
+    label: "전자담배",
+    permissions: [PERMISSIONS.SHOP_VIEW, PERMISSIONS.SHOP_MANAGE],
   },
 ];
 

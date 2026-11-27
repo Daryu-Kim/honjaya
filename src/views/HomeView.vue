@@ -114,6 +114,15 @@
         >
           다른 자리 선택
         </button>
+
+        <router-link to="/shop" class="shop-entry">
+          <span class="shop-entry-icon">🛍️</span>
+          <span class="shop-entry-text">
+            <strong>전자담배 구매 예약</strong>
+            <small>매장에서 신분증 확인 후 결제·픽업</small>
+          </span>
+          <span class="shop-entry-arrow">›</span>
+        </router-link>
       </section>
     </div>
 
@@ -645,6 +654,51 @@ onMounted(() => {
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
+}
+
+// P13 — 전자담배 예약 진입점. 테이블 입장과 별개라 카드 하단에 따로 둡니다.
+.shop-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(96, 165, 250, 0.28);
+  background: rgba(96, 165, 250, 0.1);
+  text-decoration: none;
+  color: #ffffff;
+
+  &:active {
+    background: rgba(96, 165, 250, 0.18);
+  }
+}
+
+.shop-entry-icon {
+  font-size: 20px;
+}
+
+.shop-entry-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+
+  strong {
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  small {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.55);
+  }
+}
+
+.shop-entry-arrow {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 18px;
 }
 
 // PWA 로 설치하면 루트로 진입하므로 관리자 페이지로 가는 통로를 남겨 둡니다.
