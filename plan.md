@@ -1580,7 +1580,7 @@ Shared: `src/lib/shop.js` (client + formatters + slot builder) and
 
 ---
 
-## 3-15. P14 — ARC SAFETY 응급안전관리센터 (P14A+P14B+P14C SHIPPED 2026-11-27, rev 2026-11-27)
+## 3-15. P14 — ARC SAFETY 응급안전관리센터 (P14A+P14B+P14C+P14D SHIPPED 2026-11-27, rev 2026-11-27)
 
 Rev 2 changes (owner decisions): 혼자야 단일 사업장 · 상세 건강기록 R1 포함 · 백업은 ARC 포함(→ 앱 레벨
 암호화) · 김원재=사장/임시은=직원 · 최윤희는 기존 MANAGER 계정 재사용 · **2FA 범위 제외**.
@@ -1633,8 +1633,30 @@ require `arc.sensitive` + `assertArcSensitiveAccess` + `logArcSensitiveRead`. Ca
 cannot open the care payload at all. Verified: eslint 0 errors, `node --check` x3,
 `vue-cli-service build` OK. Deploy: `docker compose up -d --build` + `docker compose run --rm migrate`.
 
-Request source: `[개발 지시서] 혼자야 관리자 앱 내 ARC SAFETY 응급안전관리센터 구축`
-(partner request: 1 dashboard + 12 menus, 8 reference documents, ~40 record forms).
+**P14D shipped** (commit `44c9089`): `server/sql/arc.sql` adds `arc_expenses`, `arc_expense_payments`,
+`arc_usages`, `arc_usage_items`. `server/src/arcUsage.js` owns usage numbering (`USE-YYYYMMDD-nn`, KST,
+5 retries on `23505`), `latestArcUnitPriceMap()` (최근 구매단가, `distinct on (item_id)`), create/void
+transactions, `arcUsageSummary()` and `listBillableUsagesForPeriod()`. `server/src/arcExpense.js` owns
+expense numbering (`EXP-YYYYMMDD-nn`), `previewUsageMonth()`, `createArcExpenseFromUsageMonth()`
+(월 소모금액 → 정산서 1장, 사용 기록에 `expense_id` 스탬프로 이중청구 차단), `addArcExpensePayment()` /
+`removeArcExpensePayment()` + `recalcSettlement()` (UNSETTLED/PARTIAL/SETTLED), and `approve` through
+`updateArcExpense`. `arcStock.js` gains `consumeStockInTransaction()` / `restoreStockInTransaction()`
+(idempotent via `ARC_USAGE_VOID` ref moves, `ARC_USAGE` OUT/DISPOSE moves restored to their lots).
+**규칙:** 내구재(`arc_items.is_device`)는 사용만으로 비용 청구하지 않음 → `unit_price/amount = 0`,
+`billable = total_amount > 0`; 정산서에 연결된 사용 기록은 취소 불가; 정산 기한은 `spent_on + 14일`
+(AS-OPS §06-B-3), 수동 등록 시 `due_on` 입력값 우선. `routes/api/arc.js` gains 10 endpoints
+(`GET/POST /api/arc/usages`, `GET /api/arc/usages/:id`, `POST .../void` = `arc.approve`;
+`GET /api/arc/expenses`, `GET /api/arc/expenses/:id`, `POST /api/arc/expenses`,
+`POST /api/arc/expenses/from-usage-month`, `PATCH /api/arc/expenses/:id`,
+`POST .../approve` = `arc.approve`, `POST .../payments`, `POST .../payments/:paymentId/remove`)
+and `GET /api/arc/dashboard` also returns `usage` / `expense`. New admin screens `/admin/arc/usages`
+(사용대장 + 취소 인라인 확인) and `/admin/arc/expenses` (월 일괄 정산 · 직접 등록 · 부분입금 · 대표확인),
+plus menu entries, dashboard links and 4 cards. STAFF(임시은)는 `arc.stock`으로 사용대장 등록만 가능하고
+취소·정산은 `arc.approve`/`arc.expense`가 필요하다. Verified: eslint 0 errors, `node --check` x4,
+SFC compile check, `vue-cli-service build` OK. Deploy: `docker compose up -d --build` +
+`docker compose run --rm migrate` (새 테이블 4개가 먼저 생성되어야 화면이 열린다).
+
+Request source: `[개발 지시서] 혼자야 관리자 앱 내 ARC SAFETY 응급안전관리센터 구축` (partner request: 1 dashboard + 12 menus, 8 reference documents, ~40 record forms).
 Original reference docs (all read, 382 pages total): AS-OPS-001 통합운영문서, AS-CAL-001 1년 업무달력,
 AS-KIT-001 구급상자 운영관리대장, AS-GDE-001 현장 응급처치 교육가이드, AS-PRP-001 복수사업장 도입제안서,
 AS-REC-001 관리기록 서식집(AS-CARE, F01~F32), AS-PRIV-001 개인정보 처리방침, AS-NOT-001 외부인 개입금지 고지서.
@@ -1883,7 +1905,7 @@ todo     p13-first          P13(전자담배 예약) lint/build 검증 → 커�
 todo     p14a-base          DONE(03f2af5): arc.* 9권한 · ARC_FIELD_KEY 암복호화 · 종이동의 게이트 · 열람로그 · 알림함+디스코드 #응급안전
 todo     p14b-stock         DONE(d78375d): AS-KIT-001 49종+OTC 13종 시드 · 로트/EXP/개봉기한 알림 · 수불 단일경로 · 월 실사 확정 · 실비정산 · OTC 본인 자기점검
 todo     p14c-care          DONE(b10eba5): 사건(INC-YYYYMMDD-nn)·AS-CARE 암호화 저장·동의(F25/F27)·사건별 접근승인(작성자 자동승인)
-todo     p14d-usage-expense R2: 사용대장 + 단가 자동계산 + 정산(EXP) 부분입금
+todo     p14d-usage-expense DONE(44c9089): 사용대장(USE-)·단가 자동계산·소모금액·실비정산(EXP-)·부분입금·대표확인·월 일괄 정산
 todo     p14e-check-edu     R2: 월간점검(CHK)·교육(EDU)·활동/캘린더(ACT)·실적 CSV
 todo     p14f-review-docs   R3: 사후검토·NearMiss·CAPA·서식 + arc-files 업로드(10MB·jpg/png/pdf) + XLSX(exceljs) + 2인승인 파기
 ```
