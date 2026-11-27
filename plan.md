@@ -1580,12 +1580,20 @@ Shared: `src/lib/shop.js` (client + formatters + slot builder) and
 
 ---
 
-## 3-15. P14 — ARC SAFETY 응급안전관리센터 (PLANNED — no code written, rev 2026-11-27)
+## 3-15. P14 — ARC SAFETY 응급안전관리센터 (P14A SHIPPED 2026-11-27, rev 2026-11-27)
 
 Rev 2 changes (owner decisions): 혼자야 단일 사업장 · 상세 건강기록 R1 포함 · 백업은 ARC 포함(→ 앱 레벨
 암호화) · 김원재=사장/임시은=직원 · 최윤희는 기존 MANAGER 계정 재사용 · **2FA 범위 제외**.
 Rev 3 (2026-11-27, 13개 확인항목 전부 확정): 출력=인쇄+CSV+XLSX · 알림=디스코드 #응급안전+앱 ·
 파일=server/arc-files(백업 포함) · 번호=INC-YYYYMMDD-nn · 파기=2인 승인 · 실DB 즉시 적용 · P13 선행. See §H.
+
+**P14A shipped** (commit `03f2af5`): `server/sql/arc.sql` (arc_settings, arc_notifications,
+arc_consents, arc_sensitive_access, arc_sensitive_reads) · `server/src/arcCrypto.js` (AES-256-GCM
+`v1:` envelope, key `ARC_FIELD_KEY`) · `server/src/arc.js` · `server/src/routes/api/arc.js`
+(12 endpoints) · 9 `arc.*` permission codes + 「응급안전」 group · admin screens
+`/admin/arc`, `/admin/arc/consents`, `/admin/arc/access`, `/admin/arc/settings`.
+Verified: eslint 0 errors, `node --check`, crypto round-trip, `vue-cli-service build` OK.
+Server env still required: `ARC_FIELD_KEY` (keep an offline copy) + `ARC_FILES_DIR=/app/arc-files`.
 
 Request source: `[개발 지시서] 혼자야 관리자 앱 내 ARC SAFETY 응급안전관리센터 구축`
 (partner request: 1 dashboard + 12 menus, 8 reference documents, ~40 record forms).
@@ -1834,7 +1842,7 @@ done     p13-shop-admin-ui     /admin/shop/products, /admin/shop/reservations + 
 todo     p13-shop-notify       예약 접수·확정 알림(솔라피 문자 / 디스코드) — P13-4, 미착수
 todo     p14-plan            ARC SAFETY 지시서+원본8종 분석 → plan §3-15. 13개 확인항목 전부 확정(2026-11-27)
 todo     p13-first          P13(전자담배 예약) lint/build 검증 → 커밋·푸시. P14 착수 전 선행
-todo     p14a-base          R1: arc.* 9권한 + 최윤희(MANAGER) override · ARC_FIELD_KEY 암복호화 · 종이동의 체크 게이트 · 열람로그 · 알림함+디스코드 #응급안전
+todo     p14a-base          DONE(03f2af5): arc.* 9권한 · ARC_FIELD_KEY 암복호화 · 종이동의 게이트 · 열람로그 · 알림함+디스코드 #응급안전
 todo     p14b-stock         R1: AS-KIT-001 기준수량 시드 · 로트/EXP 90/30/7일 · 수불 단일경로 · OTC 본인 자기점검
 todo     p14c-care          R1: 사건(INC-YYYYMMDD-nn) + AS-CARE 암호화 저장 + 동의(F25/F27) + 사건별 접근승인
 todo     p14d-usage-expense R2: 사용대장 + 단가 자동계산 + 정산(EXP) 부분입금
