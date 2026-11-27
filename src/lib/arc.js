@@ -1150,3 +1150,73 @@ export async function deleteArcTrainingSession(sessionId) {
     {}
   );
 }
+
+// ── 품질관리(AS-REC-001 F11·F12·F13·F14) ────────────────────────────────
+// 사후검토 / Near Miss / CAPA / 재고이상. 작성·수정은 사장·매니저(ARC 총괄)만 가능합니다.
+
+const QUALITY_PATH = "/api/arc/quality";
+
+export const ARC_QUALITY_STATUS_LABELS = {
+  OPEN: "접수",
+  IN_PROGRESS: "조치 중",
+  VERIFIED: "효과 확인",
+  CLOSED: "종결",
+};
+
+export const ARC_QUALITY_STATUS_TONES = {
+  OPEN: "warn",
+  IN_PROGRESS: "info",
+  VERIFIED: "ok",
+  CLOSED: "muted",
+};
+
+export const ARC_QUALITY_VERDICT_LABELS = {
+  EFFECTIVE: "효과 있음 · 종결",
+  PARTIAL: "일부 효과 · 보완",
+  MORE: "효과 미흡 · 추가조치",
+};
+
+export const ARC_QUALITY_KIND_TONES = {
+  REVIEW: "info",
+  NEAR_MISS: "warn",
+  CAPA: "alert",
+  STOCK_ISSUE: "muted",
+};
+
+export async function fetchArcQuality(params = {}) {
+  return apiGet(`${QUALITY_PATH}${queryString(params)}`);
+}
+
+export async function fetchArcQualitySummary(limit = "") {
+  return apiGet(`${QUALITY_PATH}/summary${queryString({ limit })}`);
+}
+
+export async function fetchArcQualityRecord(recordId) {
+  return apiGet(`${QUALITY_PATH}/${encodeURIComponent(recordId)}`);
+}
+
+export async function createArcQuality(payload) {
+  return apiPost(QUALITY_PATH, payload);
+}
+
+export async function updateArcQuality(recordId, payload) {
+  return apiPatch(`${QUALITY_PATH}/${encodeURIComponent(recordId)}`, payload);
+}
+
+export async function toggleArcQualityAction(recordId, actionId, payload = {}) {
+  return apiPatch(
+    `${QUALITY_PATH}/${encodeURIComponent(
+      recordId
+    )}/actions/${encodeURIComponent(actionId)}`,
+    payload
+  );
+}
+
+export async function deleteArcQualityAction(recordId, actionId) {
+  return apiPost(
+    `${QUALITY_PATH}/${encodeURIComponent(
+      recordId
+    )}/actions/${encodeURIComponent(actionId)}/delete`,
+    {}
+  );
+}

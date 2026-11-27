@@ -1813,6 +1813,7 @@ Server-side rules that must be enforced (not just hidden in UI):
 | Phase | Scope | New tables | Why this order |
 | --- | --- | --- | --- |
 | **P14F** | 사후검토(F11)·Near Miss(F12)·CAPA(F13/F14)·서식 라이브러리·**파일 업로드**·**XLSX/CSV/인쇄 출력**·보존만료 파기 승인 | reviews/near_miss/capa/docs/files/purge_requests | F01~F32 전자화는 지시서도 1차 축소 허용 |
+| **P14I** | **구현 완료** — 사후검토·Near Miss·CAPA·재고이상(F11~F14) + 개선조치 추적 + 연간 성과기준 KPI | quality_records/quality_actions | P14F 중 「기록 품질」 절반을 먼저 닫는다(서식·출력·파기승인은 P14F에 남음) |
 
 ### E. Permission codes (add to `PERMISSION_GROUPS`, new group 「응급안전」)
 
@@ -2046,6 +2047,31 @@ API would still start (leaving the operator the manual `migrate` path). Set `AUT
 
 ---
 
+### M. P14I — 품질관리(사후검토·개선) (2026-11-28 — AS-REC-001 F11·F12·F13·F14)
+
+**Why.** Every other AS-REC-001 form already had a home, but the improvement loop (사후검토 / Near Miss /
+CAPA / 재고 이상) existed nowhere: a 사건 could be recorded and closed with no review, and there was no way to
+prove the 연간 성과기준 (사후검토 100%, 개선조치 이행) to a 구급상자 운영 점검. This is the 「최윤희가 일을 더 잘할
+수 있게」 gap with the highest operational payoff, so it became P14I.
+
+| layer | change |
+| --- | --- |
+| `server/sql/arc.sql` | `arc_quality_records` (kind REVIEW/NEAR_MISS/CAPA/STOCK_ISSUE, `record_no` unique, incident FK, `detail jsonb`, status OPEN/IN_PROGRESS/VERIFIED/CLOSED, verdict, due/verified) + `arc_quality_actions` (seq, owner, due_on, done_on) + 5 indexes. Idempotent DDL. |
+| `server/src/arcQuality.js` (new) | `ARC_QUALITY_FORMS` = server-owned field definitions (4 forms), `list/get/create/update`, action toggle/delete, `arcQualitySummary()` KPI. Enforces required fields, CAPA-only `VERIFIED` + verdict stamping, `F11-YYYYMMDD-nn` numbering, ≤30 actions. |
+| `server/src/routes/api/arc.js` | 7 endpoints `/api/arc/quality*` (`requireCare` for writes → 최윤희 전용) + audit `arc.quality.*`; dashboard gains `quality` block. |
+| `src/lib/arc.js` | `fetch/create/updateArcQuality`, action helpers, status·verdict·kind label/tone maps. |
+| `src/views/Admin/AdminArcQualityView.vue` (new) | KPI strip + 사후검토 대기 사건 quick-create + 기한 지난 조치 + dynamic 4-form editor + 기록 목록(필터·검색) + 상세/조치 패널. |
+| menu/router/dashboard | `arcMenuList` 15번째 「사후검토·개선」, `/admin/arc/quality` (`arc.view`), ARC 대시보드 카드 3개(사후검토 대기·열린 CAPA·기한 지난 개선조치). |
+
+**Search.** `GET /api/arc/quality?q=` matches 기록번호·제목·사건번호·참석·관련문서 **and `detail::text`** — so
+「실신」 같은 본문 단어로도 찾힌다 (조치 항목 본문으로도 검색됨).
+
+**Verified (local, ephemeral `embedded-postgres`, port 55439, empty DB).** `arc.sql` 103 statements applied,
+4 forms returned, create/list(filter+search)/get/update/toggle/delete all pass, required-field guard and
+「VERIFIED only with verdict」 guard both fire — **16/16 checks, 0 failures**.
+
+---
+
 ## 4. Open questions
 
 1. ~~**₩30,000 point-redemption threshold**: before or after discount?~~ → **resolved in P5**: after discount, before point deduction.
@@ -2145,6 +2171,7 @@ done     p14g-stock-par     DONE: arc_items/arc_otc_items 안전재고(min_qty)�
 done     p14g-training      DONE: arc_training_sessions/attendees + arcTraining.js(모듈15·상황연습21·금지30) + /admin/arc/training(달력·출석·자료)
 done     p14h-care-form      DONE: AS-REC-001 별첨 A ② 비현장 보고 6필드 + 기록자 서명 + 기록성격 고지 + 목록에서 서식원본 등록
 done     ops-auto-schema     DONE: api 기동 시 필수 테이블 점검 → 없으면 스키마 자동 적용(AUTO_SCHEMA=1). "테이블을 찾을 수 없어요" 재발 방지
+done     p14i-quality        DONE: arc_quality_records/actions + arcQuality.js(F11·F12·F13·F14) + /admin/arc/quality(대시보드 KPI·사건 연동·개선조치 추적)
 ```
 
 ---

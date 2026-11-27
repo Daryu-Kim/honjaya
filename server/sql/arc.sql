@@ -959,3 +959,81 @@ alter table public.arc_care_records
 -- 서식 원본 보관 위치(ARC_FILES_DIR) 안내용 색인. 사건·기록별 최근 첨부를 빠르게 찾습니다.
 create index if not exists arc_care_files_record_time_idx
   on public.arc_care_files (care_record_id, created_at desc);
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- P14I — 품질관리: 사후검토·개선 (AS-REC-001 F11·F12·F13·F14)
+--   "사건이 끝난 뒤 다시 같은 일이 생기지 않게" 남기는 기록입니다.
+--   F11 사후검토회의록 / F12 Near Miss / F13 CAPA / F14 재고·AS-CARE 연계 이상.
+--   네 서식은 공통 골격(작성일·참석자·장소/방법·관련 사건·조치사항)이 같고
+--   본문 항목만 달라서 kind + detail(jsonb) 한 쌍으로 함께 보관합니다.
+--   본문 항목 정의의 원본은 server/src/arcQuality.js 의 ARC_QUALITY_FORMS 입니다.
+-- ══════════════════════════════════════════════════════════════════════════
+create table if not exists public.arc_quality_records (
+  id               uuid primary key default gen_random_uuid(),
+  -- F11-YYYYMMDD-nn / F12-… / F13-… / F14-… (한국시간 작성일 기준 일련번호)
+  record_no        text not null,
+  -- REVIEW=F11 사후검토 / NEAR_MISS=F12 근접오류 / CAPA=F13 시정·예방 /
+  -- STOCK_ISSUE=F14 재고·AS-CARE 연계 이상
+  kind             text not null
+                   check (kind in ('REVIEW', 'NEAR_MISS', 'CAPA', 'STOCK_ISSUE')),
+  title            text not null default '',
+  held_on          date not null default (now() at time zone 'Asia/Seoul')::date,
+  author_id        text references public.employees(id) on delete set null,
+  author_name      text not null default '',
+  -- 서식 공통: 참석자·상담대상 / 장소·방법
+  attendees        text not null default '',
+  location_method  text not null default '',
+  -- 관련 사건. 사건 원본은 지우지 않으므로 느슨하게 연결합니다.
+  incident_id      uuid references public.arc_incidents(id) on delete set null,
+  incident_no      text not null default '',
+  -- 관련 증빙·연계 ID(F9 점검표·SUP 구매·PHO 사진·EXP·EDU 교육·INC 사건)
+  related_docs     text not null default '',
+  -- 서식별 본문. arcQuality.js 의 항목 키만 저장합니다.
+  detail           jsonb not null default '{}'::jsonb,
+  -- OPEN=작성됨 / IN_PROGRESS=조치 진행 / VERIFIED=검증 완료 / CLOSED=종결
+  status           text not null default 'OPEN'
+                   check (status in ('OPEN', 'IN_PROGRESS', 'VERIFIED', 'CLOSED')),
+  -- CAPA 효과 검증 결과: EFFECTIVE 효과 있음 / PARTIAL 부분 효과 / MORE 추가조치 필요
+  verdict          text not null default ''
+                   check (verdict in ('', 'EFFECTIVE', 'PARTIAL', 'MORE')),
+  -- 조치 완료 목표일(사후검토는 사건 종료 후 7일 안에 여는 것을 권장)
+  due_on           date,
+  verified_on      date,
+  verified_by_name text not null default '',
+  created_by       text references public.employees(id) on delete set null,
+  created_by_name  text not null default '',
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now(),
+  unique (record_no)
+);
+
+create index if not exists arc_quality_kind_idx
+  on public.arc_quality_records (kind, held_on desc);
+
+create index if not exists arc_quality_status_idx
+  on public.arc_quality_records (status, due_on);
+
+create index if not exists arc_quality_incident_idx
+  on public.arc_quality_records (incident_no);
+
+-- 서식 안의 Action-Item 표(조치사항·담당자·기한·완료/확인)를 한 줄씩 저장합니다.
+create table if not exists public.arc_quality_actions (
+  id         uuid primary key default gen_random_uuid(),
+  record_id  uuid not null
+             references public.arc_quality_records (id) on delete cascade,
+  seq        integer not null default 1,
+  action     text not null default '',
+  owner      text not null default '',
+  due_on     date,
+  done_on    date,
+  done_note  text not null default '',
+  created_at timestamptz not null default now()
+);
+
+create index if not exists arc_quality_actions_record_idx
+  on public.arc_quality_actions (record_id, seq);
+
+-- 기한 지난 미완료 조치를 빠르게 세기 위한 부분 인덱스
+create index if not exists arc_quality_actions_open_idx
+  on public.arc_quality_actions (due_on)
+  where done_on is null;

@@ -51,6 +51,15 @@ import {
   updateArcExpense,
 } from "../../arcExpense.js";
 import {
+  arcQualitySummary,
+  createArcQuality,
+  deleteArcQualityAction,
+  getArcQuality,
+  listArcQuality,
+  toggleArcQualityAction,
+  updateArcQuality,
+} from "../../arcQuality.js";
+import {
   arcRoutineSummary,
   listArcRoutine,
   saveArcRoutineStep,
@@ -172,6 +181,7 @@ export function registerArcRoutes(app) {
       usage: await arcUsageSummary(),
       expense: await arcExpenseSummary(),
       routine: await arcRoutineSummary(),
+      quality: await arcQualitySummary(),
     };
   });
 
@@ -1146,5 +1156,115 @@ export function registerArcRoutes(app) {
 
       return result;
     }
+  );
+
+  // ── 품질관리(P14I · AS-REC-001 F11·F12·F13·F14) ─────────────────────
+  // 작성·수정은 사장·매니저(ARC 총괄 포함)가 합니다. 직원 계정에는 열리지 않습니다.
+
+  app.get("/api/arc/quality", { preHandler: requireView }, async (request) => {
+    const query = request.query || {};
+    const list = await listArcQuality({
+      kind: query.kind,
+      status: query.status,
+      incidentNo: query.incidentNo,
+      q: query.q,
+      limit: query.limit,
+    });
+
+    return {
+      ...list,
+      summary: await arcQualitySummary(),
+      canWrite: hasPermission(request, PERMISSIONS.ARC_CARE),
+    };
+  });
+
+  app.get("/api/arc/quality/summary", { preHandler: requireView }, async (request) =>
+    arcQualitySummary(request.query?.limit)
+  );
+
+  app.get("/api/arc/quality/:recordId", { preHandler: requireView }, async (request) =>
+    getArcQuality(request.params?.recordId)
+  );
+
+  app.post("/api/arc/quality", { preHandler: requireCare }, async (request) => {
+    const employee = currentEmployee(request);
+    const result = await createArcQuality(readBody(request), employee);
+
+    await writeAuditLog({
+      employee,
+      action: "arc.quality.create",
+      targetType: "arc_quality_record",
+      targetId: result.record.id,
+      detail: {
+        recordNo: result.record.recordNo,
+        kind: result.record.kind,
+        incidentNo: result.record.incidentNo,
+      },
+      ip: clientIp(request),
+      log: request.log,
+    });
+
+    return result;
+  });
+
+  app.patch(
+    "/api/arc/quality/:recordId",
+    { preHandler: requireCare },
+    async (request) => {
+      const employee = currentEmployee(request);
+      const result = await updateArcQuality(
+        request.params?.recordId,
+        readBody(request),
+        employee
+      );
+
+      await writeAuditLog({
+        employee,
+        action: "arc.quality.update",
+        targetType: "arc_quality_record",
+        targetId: result.record.id,
+        detail: {
+          recordNo: result.record.recordNo,
+          status: result.record.status,
+          verdict: result.record.verdict,
+        },
+        ip: clientIp(request),
+        log: request.log,
+      });
+
+      return result;
+    }
+  );
+
+  app.patch(
+    "/api/arc/quality/:recordId/actions/:actionId",
+    { preHandler: requireCare },
+    async (request) => {
+      const employee = currentEmployee(request);
+      const result = await toggleArcQualityAction(
+        request.params?.recordId,
+        request.params?.actionId,
+        readBody(request)
+      );
+
+      await writeAuditLog({
+        employee,
+        action: "arc.quality.action",
+        targetType: "arc_quality_record",
+        targetId: result.record.id,
+        detail: { recordNo: result.record.recordNo },
+        ip: clientIp(request),
+        log: request.log,
+      });
+
+      return result;
+    }
+  );
+
+  app.post(
+    "/api/arc/quality/:recordId/actions/:actionId/delete",
+    { preHandler: requireCare },
+    async (request) =>
+      deleteArcQualityAction(request.params?.recordId, request.params?.actionId)
   );
 }

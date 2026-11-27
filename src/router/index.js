@@ -44,6 +44,7 @@ import AdminArcCareView from "@/views/Admin/AdminArcCareView.vue";
 import AdminArcCareListView from "@/views/Admin/AdminArcCareListView.vue";
 import AdminArcUsageView from "@/views/Admin/AdminArcUsageView.vue";
 import AdminArcExpenseView from "@/views/Admin/AdminArcExpenseView.vue";
+import AdminArcQualityView from "@/views/Admin/AdminArcQualityView.vue";
 import StaffLoginView from "@/views/Staff/StaffLoginView.vue";
 import AdminLayout from "@/layouts/AdminLayout.vue";
 import { startGlobalBusy } from "@/lib/globalBusy";
@@ -291,6 +292,13 @@ const routes = [
         name: "admin-arc-settings",
         component: AdminArcSettingsView,
         meta: { permission: "arc.admin" },
+      },
+      {
+        // 사후검토·Near Miss·CAPA·재고이상(AS-REC-001 F11~F14). 작성은 서버가 arc.care 로 검사합니다.
+        path: "arc/quality",
+        name: "admin-arc-quality",
+        component: AdminArcQualityView,
+        meta: { permission: "arc.view" },
       },
       {
         path: "customers",

@@ -375,6 +375,14 @@ const arcMenuList = [
     color: "#ec4899",
   },
   {
+    to: "/admin/arc/quality",
+    label: "사후검토·개선",
+    description: "F11~F14·연간 성과기준",
+    matchStartsWith: "/admin/arc/quality",
+    permission: "arc.view",
+    color: "#a78bfa",
+  },
+  {
     to: "/admin/arc/settings",
     label: "응급안전 설정",
     description: "알림·보존기간",

@@ -37,6 +37,9 @@
         <router-link to="/admin/arc/expenses" class="link-button">
           실비정산
         </router-link>
+        <router-link to="/admin/arc/quality" class="link-button">
+          사후검토·개선
+        </router-link>
         <router-link to="/admin/arc/consents" class="link-button">
           동의서 관리
         </router-link>
@@ -152,6 +155,28 @@
       >
         <span class="summary-label">정산 기한 지남</span>
         <strong>{{ expense.overdueCount ?? 0 }}건</strong>
+      </article>
+      <article
+        class="summary-card"
+        :class="{ alert: (quality.reviewPending ?? 0) > 0 }"
+      >
+        <span class="summary-label">사후검토 대기</span>
+        <strong>{{ quality.reviewPending ?? 0 }}건</strong>
+        <small class="dim">종결 사건 F11 미작성</small>
+      </article>
+      <article
+        class="summary-card"
+        :class="{ alert: (quality.openCapa ?? 0) > 0 }"
+      >
+        <span class="summary-label">열린 CAPA</span>
+        <strong>{{ quality.openCapa ?? 0 }}건</strong>
+      </article>
+      <article
+        class="summary-card"
+        :class="{ alert: (quality.overdueActions ?? 0) > 0 }"
+      >
+        <span class="summary-label">기한 지난 개선조치</span>
+        <strong>{{ quality.overdueActions ?? 0 }}건</strong>
       </article>
     </section>
 
@@ -318,6 +343,7 @@ const stock = ref({});
 const incidents = ref({});
 const usage = ref({});
 const expense = ref({});
+const quality = ref({});
 const notifications = ref([]);
 const isKeyReady = ref(true);
 const unreadOnly = ref(false);
@@ -337,6 +363,7 @@ async function loadSummary() {
     incidents.value = data?.incidents ?? {};
     usage.value = data?.usage ?? {};
     expense.value = data?.expense ?? {};
+    quality.value = data?.quality ?? {};
   } catch (error) {
     errorMessage.value = error?.message || "현황을 불러오지 못했어요.";
   }
