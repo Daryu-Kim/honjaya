@@ -1037,3 +1037,156 @@ create index if not exists arc_quality_actions_record_idx
 create index if not exists arc_quality_actions_open_idx
   on public.arc_quality_actions (due_on)
   where done_on is null;
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- P14J — 행사·의료지원 관리 (EVT)
+--   혼자야에서 여는 행사(파티·공연·팝업·단체대관·시즌·중계)마다
+--   "ARC가 무엇을 하는지"를 한 장으로 남깁니다.
+--     · 지원 수준(미지원/사전자문/현장대기/행사의료진)과 행사의료진 구성
+--     · 위험평가 R = 가능성(L) × 중대성(S)  ※ AS-OPS-001 위험평가 방식
+--     · 행사 전 / 당일 / 종료 후 체크리스트(필수 항목 포함)
+--     · 배정 인력 + 외부 의료인 AS-NOT-001 고지서 교부 여부
+--   체크리스트 항목 원본은 server/src/arcEvents.js 의
+--   ARC_EVENT_TASK_TEMPLATES 이고, 표에는 행사 시점에 복사해 둡니다.
+--   (템플릿을 나중에 고쳐도 지난 행사 기록은 그대로 남아야 하므로)
+-- ══════════════════════════════════════════════════════════════════════════
+create table if not exists public.arc_events (
+  id               uuid primary key default gen_random_uuid(),
+  -- EVT-YYYYMMDD-nn (행사 시작일 기준 일련번호)
+  event_no         text not null,
+  title            text not null,
+  -- PARTY 파티·공연 / LIVE 공연중심 / POPUP 팝업·마켓 / PRIVATE 단체대관
+  -- SEASON 시즌행사 / WATCH 스포츠 중계 / OTHER 기타
+  kind             text not null default 'PARTY'
+                   check (kind in ('PARTY', 'LIVE', 'POPUP', 'PRIVATE', 'SEASON',
+                                   'WATCH', 'OTHER')),
+  starts_on        date not null default (now() at time zone 'Asia/Seoul')::date,
+  start_time       time,
+  ends_on          date,
+  end_time         time,
+  -- 장소·환경. 야외 여부는 폭염·한파·전원 체크를 추가로 요구합니다.
+  venue            text not null default '',
+  outdoor          boolean not null default false,
+  expected_guests  integer not null default 0,
+  serves_alcohol   boolean not null default true,
+  serves_food      boolean not null default false,
+  -- 주최·기획(외부 업체/아티스트), 혼자야 담당자
+  organizer        text not null default '',
+  host_name        text not null default '',
+  host_contact     text not null default '',
+  -- ARC 지원 수준. NONE 미지원 / ADVISE 사전자문 / STANDBY 현장대기 /
+  -- MEDIC 행사의료진 배치. STANDBY·MEDIC 은 AS-OPS-001 06-B-3 의
+  -- "범위초과 업무"라 사전합의가 필요합니다.
+  arc_level        text not null default 'ADVISE'
+                   check (arc_level in ('NONE', 'ADVISE', 'STANDBY', 'MEDIC')),
+  -- 행사의료진 구성: NONE 미배치 / ARC_RN 최윤희 RN(비상주) /
+  -- EXTERNAL 외부 의료인·응급구조사 / EMS_LIAISON 119·구급대 사전연계만
+  medic_mode       text not null default 'NONE'
+                   check (medic_mode in ('NONE', 'ARC_RN', 'EXTERNAL', 'EMS_LIAISON')),
+  -- 위험평가: R = L × S (1~4 낮음 / 5~9 관리 / 10~15 우선관리 / 16~25 즉시개선)
+  risk_l           smallint not null default 2 check (risk_l between 1 and 5),
+  risk_s           smallint not null default 2 check (risk_s between 1 and 5),
+  -- 범위초과 업무 사전합의 여부와 근거(구두/서면/견적)
+  scope_agreed     boolean not null default false,
+  scope_note       text not null default '',
+  -- 비용 처리: NONE 없음 / EXPENSE 실비정산 / CONTRACT 별도 계약
+  billing          text not null default 'NONE'
+                   check (billing in ('NONE', 'EXPENSE', 'CONTRACT')),
+  -- 현장 정보(행사용 EAP 요약)
+  aed_location     text not null default '',
+  assembly_point   text not null default '',
+  nearest_er       text not null default '',
+  eap_note         text not null default '',
+  -- 홍보물·안내문 금지표현 검수(상주 의료진·진료 가능·안전보장 인증 등)
+  promo_checked    boolean not null default false,
+  notes            text not null default '',
+  -- PLANNING 준비중 / READY 준비완료 / DONE 종료 / CANCELED 취소
+  status           text not null default 'PLANNING'
+                   check (status in ('PLANNING', 'READY', 'DONE', 'CANCELED')),
+  cancel_reason    text not null default '',
+  created_by       text references public.employees(id) on delete set null,
+  created_by_name  text not null default '',
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now(),
+  unique (event_no)
+);
+
+create index if not exists arc_events_start_idx
+  on public.arc_events (starts_on desc);
+
+create index if not exists arc_events_status_idx
+  on public.arc_events (status, starts_on);
+
+-- 행사 체크리스트. phase = BEFORE(행사 전) / DURING(당일) / AFTER(종료 후)
+create table if not exists public.arc_event_tasks (
+  id            uuid primary key default gen_random_uuid(),
+  event_id      uuid not null
+                references public.arc_events (id) on delete cascade,
+  phase         text not null default 'BEFORE'
+                check (phase in ('BEFORE', 'DURING', 'AFTER')),
+  seq           integer not null default 1,
+  label         text not null,
+  hint          text not null default '',
+  required      boolean not null default false,
+  done_on       date,
+  done_by_name  text not null default '',
+  note          text not null default '',
+  created_at    timestamptz not null default now()
+);
+
+create index if not exists arc_event_tasks_event_idx
+  on public.arc_event_tasks (event_id, phase, seq);
+
+create index if not exists arc_event_tasks_open_idx
+  on public.arc_event_tasks (event_id)
+  where done_on is null and required;
+
+-- 행사 배정 인력. 외부 의료인은 AS-NOT-001 고지서 교부 여부를 함께 남깁니다.
+create table if not exists public.arc_event_staff (
+  id             uuid primary key default gen_random_uuid(),
+  event_id       uuid not null
+                 references public.arc_events (id) on delete cascade,
+  seq            integer not null default 1,
+  name           text not null,
+  -- DIRECTOR 총괄 / MEDIC_RN 최윤희 RN / ONSITE_LEAD 현장책임 /
+  -- EMPLOYEE 직원 / EXTERNAL_MEDIC 외부 의료인·응급구조사 / EMS 구급대
+  role           text not null default 'EMPLOYEE'
+                 check (role in ('DIRECTOR', 'MEDIC_RN', 'ONSITE_LEAD', 'EMPLOYEE',
+                                 'EXTERNAL_MEDIC', 'EMS')),
+  org            text not null default '',
+  license_type   text not null default '',
+  -- NA 해당없음 / VALID 유효 확인 / UNKNOWN 미확인 / EXPIRED 정지·취소·만료
+  license_state  text not null default 'NA'
+                 check (license_state in ('NA', 'VALID', 'UNKNOWN', 'EXPIRED')),
+  notice_given   boolean not null default false,
+  notice_on      date,
+  notice_no      text not null default '',
+  signed         boolean not null default false,
+  from_time      time,
+  to_time        time,
+  note           text not null default '',
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+
+-- 고지서 교부 여부를 나중에 고칠 수 있어야 해서 수정 시각을 함께 남깁니다.
+alter table public.arc_event_staff
+  add column if not exists updated_at timestamptz not null default now();
+
+create index if not exists arc_event_staff_event_idx
+  on public.arc_event_staff (event_id, seq);
+
+-- 행사 중 발생한 사건을 AS-CARE(arc_incidents)와 연결합니다.
+-- 사건 접수 화면에서 행사를 고르면 event_id / event_no 가 함께 남아
+-- 행사 상세에서 "이 행사에서 생긴 사건"을 바로 볼 수 있습니다.
+alter table public.arc_incidents
+  add column if not exists event_id uuid references public.arc_events (id) on delete set null,
+  add column if not exists event_no text not null default '';
+
+create index if not exists arc_incidents_event_idx
+  on public.arc_incidents (event_id)
+  where event_id is not null;
+
+create index if not exists arc_incidents_event_no_idx
+  on public.arc_incidents (event_no)
+  where event_no <> '';

@@ -383,6 +383,14 @@ const arcMenuList = [
     color: "#a78bfa",
   },
   {
+    to: "/admin/arc/events",
+    label: "행사·의료지원",
+    description: "행사별 ARC 지원·체크리스트",
+    matchStartsWith: "/admin/arc/events",
+    permission: "arc.view",
+    color: "#f59e0b",
+  },
+  {
     to: "/admin/arc/settings",
     label: "응급안전 설정",
     description: "알림·보존기간",

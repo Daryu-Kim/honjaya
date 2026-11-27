@@ -112,6 +112,19 @@ import {
   updateArcTrainingSession,
 } from "../../arcTraining.js";
 import { HttpError } from "../../http/errors.js";
+import {
+  addArcEventTask,
+  arcEventSummary,
+  createArcEvent,
+  deleteArcEvent,
+  deleteArcEventStaff,
+  deleteArcEventTask,
+  getArcEvent,
+  listArcEvents,
+  saveArcEventStaff,
+  toggleArcEventTask,
+  updateArcEvent,
+} from "../../arcEvents.js";
 
 // 응급안전관리센터는 사장(대표)·매니저, 그리고 ARC 총괄 계정(yoonhee1021)만 씁니다.
 // 직원 계정에 arc.* 권한을 직접 넣어도 여기서 다시 막습니다. (2026-11-28 대표 지시)
@@ -182,6 +195,7 @@ export function registerArcRoutes(app) {
       expense: await arcExpenseSummary(),
       routine: await arcRoutineSummary(),
       quality: await arcQualitySummary(),
+      events: await arcEventSummary(),
     };
   });
 
@@ -1266,5 +1280,132 @@ export function registerArcRoutes(app) {
     { preHandler: requireCare },
     async (request) =>
       deleteArcQualityAction(request.params?.recordId, request.params?.actionId)
+  );
+
+  // ── 행사·의료지원(P14J · AS-OPS-001 06-B-3 · AS-NOT-001) ─────────────
+  // 행사 등록·체크리스트·배정 인력은 ARC 총괄(최윤희)과 사장·매니저가 맡습니다.
+
+  app.get("/api/arc/events", { preHandler: requireView }, async (request) => {
+    const query = request.query || {};
+    const list = await listArcEvents({
+      scope: query.scope,
+      kind: query.kind,
+      status: query.status,
+      q: query.q,
+      limit: query.limit,
+    });
+
+    return {
+      ...list,
+      summary: await arcEventSummary(),
+      canWrite: hasPermission(request, PERMISSIONS.ARC_CARE),
+    };
+  });
+
+  app.get("/api/arc/events/summary", { preHandler: requireView }, async (request) =>
+    arcEventSummary(request.query?.limit)
+  );
+
+  app.get("/api/arc/events/:eventId", { preHandler: requireView }, async (request) =>
+    getArcEvent(request.params?.eventId)
+  );
+
+  app.post("/api/arc/events", { preHandler: requireCare }, async (request) => {
+    const employee = currentEmployee(request);
+    const result = await createArcEvent(readBody(request), employee);
+
+    await writeAuditLog({
+      employee,
+      action: "arc.event.create",
+      targetType: "arc_event",
+      targetId: result.eventId,
+      detail: { eventNo: result.eventNo },
+      ip: clientIp(request),
+      log: request.log,
+    });
+
+    return getArcEvent(result.eventId);
+  });
+
+  app.patch(
+    "/api/arc/events/:eventId",
+    { preHandler: requireCare },
+    async (request) => {
+      const employee = currentEmployee(request);
+      const result = await updateArcEvent(request.params?.eventId, readBody(request));
+
+      await writeAuditLog({
+        employee,
+        action: "arc.event.update",
+        targetType: "arc_event",
+        targetId: request.params?.eventId,
+        detail: { status: result.status },
+        ip: clientIp(request),
+        log: request.log,
+      });
+
+      return getArcEvent(request.params?.eventId);
+    }
+  );
+
+  app.post(
+    "/api/arc/events/:eventId/delete",
+    { preHandler: requireCare },
+    async (request) => {
+      const employee = currentEmployee(request);
+      const result = await deleteArcEvent(request.params?.eventId);
+
+      await writeAuditLog({
+        employee,
+        action: "arc.event.delete",
+        targetType: "arc_event",
+        targetId: result.eventId,
+        detail: {},
+        ip: clientIp(request),
+        log: request.log,
+      });
+
+      return result;
+    }
+  );
+
+  app.patch(
+    "/api/arc/events/:eventId/tasks/:taskId",
+    { preHandler: requireCare },
+    async (request) =>
+      toggleArcEventTask(
+        request.params?.eventId,
+        request.params?.taskId,
+        readBody(request),
+        currentEmployee(request) ?? {}
+      )
+  );
+
+  app.post(
+    "/api/arc/events/:eventId/tasks",
+    { preHandler: requireCare },
+    async (request) =>
+      addArcEventTask(request.params?.eventId, readBody(request))
+  );
+
+  app.post(
+    "/api/arc/events/:eventId/tasks/:taskId/delete",
+    { preHandler: requireCare },
+    async (request) =>
+      deleteArcEventTask(request.params?.eventId, request.params?.taskId)
+  );
+
+  app.post(
+    "/api/arc/events/:eventId/staff",
+    { preHandler: requireCare },
+    async (request) =>
+      saveArcEventStaff(request.params?.eventId, readBody(request))
+  );
+
+  app.post(
+    "/api/arc/events/:eventId/staff/:staffId/delete",
+    { preHandler: requireCare },
+    async (request) =>
+      deleteArcEventStaff(request.params?.eventId, request.params?.staffId)
   );
 }

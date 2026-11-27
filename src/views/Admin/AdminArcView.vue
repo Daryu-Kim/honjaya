@@ -40,6 +40,9 @@
         <router-link to="/admin/arc/quality" class="link-button">
           사후검토·개선
         </router-link>
+        <router-link to="/admin/arc/events" class="link-button">
+          행사·의료지원
+        </router-link>
         <router-link to="/admin/arc/consents" class="link-button">
           동의서 관리
         </router-link>
@@ -177,6 +180,29 @@
       >
         <span class="summary-label">기한 지난 개선조치</span>
         <strong>{{ quality.overdueActions ?? 0 }}건</strong>
+      </article>
+      <article
+        class="summary-card"
+        :class="{ alert: (events.needsAttention ?? 0) > 0 }"
+      >
+        <span class="summary-label">예정 행사</span>
+        <strong>{{ events.upcoming ?? 0 }}건</strong>
+        <small class="dim">이번 주 {{ events.thisWeek ?? 0 }}건</small>
+      </article>
+      <article
+        class="summary-card"
+        :class="{ alert: (events.needsAttention ?? 0) > 0 }"
+      >
+        <span class="summary-label">준비 미달 행사</span>
+        <strong>{{ events.needsAttention ?? 0 }}건</strong>
+      </article>
+      <article
+        class="summary-card"
+        :class="{ alert: (events.noticeMissing ?? 0) > 0 }"
+      >
+        <span class="summary-label">고지서 미교부</span>
+        <strong>{{ events.noticeMissing ?? 0 }}명</strong>
+        <small class="dim">AS-NOT-001 외부 인력</small>
       </article>
     </section>
 
@@ -344,6 +370,7 @@ const incidents = ref({});
 const usage = ref({});
 const expense = ref({});
 const quality = ref({});
+const events = ref({});
 const notifications = ref([]);
 const isKeyReady = ref(true);
 const unreadOnly = ref(false);
@@ -364,6 +391,7 @@ async function loadSummary() {
     usage.value = data?.usage ?? {};
     expense.value = data?.expense ?? {};
     quality.value = data?.quality ?? {};
+    events.value = data?.events ?? {};
   } catch (error) {
     errorMessage.value = error?.message || "현황을 불러오지 못했어요.";
   }

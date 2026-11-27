@@ -45,6 +45,7 @@ import AdminArcCareListView from "@/views/Admin/AdminArcCareListView.vue";
 import AdminArcUsageView from "@/views/Admin/AdminArcUsageView.vue";
 import AdminArcExpenseView from "@/views/Admin/AdminArcExpenseView.vue";
 import AdminArcQualityView from "@/views/Admin/AdminArcQualityView.vue";
+import AdminArcEventsView from "@/views/Admin/AdminArcEventsView.vue";
 import StaffLoginView from "@/views/Staff/StaffLoginView.vue";
 import AdminLayout from "@/layouts/AdminLayout.vue";
 import { startGlobalBusy } from "@/lib/globalBusy";
@@ -298,6 +299,13 @@ const routes = [
         path: "arc/quality",
         name: "admin-arc-quality",
         component: AdminArcQualityView,
+        meta: { permission: "arc.view" },
+      },
+      {
+        // 행사·의료지원(P14J). 행사별 ARC 지원 수준·의료진·체크리스트·고지서 교부.
+        path: "arc/events",
+        name: "admin-arc-events",
+        component: AdminArcEventsView,
         meta: { permission: "arc.view" },
       },
       {

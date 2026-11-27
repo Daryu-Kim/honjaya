@@ -1814,6 +1814,7 @@ Server-side rules that must be enforced (not just hidden in UI):
 | --- | --- | --- | --- |
 | **P14F** | 사후검토(F11)·Near Miss(F12)·CAPA(F13/F14)·서식 라이브러리·**파일 업로드**·**XLSX/CSV/인쇄 출력**·보존만료 파기 승인 | reviews/near_miss/capa/docs/files/purge_requests | F01~F32 전자화는 지시서도 1차 축소 허용 |
 | **P14I** | **구현 완료** — 사후검토·Near Miss·CAPA·재고이상(F11~F14) + 개선조치 추적 + 연간 성과기준 KPI | quality_records/quality_actions | P14F 중 「기록 품질」 절반을 먼저 닫는다(서식·출력·파기승인은 P14F에 남음) |
+| **P14J** | **구현 완료** — 행사·의료지원(행사 7종·지원수준·행사의료진·L×S 위험평가·3단계 체크리스트·AS-NOT-001 고지서·사건 연결) | arc_events/event_tasks/event_staff | AS-OPS-001 06-B-3 범위초과 업무와 AS-NOT-001 고지서가 실제로 지켜졌는지 증빙할 곳이 없었다 |
 
 ### E. Permission codes (add to `PERMISSION_GROUPS`, new group 「응급안전」)
 
@@ -2072,6 +2073,42 @@ prove the 연간 성과기준 (사후검토 100%, 개선조치 이행) to a 구�
 
 ---
 
+### N. P14J — 행사·의료지원 (2026-11-28 — 행사마다 "ARC가 무엇을 하는지"를 한 장으로)
+
+**Why.** 혼자야 regularly runs events (파티·공연·팝업·단체대관·시즌·중계), but nothing recorded what ARC did
+for each one: whether an 행사의료진 was assigned, whether the 사전합의 for 범위초과 업무 existed, or whether the
+AS-NOT-001 고지서 was handed to external medics. This is the one place where 최윤희 could be personally exposed
+(AED 미확인, 무합의 현장대기, 미교부 고지서), so it became a first-class ARC menu.
+
+| layer | change |
+| --- | --- |
+| `server/sql/arc.sql` | `arc_events` (event_no `EVT-YYYYMMDD-nn` unique, kind 7종, 일정, 환경, `arc_level` NONE/ADVISE/STANDBY/MEDIC, `medic_mode`, `risk_l`/`risk_s`, `scope_agreed`/`scope_note`, `billing`, AED·집결지·인계병원, `promo_checked`, status PLANNING/READY/DONE/CANCELED) + `arc_event_tasks` (phase BEFORE/DURING/AFTER, `required`, `done_on`) + `arc_event_staff` (role, `license_state`, AS-NOT-001 `notice_given`/`notice_on`/`notice_no`/`signed`) + 6 indexes. `arc_incidents` gains `event_id`/`event_no` (`on delete set null` — 행사를 지워도 사건은 남는다). All DDL idempotent. |
+| `server/src/arcEvents.js` (new, ~1610 lines) | Server-owned catalogs (`ARC_EVENT_KINDS` 7종 with per-kind risks/kit, `ARC_ARC_LEVELS` with `requiresAgreement`, `ARC_MEDIC_MODES`, `ARC_EVENT_STAFF_ROLES`, `ARC_EVENT_RISK_BANDS`), `ARC_EVENT_TASK_TEMPLATES` 13 BEFORE / 7 DURING / 6 AFTER + `ARC_EVENT_KIND_TASKS`. Computes `taskStats` (per phase + requiredOpen/readyOpen/closingOpen), `staffStats` (noticeMissing/licenseUnchecked/medics), `blockersOf`, `riskBandOf` (R=L×S), `prepPercent`, `dDay`. |
+| `server/src/routes/api/arc.js` | 11 endpoints `/api/arc/events*` (`requireView` read, `requireCare` write → 최윤희 전용) + audit `arc.event.create/update/delete`; dashboard gains `events` block. |
+| `server/src/arcIncidents.js` | `resolveArcEventRef(eventNo)` + `event_id`/`event_no` on insert and `mapIncident`; incident search matches `event_no`. |
+| `src/lib/arc.js` | `fetchArcEvents/Summary/Event`, `create/update/deleteArcEvent`, task & staff helpers, status/phase label maps. |
+| `src/views/Admin/AdminArcEventsView.vue` (new) | KPI strip, 다가오는 행사 timeline (D-day·kind·level·blockers·진행률), full 행사 등록/수정 panel, L×S risk picker with live band, 3단계 체크리스트(토글·추가·삭제), 배정 인력표(고지서·면허 chips), 관련 사건 목록, 행사 목록(필터·검색). |
+| menu/router/dashboard | `arcMenuList` 16번째 「행사·의료지원」, route `/admin/arc/events` (`arc.view`), ARC 대시보드 카드 3개(예정 행사·준비 미달 행사·고지서 미교부) + 헤더 링크, 사건 접수 화면에 「관련 행사(선택)」 select + 목록 「행사」 열. |
+
+**Hard guards (PDF-backed).**
+- `READY` blocked while required 행사 전·당일 항목 are open (AS-OPS-001 체크리스트) → message names the count.
+- `READY`/`DONE` blocked without `scope_agreed` when `arc_level ∈ {STANDBY, MEDIC}` (AS-OPS-001 06-B-3 범위초과 업무).
+- `READY`/`DONE` blocked while any EXTERNAL_MEDIC/EMS row has `notice_given = false` (AS-NOT-001 1인당 1부 교부).
+- `READY`/`DONE` blocked while `license_state = 'UNKNOWN'` (정지·취소 확인).
+- `DONE` blocked while any required AFTER 항목 is open; `CANCELED` requires `cancel_reason`.
+- 필수 체크리스트 항목은 삭제 불가(완료 처리만) — 템플릿이 지난 기록을 훼손하지 않도록.
+
+**Partial PATCH safety.** `updateArcEvent` reloads the row, expands it to camelCase and re-applies only the keys
+present in the body — so flipping `status` never blanks 미입력 필드.
+
+**Verified (local, ephemeral `embedded-postgres`, port 55491, empty DB).** `arc.sql` applied on an empty cluster
+(all P14J tables + `arc_incidents` columns), then create→detail→guards→tasks→staff→incident-link→DONE→delete
+exercised in order — **39/39 checks, 0 failures** (가드 5종 모두 발화, 부분 PATCH 무손실, 사건 연결·검색, 번호 증가).
+Two real defects were found and fixed during verification: `arc_event_staff` had no `updated_at` (so editing a
+고지서 교부 record crashed) and `arc.sql` carried a duplicated `arc_incidents` alter/index block.
+
+---
+
 ## 4. Open questions
 
 1. ~~**₩30,000 point-redemption threshold**: before or after discount?~~ → **resolved in P5**: after discount, before point deduction.
@@ -2172,6 +2209,7 @@ done     p14g-training      DONE: arc_training_sessions/attendees + arcTraining.
 done     p14h-care-form      DONE: AS-REC-001 별첨 A ② 비현장 보고 6필드 + 기록자 서명 + 기록성격 고지 + 목록에서 서식원본 등록
 done     ops-auto-schema     DONE: api 기동 시 필수 테이블 점검 → 없으면 스키마 자동 적용(AUTO_SCHEMA=1). "테이블을 찾을 수 없어요" 재발 방지
 done     p14i-quality        DONE: arc_quality_records/actions + arcQuality.js(F11·F12·F13·F14) + /admin/arc/quality(대시보드 KPI·사건 연동·개선조치 추적)
+done     p14j-events         DONE: arc_events/tasks/staff + arcEvents.js(행사 7종·지원수준 4단계·L×S 위험평가·3단계 체크리스트·AS-NOT-001 고지서) + /admin/arc/events + 사건↔행사 연결
 ```
 
 ---

@@ -1220,3 +1220,92 @@ export async function deleteArcQualityAction(recordId, actionId) {
     {}
   );
 }
+
+// ── 행사·의료지원(P14J · AS-OPS-001 06-B-3 · AS-NOT-001) ─────────────────
+
+const EVENTS_PATH = "/api/arc/events";
+
+export const ARC_EVENT_STATUS_LABELS = {
+  PLANNING: "준비 중",
+  READY: "준비 완료",
+  DONE: "종료",
+  CANCELED: "취소",
+};
+
+export const ARC_EVENT_STATUS_TONES = {
+  PLANNING: "warn",
+  READY: "info",
+  DONE: "ok",
+  CANCELED: "muted",
+};
+
+export const ARC_EVENT_PHASE_LABELS = {
+  BEFORE: "행사 전",
+  DURING: "당일",
+  AFTER: "종료 후",
+};
+
+export async function fetchArcEvents(params = {}) {
+  return apiGet(`${EVENTS_PATH}${queryString(params)}`);
+}
+
+export async function fetchArcEventSummary(limit = "") {
+  return apiGet(`${EVENTS_PATH}/summary${queryString({ limit })}`);
+}
+
+export async function fetchArcEvent(eventId) {
+  return apiGet(`${EVENTS_PATH}/${encodeURIComponent(eventId)}`);
+}
+
+export async function createArcEvent(payload) {
+  return apiPost(EVENTS_PATH, payload);
+}
+
+export async function updateArcEvent(eventId, payload) {
+  return apiPatch(`${EVENTS_PATH}/${encodeURIComponent(eventId)}`, payload);
+}
+
+export async function deleteArcEvent(eventId) {
+  return apiPost(`${EVENTS_PATH}/${encodeURIComponent(eventId)}/delete`, {});
+}
+
+export async function toggleArcEventTask(eventId, taskId, payload = {}) {
+  return apiPatch(
+    `${EVENTS_PATH}/${encodeURIComponent(eventId)}/tasks/${encodeURIComponent(
+      taskId
+    )}`,
+    payload
+  );
+}
+
+export async function addArcEventTask(eventId, payload) {
+  return apiPost(
+    `${EVENTS_PATH}/${encodeURIComponent(eventId)}/tasks`,
+    payload
+  );
+}
+
+export async function deleteArcEventTask(eventId, taskId) {
+  return apiPost(
+    `${EVENTS_PATH}/${encodeURIComponent(eventId)}/tasks/${encodeURIComponent(
+      taskId
+    )}/delete`,
+    {}
+  );
+}
+
+export async function saveArcEventStaff(eventId, payload) {
+  return apiPost(
+    `${EVENTS_PATH}/${encodeURIComponent(eventId)}/staff`,
+    payload
+  );
+}
+
+export async function deleteArcEventStaff(eventId, staffId) {
+  return apiPost(
+    `${EVENTS_PATH}/${encodeURIComponent(eventId)}/staff/${encodeURIComponent(
+      staffId
+    )}/delete`,
+    {}
+  );
+}

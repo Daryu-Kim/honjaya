@@ -244,6 +244,8 @@ function mapIncident(row) {
     updatedAt: row.updated_at,
     hasCare: Boolean(row.has_care),
     pendingAccess: toInt(row.pending_access, 0),
+    eventId: row.event_id ?? null,
+    eventNo: row.event_no ?? "",
   };
 }
 
@@ -278,6 +280,7 @@ export async function listArcIncidents({
         and ($5 = '' or i.incident_no ilike '%' || $5 || '%'
              or i.place ilike '%' || $5 || '%'
              or i.summary ilike '%' || $5 || '%'
+             or i.event_no ilike '%' || $5 || '%'
              or i.subject_label ilike '%' || $5 || '%')
       order by i.occurred_at desc
       limit $6`,
@@ -337,8 +340,8 @@ async function insertIncident(payload, employee) {
              (id, incident_no, occurred_at, kind, record_mode, subject_label, place, summary,
               legal_basis, legal_basis_note, transferred_119,
               reporter_id, reporter_name, handler_id, handler_name,
-              created_by, created_by_name)
-           values ($1, $2, $3::timestamptz, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+              created_by, created_by_name, event_id, event_no)
+           values ($1, $2, $3::timestamptz, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::uuid, $19)
            returning *`,
           [
             randomUUID(),
@@ -358,6 +361,8 @@ async function insertIncident(payload, employee) {
             payload.handlerName || employee?.name || "",
             employee?.id ?? null,
             employee?.name ?? "",
+            payload.eventId ?? null,
+            payload.eventNo ?? "",
           ]
         );
 
@@ -372,6 +377,26 @@ async function insertIncident(payload, employee) {
 
     throw badRequest("사건 번호를 만들지 못했어요. 잠시 후 다시 시도해 주세요.");
   });
+}
+
+// 행사번호로 arc_events 를 찾아 사건에 연결합니다. (P14J)
+export async function resolveArcEventRef(eventNo) {
+  const key = text(eventNo, 40);
+
+  if (!key) {
+    return { eventId: null, eventNo: "" };
+  }
+
+  const { rows } = await pool.query(
+    `select id, event_no from public.arc_events where event_no = $1 limit 1`,
+    [key]
+  );
+
+  if (!rows.length) {
+    throw badRequest("연결할 행사를 찾을 수 없어요. 행사번호를 다시 확인해 주세요.");
+  }
+
+  return { eventId: rows[0].id, eventNo: rows[0].event_no };
 }
 
 export async function createArcIncident(input = {}, employee = null) {
@@ -396,6 +421,9 @@ export async function createArcIncident(input = {}, employee = null) {
     throw badRequest("'그 외 적법근거'를 선택하면 사유를 5자 이상 적어 주세요.");
   }
 
+  // 행사 중 발생한 사건이면 행사번호(EVT-…)로 연결합니다. (P14J 행사·의료지원)
+  const eventRef = await resolveArcEventRef(input.eventNo);
+
   const row = await insertIncident(
     {
       occurredAt: parseKstDateTime(input.occurredAt),
@@ -408,6 +436,8 @@ export async function createArcIncident(input = {}, employee = null) {
       legalBasisNote,
       transferred119: flag(input.transferred119),
       handlerName: text(input.handlerName, 60),
+      eventId: eventRef.eventId,
+      eventNo: eventRef.eventNo,
     },
     employee
   );

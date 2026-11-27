@@ -131,6 +131,7 @@
               <th>기록 방식</th>
               <th>표시명</th>
               <th>위치</th>
+              <th>행사</th>
               <th>요약</th>
               <th>상세기록</th>
               <th>상태</th>
@@ -153,6 +154,7 @@
               </td>
               <td>{{ incident.subjectLabel || "-" }}</td>
               <td>{{ incident.place || "-" }}</td>
+              <td class="mono">{{ incident.eventNo || "-" }}</td>
               <td class="summary-cell">{{ incident.summary || "-" }}</td>
               <td>
                 <span v-if="incident.hasCare" class="ok-tag">있음</span>
@@ -231,6 +233,22 @@
             maxlength="80"
             placeholder="예: 3번 테이블"
           />
+        </label>
+        <label class="field">
+          <span>관련 행사 (선택)</span>
+          <select v-model="createForm.eventNo">
+            <option value="">연결 안 함</option>
+            <option
+              v-for="event in eventOptions"
+              :key="event.id"
+              :value="event.eventNo"
+            >
+              {{ event.eventNo }} · {{ event.title }}
+            </option>
+          </select>
+          <small
+            >행사 중 발생한 사건이면 연결해 두면 행사 기록에 함께 남아요.</small
+          >
         </label>
         <label class="field">
           <span>비식별 표시명</span>
@@ -318,6 +336,7 @@ import {
   ARC_RECORD_MODE_LABELS,
   createArcIncident,
   fetchArcDashboard,
+  fetchArcEventSummary,
   fetchArcIncidents,
   fetchArcSettings,
   formatArcDateTime,
@@ -328,6 +347,7 @@ const router = useRouter();
 const incidents = ref([]);
 const summary = ref({});
 const arcSettings = ref({});
+const eventOptions = ref([]);
 const canCare = ref(false);
 const canApprove = ref(false);
 const viewerName = ref("");
@@ -368,6 +388,7 @@ const createForm = reactive({
   subjectLabel: "",
   handlerName: "",
   summary: "",
+  eventNo: "",
   legalBasis: "CONSENT_F27",
   legalBasisNote: "",
   transferred119: false,
@@ -430,8 +451,23 @@ async function loadSettings() {
   }
 }
 
+async function loadEvents() {
+  try {
+    const data = await fetchArcEventSummary();
+
+    eventOptions.value = data?.upcomingEvents ?? [];
+  } catch (error) {
+    eventOptions.value = [];
+  }
+}
+
 async function loadAll() {
-  await Promise.all([loadSummary(), loadIncidents(), loadSettings()]);
+  await Promise.all([
+    loadSummary(),
+    loadIncidents(),
+    loadSettings(),
+    loadEvents(),
+  ]);
 }
 
 function openCreate() {
@@ -442,6 +478,7 @@ function openCreate() {
   createForm.subjectLabel = "";
   createForm.handlerName = "";
   createForm.summary = "";
+  createForm.eventNo = "";
   createForm.legalBasis = defaultLegalBasis("GUEST");
   createForm.legalBasisNote = "";
   createForm.transferred119 = false;
