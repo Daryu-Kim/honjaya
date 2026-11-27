@@ -1580,7 +1580,7 @@ Shared: `src/lib/shop.js` (client + formatters + slot builder) and
 
 ---
 
-## 3-15. P14 — ARC SAFETY 응급안전관리센터 (P14A SHIPPED 2026-11-27, rev 2026-11-27)
+## 3-15. P14 — ARC SAFETY 응급안전관리센터 (P14A+P14B SHIPPED 2026-11-27, rev 2026-11-27)
 
 Rev 2 changes (owner decisions): 혼자야 단일 사업장 · 상세 건강기록 R1 포함 · 백업은 ARC 포함(→ 앱 레벨
 암호화) · 김원재=사장/임시은=직원 · 최윤희는 기존 MANAGER 계정 재사용 · **2FA 범위 제외**.
@@ -1594,6 +1594,18 @@ arc_consents, arc_sensitive_access, arc_sensitive_reads) · `server/src/arcCrypt
 `/admin/arc`, `/admin/arc/consents`, `/admin/arc/access`, `/admin/arc/settings`.
 Verified: eslint 0 errors, `node --check`, crypto round-trip, `vue-cli-service build` OK.
 Server env still required: `ARC_FIELD_KEY` (keep an offline copy) + `ARC_FILES_DIR=/app/arc-files`.
+
+**P14B shipped** (commit `d78375d`): `server/sql/arc.sql` adds `arc_items`, `arc_item_lots`,
+`arc_stock_moves`, `arc_stocktakes`, `arc_stocktake_items`, `arc_purchases`, `arc_otc_items`,
+`arc_otc_checks` + idempotent seed of the 49 AS-KIT-001 kit items and 13 personal OTC items.
+`server/src/arcStock.js` (28 exports) owns item master, FIFO lot consumption, the single move
+ledger, EXP / opened-use-by alert scan (dedupe keys `arc:exp:*`, `arc:open:*`, `arc:stock:*`,
+`arc:otc:*`), monthly stocktake apply (diff-only ADJUST), purchase + 실비정산 ledger and personal
+OTC self-check. `routes/api/arc.js` gains ~20 endpoints; `GET /api/arc/dashboard` now also returns
+`stock`. New admin screens: `/admin/arc/stock`, `/admin/arc/stocktakes`, `/admin/arc/purchases`,
+`/admin/arc/otc` (+ router + menu + dashboard cards). Verified: eslint 0 errors, `node --check`,
+`vue-cli-service build` OK. Deploy: run `docker compose run --rm migrate` so the new tables/seed
+exist before opening the screens.
 
 Request source: `[개발 지시서] 혼자야 관리자 앱 내 ARC SAFETY 응급안전관리센터 구축`
 (partner request: 1 dashboard + 12 menus, 8 reference documents, ~40 record forms).
@@ -1843,7 +1855,7 @@ todo     p13-shop-notify       예약 접수·확정 알림(솔라피 문자 / �
 todo     p14-plan            ARC SAFETY 지시서+원본8종 분석 → plan §3-15. 13개 확인항목 전부 확정(2026-11-27)
 todo     p13-first          P13(전자담배 예약) lint/build 검증 → 커밋·푸시. P14 착수 전 선행
 todo     p14a-base          DONE(03f2af5): arc.* 9권한 · ARC_FIELD_KEY 암복호화 · 종이동의 게이트 · 열람로그 · 알림함+디스코드 #응급안전
-todo     p14b-stock         R1: AS-KIT-001 기준수량 시드 · 로트/EXP 90/30/7일 · 수불 단일경로 · OTC 본인 자기점검
+todo     p14b-stock         DONE(d78375d): AS-KIT-001 49종+OTC 13종 시드 · 로트/EXP/개봉기한 알림 · 수불 단일경로 · 월 실사 확정 · 실비정산 · OTC 본인 자기점검
 todo     p14c-care          R1: 사건(INC-YYYYMMDD-nn) + AS-CARE 암호화 저장 + 동의(F25/F27) + 사건별 접근승인
 todo     p14d-usage-expense R2: 사용대장 + 단가 자동계산 + 정산(EXP) 부분입금
 todo     p14e-check-edu     R2: 월간점검(CHK)·교육(EDU)·활동/캘린더(ACT)·실적 CSV
