@@ -70,9 +70,8 @@ const STAFF_PERMISSIONS = [
   PERMISSIONS.MENU_TOGGLE,
   PERMISSIONS.DISCORD_VIEW,
   PERMISSIONS.SHOP_VIEW,
-  // 직원은 구급상자 재고 확인·사용 등록까지만 합니다(민감 상세 열람은 arc.sensitive).
-  PERMISSIONS.ARC_VIEW,
-  PERMISSIONS.ARC_STOCK,
+  // 응급안전관리센터(ARC)는 사장·매니저 전용이라 직원 기본 권한에 넣지 않습니다.
+  // (2026-11-28 대표 지시: 등록·조회 모두 사장·매니저만)
 ];
 
 const MANAGER_PERMISSIONS = [
@@ -87,8 +86,8 @@ const MANAGER_PERMISSIONS = [
   PERMISSIONS.GIFT_VIEW,
   PERMISSIONS.AUDIT_VIEW,
   PERMISSIONS.DISCORD_MEMBER,
-  // P14 — 매니저(최윤희 RN)는 응급안전 9종을 모두 씁니다. 역할 기본값에 넣고,
-  // 기존 계정에는 직원 화면에서 같은 값을 명시 override 로도 넣어 둡니다.
+  // P14 — 매니저(최윤희 RN)는 응급안전 9종을 모두 씁니다.
+  // 직원 기본 권한에서 ARC 를 뺐기 때문에(사장·매니저 전용) 여기서 다시 넣어 줍니다.
   PERMISSIONS.ARC_VIEW,
   PERMISSIONS.ARC_STOCK,
   PERMISSIONS.ARC_EXPENSE,
@@ -255,7 +254,8 @@ export const PERMISSION_GROUPS = [
   },
   {
     key: "arc",
-    label: "응급안전",
+    // 직원 계정에 체크해도 서버가 사장·매니저가 아니면 막습니다.
+    label: "응급안전 (사장·매니저 전용)",
     permissions: [
       PERMISSIONS.ARC_VIEW,
       PERMISSIONS.ARC_STOCK,
@@ -303,6 +303,20 @@ export function normalizePermissions(value) {
   return ALL_PERMISSIONS.filter((permission) => unique.has(permission));
 }
 
+// 응급안전관리센터 9종. 매니저는 개별 권한 설정과 무관하게 항상 가집니다.
+// (2026-11-28 대표 지시: 등록·조회 모두 사장·매니저만. 직원은 역할 자체가 아니므로 제외)
+const ARC_PERMISSION_SET = new Set([
+  PERMISSIONS.ARC_VIEW,
+  PERMISSIONS.ARC_STOCK,
+  PERMISSIONS.ARC_EXPENSE,
+  PERMISSIONS.ARC_APPROVE,
+  PERMISSIONS.ARC_CHECK,
+  PERMISSIONS.ARC_EDU,
+  PERMISSIONS.ARC_CARE,
+  PERMISSIONS.ARC_SENSITIVE,
+  PERMISSIONS.ARC_ADMIN,
+]);
+
 // 직원별 권한은 두 가지 상태를 가집니다.
 //   * permissions === null/undefined → 역할 기본값을 그대로 사용
 //   * permissions 배열 → 그 직원만의 명시적 권한 목록 (빈 배열 = 권한 없음)
@@ -319,6 +333,20 @@ export function permissionsForEmployee(row) {
   const overrides = normalizePermissions(row.permissions);
 
   if (overrides) {
+    if (row.role === "MANAGER") {
+      const roleDefaults = permissionsForRole("MANAGER");
+
+      return ALL_PERMISSIONS.filter((permission) => {
+        if (overrides.includes(permission)) {
+          return true;
+        }
+
+        return (
+          ARC_PERMISSION_SET.has(permission) && roleDefaults.includes(permission)
+        );
+      });
+    }
+
     return overrides;
   }
 

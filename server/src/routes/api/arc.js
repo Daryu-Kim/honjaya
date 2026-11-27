@@ -76,6 +76,29 @@ import {
 import { writeAuditLog } from "../../auth/audit.js";
 import { PERMISSIONS } from "../../auth/permissions.js";
 import { createStaffGuard } from "../../auth/sessions.js";
+import { HttpError } from "../../http/errors.js";
+
+// 응급안전관리센터는 사장(대표)·매니저만 씁니다.
+// 직원 계정에 arc.* 권한을 직접 넣어도 여기서 다시 막습니다. (2026-11-28 대표 지시)
+const ARC_ROLES = ["OWNER", "MANAGER"];
+
+function arcGuard(permission) {
+  const base = createStaffGuard(permission);
+
+  return async (request, reply) => {
+    await base(request, reply);
+
+    const role = request.staff?.employee?.role;
+
+    if (!ARC_ROLES.includes(role)) {
+      throw new HttpError(
+        403,
+        "HJ403",
+        "응급안전관리센터는 사장·매니저만 사용할 수 있어요."
+      );
+    }
+  };
+}
 
 function readBody(request) {
   return request.body && typeof request.body === "object" ? request.body : {};
@@ -98,14 +121,14 @@ function hasPermission(request, permission) {
 }
 
 export function registerArcRoutes(app) {
-  const requireView = createStaffGuard(PERMISSIONS.ARC_VIEW);
-  const requireStock = createStaffGuard(PERMISSIONS.ARC_STOCK);
-  const requireCheck = createStaffGuard(PERMISSIONS.ARC_CHECK);
-  const requireCare = createStaffGuard(PERMISSIONS.ARC_CARE);
-  const requireSensitive = createStaffGuard(PERMISSIONS.ARC_SENSITIVE);
-  const requireApprove = createStaffGuard(PERMISSIONS.ARC_APPROVE);
-  const requireExpense = createStaffGuard(PERMISSIONS.ARC_EXPENSE);
-  const requireAdmin = createStaffGuard(PERMISSIONS.ARC_ADMIN);
+  const requireView = arcGuard(PERMISSIONS.ARC_VIEW);
+  const requireStock = arcGuard(PERMISSIONS.ARC_STOCK);
+  const requireCheck = arcGuard(PERMISSIONS.ARC_CHECK);
+  const requireCare = arcGuard(PERMISSIONS.ARC_CARE);
+  const requireSensitive = arcGuard(PERMISSIONS.ARC_SENSITIVE);
+  const requireApprove = arcGuard(PERMISSIONS.ARC_APPROVE);
+  const requireExpense = arcGuard(PERMISSIONS.ARC_EXPENSE);
+  const requireAdmin = arcGuard(PERMISSIONS.ARC_ADMIN);
 
   // ── 현황 ───────────────────────────────────────────────────────────
 

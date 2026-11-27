@@ -3,6 +3,14 @@
 // 화면 공통 라벨과 API 호출만 모읍니다. 권한 판단은 항상 서버가 다시 합니다.
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 
+// 응급안전관리센터는 사장(대표)·매니저만 씁니다.
+// 메뉴·라우터에서 먼저 숨기고, 최종 차단은 서버(/api/arc/*)가 다시 합니다.
+export const ARC_ALLOWED_ROLES = ["OWNER", "MANAGER"];
+
+export function canUseArc(role) {
+  return ARC_ALLOWED_ROLES.includes(String(role || ""));
+}
+
 export const ARC_LEVEL_LABELS = {
   INFO: "안내",
   WARN: "주의",

@@ -44,6 +44,7 @@ import AdminArcExpenseView from "@/views/Admin/AdminArcExpenseView.vue";
 import StaffLoginView from "@/views/Staff/StaffLoginView.vue";
 import AdminLayout from "@/layouts/AdminLayout.vue";
 import { startGlobalBusy } from "@/lib/globalBusy";
+import { canUseArc } from "@/lib/arc";
 import { hasPermission, loadStaffSession } from "@/lib/staffAuth";
 
 const routes = [
@@ -336,6 +337,12 @@ router.beforeEach(async (to) => {
   const employee = await loadStaffSession();
 
   if (employee) {
+    // 응급안전관리센터는 사장·매니저 전용입니다.
+    // 직원 계정에 arc.* 권한이 직접 들어 있어도 화면부터 막습니다.
+    if (to.path.startsWith("/admin/arc") && !canUseArc(employee.role)) {
+      return { path: "/admin/dashboard" };
+    }
+
     // 화면 단위 권한(meta.permission)이 있으면 라우터에서 먼저 막습니다.
     const requiredPermission = to.matched
       .map((record) => record.meta?.permission)

@@ -35,6 +35,44 @@
             <span>{{ menu.description }}</span>
           </div>
         </button>
+
+        <template v-if="visibleArcMenuList.length">
+          <div class="nav-divider" aria-hidden="true"></div>
+
+          <button
+            type="button"
+            class="nav-button arc-group-button"
+            :class="{ open: isArcMenuOpen }"
+            :aria-expanded="isArcMenuOpen"
+            @click="toggleArcMenu"
+          >
+            <div class="nav-button-main">
+              <strong>응급안전관리센터</strong>
+              <span>사장·매니저 전용</span>
+            </div>
+            <span class="arc-group-caret" aria-hidden="true">{{
+              isArcMenuOpen ? "−" : "+"
+            }}</span>
+          </button>
+
+          <div v-show="isArcMenuOpen" class="arc-sublist">
+            <button
+              v-for="menu in visibleArcMenuList"
+              :key="menu.to"
+              type="button"
+              class="nav-button arc-nav-button"
+              :class="{ active: isActiveMenu(menu) }"
+              :style="{ '--arc-color': menu.color }"
+              @click="goMenu(menu.to)"
+            >
+              <span class="arc-dot" aria-hidden="true"></span>
+              <div class="nav-button-main">
+                <strong>{{ menu.label }}</strong>
+                <span>{{ menu.description }}</span>
+              </div>
+            </button>
+          </div>
+        </template>
       </nav>
     </aside>
 
@@ -82,6 +120,7 @@ import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { staffAuthState, hasPermission, staffLogout } from "@/lib/staffAuth.js";
+import { canUseArc } from "@/lib/arc.js";
 
 const router = useRouter();
 const route = useRoute();
@@ -170,83 +209,6 @@ const menuList = [
     permission: "crm.view",
   },
   {
-    to: "/admin/arc",
-    label: "응급안전관리센터",
-    description: "구급상자·사건·동의 현황",
-    matchStartsWith: "/admin/arc",
-    permission: "arc.view",
-  },
-  {
-    to: "/admin/arc/stock",
-    label: "구급상자 재고",
-    description: "재고·유효기간·수불",
-    matchStartsWith: "/admin/arc/stock",
-    permission: "arc.view",
-  },
-  {
-    to: "/admin/arc/stocktakes",
-    label: "월 1회 실사",
-    description: "실물 수량 확인",
-    matchStartsWith: "/admin/arc/stocktakes",
-    permission: "arc.view",
-  },
-  {
-    to: "/admin/arc/purchases",
-    label: "보충·정산",
-    description: "구매 대장·실비정산",
-    matchStartsWith: "/admin/arc/purchases",
-    permission: "arc.view",
-  },
-  {
-    to: "/admin/arc/otc",
-    label: "개인 상비약",
-    description: "직원 자기점검",
-    matchStartsWith: "/admin/arc/otc",
-    permission: "arc.view",
-  },
-  {
-    to: "/admin/arc/incidents",
-    label: "사건·응급기록",
-    description: "사건 접수·AS-CARE",
-    matchStartsWith: "/admin/arc/incidents",
-    permission: "arc.view",
-  },
-  {
-    to: "/admin/arc/usages",
-    label: "사용대장",
-    description: "소모품 사용·단가",
-    matchStartsWith: "/admin/arc/usages",
-    permission: "arc.view",
-  },
-  {
-    to: "/admin/arc/expenses",
-    label: "실비정산",
-    description: "청구·부분입금",
-    matchStartsWith: "/admin/arc/expenses",
-    permission: "arc.view",
-  },
-  {
-    to: "/admin/arc/consents",
-    label: "응급안전 동의서",
-    description: "동의 확인·철회",
-    matchStartsWith: "/admin/arc/consents",
-    permission: "arc.view",
-  },
-  {
-    to: "/admin/arc/access",
-    label: "민감정보 열람 관리",
-    description: "열람 승인·열람 기록",
-    matchStartsWith: "/admin/arc/access",
-    permission: "arc.sensitive",
-  },
-  {
-    to: "/admin/arc/settings",
-    label: "응급안전 설정",
-    description: "알림·보존기간",
-    matchStartsWith: "/admin/arc/settings",
-    permission: "arc.admin",
-  },
-  {
     to: "/admin/marketing",
     label: "마케팅",
     description: "문자·알림톡 발송",
@@ -304,12 +266,124 @@ const menuList = [
   },
 ];
 
+// 응급안전관리센터는 사장·매니저 전용 묶음입니다. 단독 메뉴로 흩어 두지 않고
+// 사이드바 맨 아래에 구분선으로 분리해 한 그룹으로 모읍니다.
+// 메뉴마다 색을 달리해 어느 화면인지 바로 구분되게 합니다.
+const arcMenuList = [
+  {
+    to: "/admin/arc",
+    label: "종합 현황",
+    description: "구급상자·사건·동의 현황",
+    matchStartsWith: "/admin/arc",
+    permission: "arc.view",
+    color: "#f59e0b",
+  },
+  {
+    to: "/admin/arc/stock",
+    label: "구급상자 재고",
+    description: "재고·유효기간·수불",
+    matchStartsWith: "/admin/arc/stock",
+    permission: "arc.view",
+    color: "#ef4444",
+  },
+  {
+    to: "/admin/arc/stocktakes",
+    label: "월 1회 실사",
+    description: "실물 수량 확인",
+    matchStartsWith: "/admin/arc/stocktakes",
+    permission: "arc.view",
+    color: "#f97316",
+  },
+  {
+    to: "/admin/arc/purchases",
+    label: "보충·정산",
+    description: "구매 대장·실비정산",
+    matchStartsWith: "/admin/arc/purchases",
+    permission: "arc.view",
+    color: "#eab308",
+  },
+  {
+    to: "/admin/arc/otc",
+    label: "개인 상비약",
+    description: "직원 자기점검",
+    matchStartsWith: "/admin/arc/otc",
+    permission: "arc.view",
+    color: "#84cc16",
+  },
+  {
+    to: "/admin/arc/usages",
+    label: "사용대장",
+    description: "소모품 사용·단가",
+    matchStartsWith: "/admin/arc/usages",
+    permission: "arc.view",
+    color: "#22c55e",
+  },
+  {
+    to: "/admin/arc/expenses",
+    label: "실비정산",
+    description: "청구·부분입금",
+    matchStartsWith: "/admin/arc/expenses",
+    permission: "arc.view",
+    color: "#14b8a6",
+  },
+  {
+    to: "/admin/arc/incidents",
+    label: "사건·응급기록",
+    description: "사건 접수·AS-CARE",
+    matchStartsWith: "/admin/arc/incidents",
+    permission: "arc.view",
+    color: "#06b6d4",
+  },
+  {
+    to: "/admin/arc/consents",
+    label: "응급안전 동의서",
+    description: "동의 확인·철회",
+    matchStartsWith: "/admin/arc/consents",
+    permission: "arc.view",
+    color: "#8b5cf6",
+  },
+  {
+    to: "/admin/arc/access",
+    label: "민감정보 열람 관리",
+    description: "열람 승인·열람 기록",
+    matchStartsWith: "/admin/arc/access",
+    permission: "arc.sensitive",
+    color: "#ec4899",
+  },
+  {
+    to: "/admin/arc/settings",
+    label: "응급안전 설정",
+    description: "알림·보존기간",
+    matchStartsWith: "/admin/arc/settings",
+    permission: "arc.admin",
+    color: "#94a3b8",
+  },
+];
+
+const isArcMenuOpen = ref(false);
+
 // 권한이 없는 메뉴는 아예 보여주지 않습니다. (직원별 권한 설정과 같은 기준)
 const visibleMenuList = computed(() => {
   return menuList.filter((menu) => {
     return !menu.permission || hasPermission(menu.permission);
   });
 });
+
+// 응급안전관리센터는 역할 자체가 사장·매니저여야 열립니다.
+// (직원 계정에 arc.* 권한이 직접 들어 있어도 숨깁니다 — 서버도 같은 기준으로 막습니다.)
+const visibleArcMenuList = computed(() => {
+  if (!canUseArc(currentEmployee.value?.role)) {
+    return [];
+  }
+
+  return arcMenuList.filter((menu) => {
+    return !menu.permission || hasPermission(menu.permission);
+  });
+});
+
+function toggleArcMenu() {
+  isArcMenuOpen.value = !isArcMenuOpen.value;
+}
 
 function goMenu(path) {
   closeMobileMenu();
@@ -327,9 +401,14 @@ function closeMobileMenu() {
 
 // 중첩 경로(예: /admin/arc/consents)에서 부모 메뉴까지 함께 켜지지 않도록
 // 가장 길게 일치하는 메뉴 하나만 활성으로 봅니다.
+const allMenuList = computed(() => [
+  ...visibleMenuList.value,
+  ...visibleArcMenuList.value,
+]);
+
 const activeMenu = computed(() => {
   return (
-    visibleMenuList.value
+    allMenuList.value
       .filter((menu) => route.path.startsWith(menu.matchStartsWith))
       .sort((a, b) => b.matchStartsWith.length - a.matchStartsWith.length)[0] ||
     null
@@ -343,7 +422,15 @@ function isActiveMenu(menu) {
 const currentMenu = computed(() => activeMenu.value);
 
 const currentSectionLabel = computed(() => {
-  return currentMenu.value?.label || "관리자";
+  if (!currentMenu.value) {
+    return "관리자";
+  }
+
+  if (currentMenu.value.to.startsWith("/admin/arc")) {
+    return `응급안전관리센터 · ${currentMenu.value.label}`;
+  }
+
+  return currentMenu.value.label;
 });
 
 const currentTitle = computed(() => {
@@ -363,9 +450,15 @@ const currentDateText = computed(() => {
 
 watch(
   () => route.fullPath,
-  () => {
+  (path) => {
     closeMobileMenu();
-  }
+
+    // 응급안전 화면으로 들어오면 그룹을 펼쳐 둡니다.
+    if (path.startsWith("/admin/arc")) {
+      isArcMenuOpen.value = true;
+    }
+  },
+  { immediate: true }
 );
 </script>
 
@@ -457,6 +550,107 @@ watch(
     font-size: 12px;
     color: rgba(255, 255, 255, 0.62);
   }
+}
+
+// 응급안전관리센터는 사이드바 맨 아래에 구분선으로 분리해 묶습니다.
+.nav-divider {
+  height: 1px;
+  margin: 10px 4px 2px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0),
+    rgba(255, 255, 255, 0.24),
+    rgba(255, 255, 255, 0)
+  );
+}
+
+.arc-group-button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(167, 139, 250, 0.34);
+  background: rgba(139, 92, 246, 0.14);
+
+  .nav-button-main {
+    flex: 1;
+    min-width: 0;
+  }
+
+  strong {
+    color: #ddd6fe;
+  }
+
+  &:hover {
+    background: rgba(139, 92, 246, 0.26);
+  }
+}
+
+.arc-group-caret {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.arc-sublist {
+  display: grid;
+  gap: 8px;
+  margin-left: 6px;
+  padding-left: 10px;
+  border-left: 2px dashed rgba(255, 255, 255, 0.16);
+}
+
+.arc-nav-button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+
+  .nav-button-main {
+    flex: 1;
+    min-width: 0;
+
+    strong {
+      color: var(--arc-color, #fff);
+      font-size: 14px;
+    }
+  }
+
+  &.active {
+    background: var(--arc-color, #fff);
+    color: #0b1220;
+
+    .nav-button-main {
+      strong {
+        color: #0b1220;
+      }
+
+      span {
+        color: rgba(17, 24, 39, 0.72);
+      }
+    }
+
+    .arc-dot {
+      background: #0b1220;
+      box-shadow: none;
+    }
+  }
+}
+
+.arc-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--arc-color, #fff);
+  box-shadow: 0 0 10px var(--arc-color, transparent);
+  flex-shrink: 0;
 }
 
 .admin-main {
@@ -571,6 +765,7 @@ watch(
     transform: translateX(-100%);
     transition: transform 0.2s ease;
     box-shadow: 24px 0 60px rgba(0, 0, 0, 0.46);
+    overflow-y: auto;
 
     &.open {
       transform: translateX(0);
