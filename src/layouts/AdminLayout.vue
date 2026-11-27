@@ -170,6 +170,34 @@ const menuList = [
     permission: "crm.view",
   },
   {
+    to: "/admin/arc",
+    label: "응급안전관리센터",
+    description: "구급상자·사건·동의 현황",
+    matchStartsWith: "/admin/arc",
+    permission: "arc.view",
+  },
+  {
+    to: "/admin/arc/consents",
+    label: "응급안전 동의서",
+    description: "동의 확인·철회",
+    matchStartsWith: "/admin/arc/consents",
+    permission: "arc.view",
+  },
+  {
+    to: "/admin/arc/access",
+    label: "민감정보 열람 관리",
+    description: "열람 승인·열람 기록",
+    matchStartsWith: "/admin/arc/access",
+    permission: "arc.sensitive",
+  },
+  {
+    to: "/admin/arc/settings",
+    label: "응급안전 설정",
+    description: "알림·보존기간",
+    matchStartsWith: "/admin/arc/settings",
+    permission: "arc.admin",
+  },
+  {
     to: "/admin/marketing",
     label: "마케팅",
     description: "문자·알림톡 발송",
@@ -248,15 +276,22 @@ function closeMobileMenu() {
   isMobileMenuOpen.value = false;
 }
 
-function isActiveMenu(menu) {
-  return route.path.startsWith(menu.matchStartsWith);
-}
-
-const currentMenu = computed(() => {
+// 중첩 경로(예: /admin/arc/consents)에서 부모 메뉴까지 함께 켜지지 않도록
+// 가장 길게 일치하는 메뉴 하나만 활성으로 봅니다.
+const activeMenu = computed(() => {
   return (
-    menuList.find((menu) => route.path.startsWith(menu.matchStartsWith)) || null
+    visibleMenuList.value
+      .filter((menu) => route.path.startsWith(menu.matchStartsWith))
+      .sort((a, b) => b.matchStartsWith.length - a.matchStartsWith.length)[0] ||
+    null
   );
 });
+
+function isActiveMenu(menu) {
+  return activeMenu.value?.to === menu.to;
+}
+
+const currentMenu = computed(() => activeMenu.value);
 
 const currentSectionLabel = computed(() => {
   return currentMenu.value?.label || "관리자";

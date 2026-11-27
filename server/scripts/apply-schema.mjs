@@ -228,6 +228,8 @@ export async function applySchema(connectionString, log = console) {
     // discord.sql(P12). 다른 테이블을 참조하지 않는 독립 스키마라 순서는 상관없지만,
     // 봇 컨테이너가 가장 늦게 투입되므로 마지막에 둡니다.
     await runSqlFile(client, join(serverRoot, "sql", "discord.sql"), log);
+    // arc.sql(P14 응급안전). employees 를 참조하므로 staff.sql 뒤에 둡니다.
+    await runSqlFile(client, join(serverRoot, "sql", "arc.sql"), log);
   } finally {
     await client.end();
   }

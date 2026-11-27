@@ -45,6 +45,16 @@ export const PERMISSIONS = {
   DISCORD_SETTINGS: "discord.settings",
   SHOP_VIEW: "shop.view",
   SHOP_MANAGE: "shop.manage",
+  // P14 — 응급안전관리센터(ARC SAFETY)
+  ARC_VIEW: "arc.view",
+  ARC_STOCK: "arc.stock",
+  ARC_EXPENSE: "arc.expense",
+  ARC_APPROVE: "arc.approve",
+  ARC_CHECK: "arc.check",
+  ARC_EDU: "arc.edu",
+  ARC_CARE: "arc.care",
+  ARC_SENSITIVE: "arc.sensitive",
+  ARC_ADMIN: "arc.admin",
 };
 
 const STAFF_PERMISSIONS = [
@@ -60,6 +70,9 @@ const STAFF_PERMISSIONS = [
   PERMISSIONS.MENU_TOGGLE,
   PERMISSIONS.DISCORD_VIEW,
   PERMISSIONS.SHOP_VIEW,
+  // 직원은 구급상자 재고 확인·사용 등록까지만 합니다(민감 상세 열람은 arc.sensitive).
+  PERMISSIONS.ARC_VIEW,
+  PERMISSIONS.ARC_STOCK,
 ];
 
 const MANAGER_PERMISSIONS = [
@@ -74,6 +87,17 @@ const MANAGER_PERMISSIONS = [
   PERMISSIONS.GIFT_VIEW,
   PERMISSIONS.AUDIT_VIEW,
   PERMISSIONS.DISCORD_MEMBER,
+  // P14 — 매니저(최윤희 RN)는 응급안전 9종을 모두 씁니다. 역할 기본값에 넣고,
+  // 기존 계정에는 직원 화면에서 같은 값을 명시 override 로도 넣어 둡니다.
+  PERMISSIONS.ARC_VIEW,
+  PERMISSIONS.ARC_STOCK,
+  PERMISSIONS.ARC_EXPENSE,
+  PERMISSIONS.ARC_APPROVE,
+  PERMISSIONS.ARC_CHECK,
+  PERMISSIONS.ARC_EDU,
+  PERMISSIONS.ARC_CARE,
+  PERMISSIONS.ARC_SENSITIVE,
+  PERMISSIONS.ARC_ADMIN,
 ];
 
 const OWNER_PERMISSIONS = [
@@ -133,6 +157,15 @@ export const PERMISSION_LABELS = {
   [PERMISSIONS.DISCORD_SETTINGS]: "Discord 봇 설정 변경",
   [PERMISSIONS.SHOP_VIEW]: "전자담배 예약 조회·처리",
   [PERMISSIONS.SHOP_MANAGE]: "전자담배 상품·카테고리 관리",
+  [PERMISSIONS.ARC_VIEW]: "응급안전 조회",
+  [PERMISSIONS.ARC_STOCK]: "구급상자 재고·사용 등록",
+  [PERMISSIONS.ARC_EXPENSE]: "응급안전 비용·정산",
+  [PERMISSIONS.ARC_APPROVE]: "응급안전 승인·확인",
+  [PERMISSIONS.ARC_CHECK]: "정기점검 수행",
+  [PERMISSIONS.ARC_EDU]: "응급처치 교육 기록",
+  [PERMISSIONS.ARC_CARE]: "사건·돌봄 기록 작성",
+  [PERMISSIONS.ARC_SENSITIVE]: "민감 건강정보 열람",
+  [PERMISSIONS.ARC_ADMIN]: "응급안전 문서·설정 관리",
 };
 
 export const PERMISSION_GROUPS = [
@@ -219,6 +252,21 @@ export const PERMISSION_GROUPS = [
     key: "shop",
     label: "전자담배",
     permissions: [PERMISSIONS.SHOP_VIEW, PERMISSIONS.SHOP_MANAGE],
+  },
+  {
+    key: "arc",
+    label: "응급안전",
+    permissions: [
+      PERMISSIONS.ARC_VIEW,
+      PERMISSIONS.ARC_STOCK,
+      PERMISSIONS.ARC_EXPENSE,
+      PERMISSIONS.ARC_APPROVE,
+      PERMISSIONS.ARC_CHECK,
+      PERMISSIONS.ARC_EDU,
+      PERMISSIONS.ARC_CARE,
+      PERMISSIONS.ARC_SENSITIVE,
+      PERMISSIONS.ARC_ADMIN,
+    ],
   },
 ];
 

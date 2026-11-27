@@ -29,6 +29,10 @@ import ReservationCompleteView from "@/views/User/ReservationCompleteView.vue";
 import ReservationLookupView from "@/views/User/ReservationLookupView.vue";
 import AdminShopView from "@/views/Admin/AdminShopView.vue";
 import AdminReservationView from "@/views/Admin/AdminReservationView.vue";
+import AdminArcView from "@/views/Admin/AdminArcView.vue";
+import AdminArcSettingsView from "@/views/Admin/AdminArcSettingsView.vue";
+import AdminArcConsentView from "@/views/Admin/AdminArcConsentView.vue";
+import AdminArcAccessView from "@/views/Admin/AdminArcAccessView.vue";
 import StaffLoginView from "@/views/Staff/StaffLoginView.vue";
 import AdminLayout from "@/layouts/AdminLayout.vue";
 import { startGlobalBusy } from "@/lib/globalBusy";
@@ -165,6 +169,31 @@ const routes = [
         name: "admin-shop-reservations",
         component: AdminReservationView,
         meta: { permission: "shop.view" },
+      },
+      {
+        path: "arc",
+        name: "admin-arc",
+        component: AdminArcView,
+        meta: { permission: "arc.view" },
+      },
+      {
+        path: "arc/consents",
+        name: "admin-arc-consents",
+        component: AdminArcConsentView,
+        meta: { permission: "arc.view" },
+      },
+      {
+        // 상세 건강기록 열람·승인 화면. 승인 처리는 서버가 arc.approve 로 다시 검사합니다.
+        path: "arc/access",
+        name: "admin-arc-access",
+        component: AdminArcAccessView,
+        meta: { permission: "arc.sensitive" },
+      },
+      {
+        path: "arc/settings",
+        name: "admin-arc-settings",
+        component: AdminArcSettingsView,
+        meta: { permission: "arc.admin" },
       },
       {
         path: "customers",

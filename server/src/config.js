@@ -88,4 +88,10 @@ export const config = {
     internalToken: String(process.env.BOT_INTERNAL_TOKEN || "").trim(),
     timeoutMs: Number(process.env.BOT_TIMEOUT_MS || 15000),
   },
+  // P14 — ARC SAFETY. 증빙 파일은 로컬 볼륨(백업에 포함), 민감 컬럼은 fieldKey 로 암호화합니다.
+  // fieldKey 가 비어 있으면 민감정보 경로만 503 으로 막고 나머지 화면은 정상 동작합니다.
+  arc: {
+    filesDir: resolve(serverRoot, String(process.env.ARC_FILES_DIR || "arc-files").trim()),
+    fieldKey: String(process.env.ARC_FIELD_KEY || "").trim(),
+  },
 };

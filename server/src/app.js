@@ -5,6 +5,7 @@ import Fastify from "fastify";
 import { config } from "./config.js";
 import { HttpError, PG_MESSAGES, PG_STATUS } from "./http/errors.js";
 import { registerAdminRoutes } from "./routes/api/admin.js";
+import { registerArcRoutes } from "./routes/api/arc.js";
 import { registerCrmRoutes } from "./routes/api/crm.js";
 import { registerDiscordRoutes } from "./routes/api/discord.js";
 import { registerGuestRoutes } from "./routes/api/guest.js";
@@ -200,6 +201,7 @@ export async function buildApp(options = {}) {
       "/api/discord",
       "/api/shop/products",
       "/api/public/shop/products",
+      "/api/arc/dashboard",
       "/health",
     ],
   }));
@@ -218,6 +220,7 @@ export async function buildApp(options = {}) {
   registerMarketingRoutes(app);
   registerDiscordRoutes(app);
   registerShopRoutes(app);
+  registerArcRoutes(app);
 
   return app;
 }
