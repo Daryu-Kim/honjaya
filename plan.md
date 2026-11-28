@@ -2152,6 +2152,42 @@ idempotent, 1–2 min; subsequent boots print `[schema] 스키마 최신 상태 
 
 ---
 
+### P. P14L — 월간교육·OT 교육자료 v2: layperson depth + teacher kit + print-grade layout
+
+**Why.** After P14K shipped 교육자료 v1, the user asked for a v2 that a *non-medical* employee can actually study
+from unaided, that prints like a real training booklet, and that acts as a secretary for 최윤희 (the educator):
+run-book, time plan, scripts, FAQ, sign-off. Three concrete gaps in v1:
+1. 훈련 모듈/상황연습 explained *what* but not *why it matters at our bar* → no plain-language analogy, no store scene.
+2. No printable front matter (cover, table of contents, page breaks) and no attendance/signature evidence.
+3. Nothing to help the *teacher* run a 60-minute session reproducibly.
+
+**Design.** Additive only — the source-of-truth catalogs in `server/src/arcTraining.js` are untouched and no
+existing guide text was rewritten. v2 layers extra fields on top of v1 via merge maps, and the print view gains
+two output modes (교육자용 / 교육생용) plus 8 independent section toggles.
+
+| layer | change |
+| --- | --- |
+| `server/src/arcTrainingGuide.js` | `MODULE_EXTRA` (15 keys: `easy` plain-language analogy, `example` bar-floor scene, `askMore[2]` follow-up Q&A), `SCENARIO_EXTRA` (21 keys: `easy`, `never[]`, `askMore`), `FORBIDDEN_EXTRA` (30 keys: `example` real incident), `GLOSSARY` (26 plain-Korean terms), `TEACHER_KIT` (`headline`, `before[7]`, `supplies[8]`, `timePlan[6]` = 60 min, `curriculum[4]` weeks, `script[5]`, `faq[9]`, `after[6]`, `coachTips[5]`). `arcTrainingGuide()` merges extras and returns `glossary`, `teacherKit`, `totals` (15/21/30, 275 module-min, 60 session-min) — payload shape stays backward compatible. |
+| `src/views/Admin/AdminArcTrainingGuideView.vue` | 2 print modes (교육자용 = answers shown, 교육생용 = write-in lines, zero answer leakage); 8 section toggles; A4 cover page with blank 일시/장소/대상/주제 + goals + TOC; 3분 요약; 교육자 비서 키트 (준비 체크 → 준비물 → 60분 시간표 → 4주 커리큘럼 → 진행 대본 → 예상 질문 → 마무리 체크 → 코치 팁); 이렇게 공부하세요; 1부 모듈 (`쉽게 말하면`/`현장에서는 이렇게`/꼬리질문/구술 답안); 2부 상황연습 (`never` 트랩 경고, 학생용 필기칸); 3부 절대금지 (사례 필드); 부록 1 용어사전 2단; 부록 2 이수 확인·서명표(10행)+구술표(6항목). `printSheet()` sets `document.title` to `혼자야_응급처치교육_{교육자용|교육생용}_{YYYYMMDD}` so Save-as-PDF gets a meaningful filename. |
+| print CSS (global, `body.arc-guide-open`) | `@page { size: A4; margin: 12mm 10mm }`, `print-color-adjust: exact`, `cover-page { break-after: page }`, `.part-break { break-before: page }`, `break-after: avoid` on headings, `break-inside: avoid` on cards/tables/rows, sidebar/topbar/no-print hidden. |
+
+**Verified (no build needed).**
+- Server data: 15/15 modules, 21/21 scenarios, 30/30 forbidden carry their extra fields; glossary 26; teacher kit
+  populated (before 7, supplies 8, timePlan 6, curriculum 4, script 5, faq 9, after 6, tips 5); totals
+  `{modules:15, scenarios:21, forbidden:30, moduleMinutes:275, sessionMinutes:60}`.
+- SFC compile (`@vue/compiler-sfc`): script + template + 2 style blocks ok.
+- **Real SSR render** (`@vue/server-renderer` + real `arcTrainingGuide()` payload, teacher and student mode):
+  0 missing entries across modules/scenarios/forbidden/glossary in both modes; teacher html 51 KB / 22.3 k Korean
+  chars, student 31 KB / 8.4 k chars; teacher shows `oral-a` answers, student does not (`write-lines` /
+  `write-block` instead); **0 answer leaks** in student mode (module answers, scenario `why`/`steps`/askMore,
+  forbidden `instead`); teacher kit + exam guide + cover + signature block all present; section order = 표지 →
+  3분 요약 → 비서 키트 → 이렇게 공부하세요 → 1부 → 2부 → 3부 → 부록 1 → 부록 2; 5 page-break hooks.
+
+**Open follow-ups.** Print pagination depends on the browser (Chrome/Edge recommended); a 1-page "바 카운터
+요약 카드" (cut-out quick reference) was considered but left out of scope.
+
+---
+
 ## 4. Open questions
 
 1. ~~**₩30,000 point-redemption threshold**: before or after discount?~~ → **resolved in P5**: after discount, before point deduction.
@@ -2213,6 +2249,7 @@ done     p9-permissions         employees.permissions text[] override + /api/adm
 done     dark-admin-theme       point-history / customer / marketing 관리자 화면을 다크 테마로 통일
 done     root-table-picker      손님이 ?table= 없이 루트로 들어와 자리 선택 (HomeView)
 done     p5-point-basis         redemption threshold counted AFTER discount, BEFORE point deduction (confirmed)
+done     p14l-training-guide-v2  ARC 교육자료 v2: 민간인 눈높이 보강(easy/example/꼬리질문) + 용어사전 26 + 교육자 비서 키트 + 교육자용/교육생용 출력 모드 + 표지·서명부·A4 인쇄 CSS
 done     p3-table-sales-panel   AdminSalesView 에 테이블별 매출 패널 추가
 todo     tablet-audit-followup  tablet-flow-audit 잔여 항목 (#2~#10, #13~#16) 순차 수정
 done     p10-prepaid-plans     prepaid_plans 상품 템플릿 CRUD (판매가/충전가/유효기간/최소결제/사용요일·시간)
