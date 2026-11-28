@@ -2751,6 +2751,16 @@ design (22px card radius, `rgba(255,255,255,.08)` surfaces, 44px white pill butt
   printable sheets; the single hit (`.teacher-score-tip`, `#fffbeb`) is sheet content.
 - No `AED` text, API or permission changes: styling only.
 
+### post-commit results
+- `npx vue-cli-service lint --no-fix`: **0 errors** (had to normalise the 28 files back to LF —
+  the codemod had written CRLF and the repo uses `endOfLine: lf`).
+- `npm run build`: **success**, `dist/css/app.*.css` 679 KB raw / 70.7 KB gzip. The shared
+  partial is duplicated into 28 scoped blocks, which costs 340 KB raw but only **+2.8 KB gzip**
+  (`gzip x1 = 1852 B`, `gzip x28 = 4643 B`) — acceptable trade for one source of truth.
+- Live check: deployed `honjaya.vercel.app` CSS is byte-identical to the local build
+  (695,346 B, `.menu-tile` ×140, `.page-header .eyebrow` ×40).
+- Commit `63d2177`, pushed to master.
+
 ### gotcha for later
 When adding an ARC screen, style it with the shared partial and keep **view-specific** rules
 short — do not re-declare `.panel`, `.summary-card`, `.preset-button`, `.field` or
