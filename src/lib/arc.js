@@ -1232,6 +1232,11 @@ export async function saveArcRoutineStep(stepKey, payload = {}) {
   return apiPatch(`${ROUTINE_PATH}/${encodeURIComponent(stepKey)}`, payload);
 }
 
+// 총괄(ARC 대표)이 그 달 체크리스트 문구·항목을 직접 고칩니다.
+export async function saveArcRoutineItem(payload = {}) {
+  return apiPost(`${ROUTINE_PATH}/items`, payload);
+}
+
 // ── 월간 교육·OT ────────────────────────────────────────────────────────
 // 등록·수정은 ARC 총괄(최윤희)만 가능합니다. 화면은 canWrite 로 버튼만 숨기고,
 // 최종 차단은 서버(POST/PATCH /api/arc/training)가 다시 합니다.

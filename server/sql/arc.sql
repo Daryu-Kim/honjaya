@@ -790,6 +790,28 @@ create table if not exists public.arc_routine_log (
 create index if not exists arc_routine_log_period_idx
   on public.arc_routine_log (period);
 
+-- 총괄(ARC 대표)이 그 달 루틴 체크리스트의 문구·항목을 직접 손보는 자리입니다.
+-- 행이 없으면 코드 템플릿 문구를 그대로 쓰고, 있는 항목만 아래 값이 우선합니다.
+--   * 기본 항목: label 로 문구를 바꾸고 hidden 으로 숨깁니다.
+--   * 직접 추가한 항목: item_key 가 'custom-' 로 시작하고 label 이 반드시 있습니다.
+create table if not exists public.arc_routine_items (
+  id              uuid primary key default gen_random_uuid(),
+  period          text not null,
+  step_key        text not null,
+  item_key        text not null,
+  label           text not null default '',
+  hidden          boolean not null default false,
+  sort_order      integer not null default 0,
+  created_by      text references public.employees(id) on delete set null,
+  created_by_name text not null default '',
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  constraint arc_routine_items_period_step_item unique (period, step_key, item_key)
+);
+
+create index if not exists arc_routine_items_period_idx
+  on public.arc_routine_items (period, step_key);
+
 -- ── AS-CARE 외부 서식 파일(HWP·DOCX·PDF 등) ───────────────────────────────
 -- 실물 서식(AS-CARE)에 손으로 적고 서명한 원본을 스캔해 올리는 자리입니다.
 -- 파일 본문은 DB에 넣지 않고 ARC_FILES_DIR 아래에만 두며, DB에는 색인만 남깁니다.
@@ -1348,14 +1370,18 @@ create table if not exists public.arc_requests (
   id                 uuid primary key default gen_random_uuid(),
   -- REQ-YYYYMMDD-nn
   request_no         text not null,
-  -- QUESTION=질문 / COMPLAINT=불만·건의 / SUPPLY=응급물품·비품 /
+  -- QUESTION=질문 / NEAR_MISS=근접사고(아차사고) / HAZARD=위험요인·위험사고 /
+  -- COMPLAINT=불만·건의 / SUPPLY=응급물품·비품 /
   -- EDUCATION=교육·훈련 / FACILITY=안전시설·환경 / HEALTH=건강·컨디션 / ETC=기타
   category           text not null default 'QUESTION'
-                       check (category in ('QUESTION', 'COMPLAINT', 'SUPPLY',
-                                           'EDUCATION', 'FACILITY', 'HEALTH', 'ETC')),
+                       check (category in ('QUESTION', 'NEAR_MISS', 'HAZARD',
+                                           'COMPLAINT', 'SUPPLY', 'EDUCATION',
+                                           'FACILITY', 'HEALTH', 'ETC')),
   title              text not null default '',
   body               text not null default '',
   urgent             boolean not null default false,
+  -- 익명 글: 작성자 정보를 화면에 내보내지 않습니다(근접사고·위험사고 기본값).
+  anonymous          boolean not null default false,
   -- PENDING=대기중 / READ=읽음 / DONE=완료
   status             text not null default 'PENDING'
                        check (status in ('PENDING', 'READ', 'DONE')),
@@ -1375,6 +1401,28 @@ create table if not exists public.arc_requests (
 
 create index if not exists arc_requests_status_idx
   on public.arc_requests (status, created_at desc);
+
+-- 기존 설치본 보정: 익명 열 + 새 분류(근접사고·위험요인) 허용.
+alter table public.arc_requests
+  add column if not exists anonymous boolean not null default false;
+
+do $$
+begin
+  if exists (
+    select 1 from pg_constraint where conname = 'arc_requests_category_check'
+  ) then
+    alter table public.arc_requests drop constraint arc_requests_category_check;
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint where conname = 'arc_requests_category_v2_check'
+  ) then
+    alter table public.arc_requests
+      add constraint arc_requests_category_v2_check
+      check (category in ('QUESTION', 'NEAR_MISS', 'HAZARD', 'COMPLAINT',
+                          'SUPPLY', 'EDUCATION', 'FACILITY', 'HEALTH', 'ETC'));
+  end if;
+end $$;
 
 create index if not exists arc_requests_author_idx
   on public.arc_requests (author_employee_id, created_at desc);

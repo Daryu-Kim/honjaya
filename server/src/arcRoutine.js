@@ -164,7 +164,7 @@ export const ARC_ROUTINE_STEPS = [
       ["attend", "참석자 서명·교육일지 작성"],
       ["photo", "교육 사진 1~2장 촬영 후 증빙ID 연결"],
       ["cpr", "구두평가 — 119 우선·반응/호흡 확인·CPR 시작 기준"],
-      ["aed", "구두평가 — AED 기본순서·분석/충격 중 접촉 금지"],
+      ["call", "구두평가 — 119 스피커폰 연결·압박을 멈추지 않는 인계"],
       ["choke", "구두평가 — 기도폐쇄 구별·등 두드리기/복부 밀어내기"],
       ["bleed", "구두평가 — 심한 출혈 직접압박"],
       ["burn", "구두평가 — 화상 20분 냉각"],
@@ -294,6 +294,9 @@ export const ARC_ROUTINE_STEPS = [
 ];
 
 const STEP_BY_KEY = new Map(ARC_ROUTINE_STEPS.map((step) => [step.key, step]));
+const CUSTOM_ITEM_PREFIX = "custom-";
+const MAX_CUSTOM_ITEMS = 30;
+const MAX_ITEM_LABEL = 160;
 
 function seoulDateParts() {
   const formatter = new Intl.DateTimeFormat("en-CA", {
@@ -373,6 +376,67 @@ function mapLogRow(row) {
   };
 }
 
+/**
+ * 총괄(ARC 대표)이 그 달에만 쓰는 체크리스트 조정값.
+ *   * 기본 항목: label 이 있으면 문구를 바꾸고, hidden 이면 숨깁니다.
+ *   * 직접 추가한 항목: item_key 가 custom- 로 시작하고 label 이 필수입니다.
+ */
+function applyItemOverrides(step, rows = []) {
+  if (rows.length === 0) return step;
+
+  const byKey = new Map(rows.map((row) => [row.item_key, row]));
+  const items = [];
+  const hiddenItems = [];
+
+  for (const [key, label] of step.items) {
+    const row = byKey.get(key);
+
+    if (row?.hidden) {
+      hiddenItems.push({ key, label });
+      continue;
+    }
+
+    items.push([key, String(row?.label ?? "").trim() || label]);
+  }
+
+  const custom = rows
+    .filter((row) => row.item_key.startsWith(CUSTOM_ITEM_PREFIX) && !row.hidden)
+    .sort((left, right) => left.sort_order - right.sort_order);
+
+  for (const row of custom) {
+    const label = String(row.label ?? "").trim();
+
+    if (label) {
+      items.push([row.item_key, label]);
+    }
+  }
+
+  return { ...step, items, hiddenItems };
+}
+
+function groupItemRows(rows = []) {
+  const grouped = new Map();
+
+  for (const row of rows) {
+    const list = grouped.get(row.step_key) ?? [];
+    list.push(row);
+    grouped.set(row.step_key, list);
+  }
+
+  return grouped;
+}
+
+async function loadItemOverrides(period) {
+  const { rows } = await pool.query(
+    `select step_key, item_key, label, hidden, sort_order
+       from public.arc_routine_items
+      where period = $1`,
+    [period]
+  );
+
+  return groupItemRows(rows);
+}
+
 function mapStep(step, log, context) {
   const end = Math.min(step.window[1], context.days);
   const start = Math.min(step.window[0], end);
@@ -390,6 +454,7 @@ function mapStep(step, log, context) {
     window: { start, end },
     windowLabel: `${start}일~${end}일`,
     items,
+    hiddenItems: step.hiddenItems ?? [],
     checkedCount,
     status: log?.status ?? "PENDING",
     state: resolveState({
@@ -488,9 +553,10 @@ export async function listArcRoutine({ period } = {}) {
   const days = daysInMonth(key);
   const today = seoulDateParts();
   const gateSettings = await loadGateSettings();
-  const steps = ARC_ROUTINE_STEPS.filter((step) => isStepInMonth(step, month)).map(
-    (step) => applyGateSettings(step, gateSettings)
-  );
+  const overrides = await loadItemOverrides(key);
+  const steps = ARC_ROUTINE_STEPS.filter((step) => isStepInMonth(step, month))
+    .map((step) => applyGateSettings(step, gateSettings))
+    .map((step) => applyItemOverrides(step, overrides.get(step.key) ?? []));
 
   const { rows } = await pool.query(
     `select * from public.arc_routine_log where period = $1`,
@@ -560,12 +626,15 @@ function sanitizeActions(input) {
 export async function saveArcRoutineStep(input = {}, employee = null) {
   const period = normalizePeriod(input.period);
   const stepKey = String(input.stepKey ?? "").trim();
-  const step = STEP_BY_KEY.get(stepKey);
+  const baseStep = STEP_BY_KEY.get(stepKey);
   const month = Number.parseInt(period.slice(5, 7), 10);
 
-  if (!step || !isStepInMonth(step, month)) {
+  if (!baseStep || !isStepInMonth(baseStep, month)) {
     throw badRequest("이번 달에 해당하지 않는 루틴 항목이에요.");
   }
+
+  const overrides = await loadItemOverrides(period);
+  const step = applyItemOverrides(baseStep, overrides.get(stepKey) ?? []);
 
   const status = String(input.status ?? "DONE").trim().toUpperCase();
 
@@ -614,6 +683,143 @@ export async function saveArcRoutineStep(input = {}, employee = null) {
   const saved = routine.steps.find((row) => row.key === stepKey) ?? null;
 
   return { period, step: saved, progress: routine.progress, alerts: routine.alerts };
+}
+
+/**
+ * 루틴 체크리스트 문구·항목 편집(ARC 대표 전용).
+ *   add     — 그 달에만 쓰는 항목을 새로 추가합니다.
+ *   rename  — 기본 항목 문구를 바꾸거나, 직접 추가한 항목 이름을 고칩니다.
+ *   remove  — 기본 항목은 숨기고, 직접 추가한 항목은 지웁니다.
+ *   restore — 기본 항목의 원래 문구·표시로 되돌립니다.
+ */
+export async function saveArcRoutineItem(input = {}, employee = null) {
+  const action = String(input.action ?? "add").trim().toLowerCase();
+  const period = normalizePeriod(input.period);
+  const stepKey = String(input.stepKey ?? "").trim();
+  const baseStep = STEP_BY_KEY.get(stepKey);
+  const month = Number.parseInt(period.slice(5, 7), 10);
+
+  if (!baseStep || !isStepInMonth(baseStep, month)) {
+    throw badRequest("이번 달에 해당하지 않는 루틴 항목이에요.");
+  }
+
+  const label = String(input.label ?? "").trim().slice(0, MAX_ITEM_LABEL);
+  const itemKey = String(input.itemKey ?? "").trim();
+  const templateKeys = new Set(baseStep.items.map(([key]) => key));
+  const isCustom = itemKey.startsWith(CUSTOM_ITEM_PREFIX);
+
+  if (!["add", "rename", "remove", "restore"].includes(action)) {
+    throw badRequest("할 수 없는 편집 요청이에요.");
+  }
+
+  if (action === "add") {
+    if (!label) {
+      throw badRequest("추가할 항목 내용을 적어 주세요.");
+    }
+
+    const { rows } = await pool.query(
+      `select count(*)::int as used
+         from public.arc_routine_items
+        where period = $1 and step_key = $2 and item_key like $3`,
+      [period, stepKey, `${CUSTOM_ITEM_PREFIX}%`]
+    );
+
+    if (Number(rows[0]?.used ?? 0) >= MAX_CUSTOM_ITEMS) {
+      throw badRequest(`직접 추가할 수 있는 항목은 ${MAX_CUSTOM_ITEMS}개까지예요.`);
+    }
+
+    await pool.query(
+      `insert into public.arc_routine_items
+         (period, step_key, item_key, label, hidden, sort_order,
+          created_by, created_by_name)
+       values ($1, $2, $3, $4, false, $5, $6, $7)`,
+      [
+        period,
+        stepKey,
+        `${CUSTOM_ITEM_PREFIX}${randomUUID()}`,
+        label,
+        baseStep.items.length,
+        employee?.id ?? null,
+        employee?.name ?? "",
+      ]
+    );
+  } else {
+    if (!templateKeys.has(itemKey) && !isCustom) {
+      throw badRequest("루틴 항목을 찾을 수 없어요.");
+    }
+
+    if (action === "rename") {
+      if (!label) {
+        throw badRequest("바꿀 항목 내용을 적어 주세요.");
+      }
+
+      await pool.query(
+        `insert into public.arc_routine_items
+           (period, step_key, item_key, label, hidden, sort_order,
+            created_by, created_by_name)
+         values ($1, $2, $3, $4, false, $5, $6, $7)
+         on conflict (period, step_key, item_key) do update
+           set label = excluded.label,
+               hidden = false,
+               updated_at = now()`,
+        [
+          period,
+          stepKey,
+          itemKey,
+          label,
+          baseStep.items.length,
+          employee?.id ?? null,
+          employee?.name ?? "",
+        ]
+      );
+    } else if (action === "remove") {
+      if (isCustom) {
+        await pool.query(
+          `delete from public.arc_routine_items
+            where period = $1 and step_key = $2 and item_key = $3`,
+          [period, stepKey, itemKey]
+        );
+      } else {
+        await pool.query(
+          `insert into public.arc_routine_items
+             (period, step_key, item_key, label, hidden, sort_order,
+              created_by, created_by_name)
+           values ($1, $2, $3, '', true, $4, $5, $6)
+           on conflict (period, step_key, item_key) do update
+             set hidden = true,
+                 updated_at = now()`,
+          [
+            period,
+            stepKey,
+            itemKey,
+            baseStep.items.length,
+            employee?.id ?? null,
+            employee?.name ?? "",
+          ]
+        );
+      }
+    } else {
+      // restore — 기본 항목만 되돌립니다.
+      if (!templateKeys.has(itemKey)) {
+        throw badRequest("기본 항목만 원래대로 되돌릴 수 있어요.");
+      }
+
+      await pool.query(
+        `delete from public.arc_routine_items
+          where period = $1 and step_key = $2 and item_key = $3`,
+        [period, stepKey, itemKey]
+      );
+    }
+  }
+
+  const routine = await listArcRoutine({ period });
+
+  return {
+    period,
+    step: routine.steps.find((row) => row.key === stepKey) ?? null,
+    progress: routine.progress,
+    alerts: routine.alerts,
+  };
 }
 
 /** 종합현황 카드용 요약. */

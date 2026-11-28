@@ -90,15 +90,28 @@
           </label>
         </div>
 
+        <div v-if="selectedCategory" class="category-guide">
+          <p class="guide-desc">{{ selectedCategory.desc }}</p>
+          <ul v-if="categoryGuide.length">
+            <li v-for="line in categoryGuide" :key="line">{{ line }}</li>
+          </ul>
+        </div>
+
         <label class="field">
           <span>내용 (언제·어디서·무엇이 문제인지 적으면 빨라요)</span>
           <textarea
             v-model.trim="form.body"
             rows="4"
             maxlength="4000"
-            placeholder="예: 3월 12일 오픈 준비 중 확인했는데 2호점 구급상자 거즈가 2장 남았습니다. 다음 주 발주에 넣어 주실 수 있을까요?"
+            :placeholder="bodyPlaceholder"
           ></textarea>
         </label>
+
+        <label class="checkbox-field anonymity-field">
+          <input v-model="form.anonymous" type="checkbox" />
+          <span>익명으로 남기기 (작성자 이름이 표시되지 않아요)</span>
+        </label>
+        <p v-if="form.anonymous" class="anonymity-note">{{ anonymityNote }}</p>
 
         <label class="checkbox-field">
           <input v-model="form.urgent" type="checkbox" />
@@ -175,6 +188,7 @@
         >
           <div class="request-top">
             <span class="cat-chip">{{ categoryLabel(row.category) }}</span>
+            <span v-if="row.anonymous" class="anon-chip">익명</span>
             <span v-if="row.urgent" class="urgent-chip">긴급</span>
             <span :class="['status-chip', statusTone(row.status)]">
               {{ statusLabel(row.status) }}
@@ -208,7 +222,8 @@
 
       <p class="detail-meta">
         {{ active.requestNo }} · {{ categoryLabel(active.category) }} ·
-        {{ active.authorName }} · {{ formatDate(active.createdAt) }}
+        {{ active.anonymous ? "익명" : active.authorName }} ·
+        {{ formatDate(active.createdAt) }}
       </p>
       <p class="detail-body">{{ active.body }}</p>
 
@@ -340,7 +355,12 @@ const isDirector = computed(() => Boolean(employee.value?.isArcDirector));
 
 const requests = ref([]);
 const summary = ref({});
-const catalog = ref({ categories: [], statuses: [], tips: [] });
+const catalog = ref({
+  categories: [],
+  statuses: [],
+  tips: [],
+  anonymityNote: "",
+});
 const active = ref(null);
 const activeId = ref("");
 const isLoading = ref(false);
@@ -351,11 +371,17 @@ const okMessage = ref("");
 const replyBody = ref("");
 const doneNote = ref("");
 
+const ANONYMITY_NOTE_FALLBACK =
+  "익명으로 남기면 작성자 이름이 목록·상세 화면 어디에도 표시되지 않습니다. " +
+  "ARC 대표 화면에도 '익명'으로만 보이며, 누가 썼는지로 불이익을 주지 않습니다. " +
+  "다만 본인이 쓴 글은 '내가 남긴 요청'에서 계속 확인할 수 있습니다.";
+
 const form = reactive({
   category: "QUESTION",
   title: "",
   body: "",
   urgent: false,
+  anonymous: false,
 });
 
 const filters = reactive({ status: "", category: "", period: "" });
@@ -366,10 +392,12 @@ const categoryOptions = computed(() => {
   if (list.length === 0) {
     return [
       { key: "QUESTION", label: "질문" },
+      { key: "NEAR_MISS", label: "근접사고(아차사고)" },
+      { key: "HAZARD", label: "위험요인·위험사고" },
       { key: "COMPLAINT", label: "불만·건의" },
-      { key: "SUPPLY", label: "비품·약품 요청" },
-      { key: "EDUCATION", label: "교육 요청" },
-      { key: "FACILITY", label: "시설·환경" },
+      { key: "SUPPLY", label: "응급물품·비품" },
+      { key: "EDUCATION", label: "교육·훈련 요청" },
+      { key: "FACILITY", label: "안전시설·환경" },
       { key: "HEALTH", label: "건강·컨디션" },
       { key: "ETC", label: "기타" },
     ];
@@ -393,6 +421,41 @@ const statusOptions = computed(() => {
 });
 
 const tips = computed(() => catalog.value.tips ?? ARC_REQUEST_TIPS_FALLBACK);
+
+const selectedCategory = computed(
+  () =>
+    (catalog.value.categories ?? []).find(
+      (item) => item.key === form.category
+    ) ?? null
+);
+
+const categoryGuide = computed(() =>
+  Array.isArray(selectedCategory.value?.guide)
+    ? selectedCategory.value.guide
+    : []
+);
+
+const anonymityNote = computed(
+  () => catalog.value.anonymityNote || ANONYMITY_NOTE_FALLBACK
+);
+
+const bodyPlaceholder = computed(() => {
+  if (selectedCategory.value?.anonymousByDefault) {
+    return "예: 3월 12일 21시쯤 홀 4번 테이블 옆에서 손님이 일어나다 휘청했는데, 옆 직원이 바로 팔을 잡아 넘어지지 않았습니다. 바닥이 젖어 있었던 것 같아요. 미끄럼 방지 매트가 필요해 보입니다.";
+  }
+
+  return "예: 3월 12일 오픈 준비 중 확인했는데 2호점 구급상자 거즈가 2장 남았습니다. 다음 주 발주에 넣어 주실 수 있을까요?";
+});
+
+// 근접사고·위험요인은 '기본이 익명'입니다. 분류를 고를 때 자동으로 체크해요.
+watch(
+  () => form.category,
+  () => {
+    if (selectedCategory.value?.anonymousByDefault) {
+      form.anonymous = true;
+    }
+  }
+);
 
 function categoryLabel(key) {
   return categoryOptions.value.find((item) => item.key === key)?.label ?? key;
@@ -486,6 +549,7 @@ async function submitRequest() {
   }
 
   isSaving.value = true;
+  const isAnonymousSubmit = form.anonymous;
 
   try {
     await createArcRequest({
@@ -493,12 +557,18 @@ async function submitRequest() {
       title: form.title,
       body: form.body,
       urgent: form.urgent,
+      anonymous: form.anonymous,
     });
 
     form.title = "";
     form.body = "";
     form.urgent = false;
-    flash("요청을 남겼어요. ARC 대표가 확인하면 상태가 바뀝니다.");
+    form.anonymous = false;
+    flash(
+      isAnonymousSubmit
+        ? "익명으로 요청을 남겼어요. 작성자 이름은 표시되지 않습니다."
+        : "요청을 남겼어요. ARC 대표가 확인하면 상태가 바뀝니다."
+    );
     await loadAll();
   } catch (error) {
     errorMessage.value = error?.message ?? "요청을 남기지 못했어요.";
@@ -800,6 +870,46 @@ onMounted(loadAll);
   border: 1px solid #e2e8f0;
 }
 
+.category-guide {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #fffdf7;
+  border: 1px solid #fde68a;
+}
+
+.guide-desc {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.65;
+  font-weight: 700;
+  color: #92400e;
+}
+
+.category-guide ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.75;
+  color: #78350f;
+}
+
+.anonymity-field {
+  margin-top: 10px;
+  font-weight: 700;
+}
+
+.anonymity-note {
+  margin: 6px 0 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: #065f46;
+}
+
 .tips-title {
   margin: 0 0 6px;
   font-size: 11px;
@@ -908,6 +1018,15 @@ onMounted(loadAll);
   border-radius: 999px;
   background: #fef2f2;
   color: #b91c1c;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.anon-chip {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #ecfdf5;
+  color: #047857;
   font-size: 11px;
   font-weight: 800;
 }

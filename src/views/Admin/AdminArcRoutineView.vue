@@ -113,7 +113,97 @@
               <span>{{ item.label }}</span>
             </label>
           </li>
+          <li v-if="!step.items.length" class="empty-line">
+            이 달은 체크 항목이 없어요. 아래에서 항목을 추가할 수 있어요.
+          </li>
         </ul>
+
+        <div v-if="isDirector" class="item-editor">
+          <div class="editor-head">
+            <strong>체크리스트 문구·항목 편집</strong>
+            <button
+              type="button"
+              class="mini-button"
+              @click="toggleItemEditor(step)"
+            >
+              {{ itemEditorOpen[step.key] ? "편집 닫기" : "편집 열기" }}
+            </button>
+          </div>
+
+          <template v-if="itemEditorOpen[step.key]">
+            <p class="helper-text">
+              ARC 대표만 고칠 수 있어요. 이 달에만 적용되고, 다음 달은 원래
+              항목으로 다시 시작해요.
+            </p>
+
+            <div
+              v-for="item in step.items"
+              :key="`item-edit-${item.key}`"
+              class="item-row"
+            >
+              <input
+                v-model="itemDrafts[itemDraftKey(step.key, item.key)]"
+                type="text"
+                maxlength="160"
+                class="item-label-input"
+              />
+              <button
+                type="button"
+                class="mini-button"
+                :disabled="itemBusy[step.key]"
+                @click="renameItem(step, item)"
+              >
+                문구 저장
+              </button>
+              <button
+                type="button"
+                class="mini-button danger"
+                :disabled="itemBusy[step.key]"
+                @click="removeItem(step, item)"
+              >
+                {{ isCustomItem(item) ? "삭제" : "숨기기" }}
+              </button>
+            </div>
+
+            <div class="item-row">
+              <input
+                v-model="newItemDrafts[step.key]"
+                type="text"
+                maxlength="160"
+                class="item-label-input"
+                placeholder="예: 냉장고 온도 기록지 교체 확인"
+                @keyup.enter="addItem(step)"
+              />
+              <button
+                type="button"
+                class="mini-button"
+                :disabled="itemBusy[step.key]"
+                @click="addItem(step)"
+              >
+                항목 추가
+              </button>
+            </div>
+
+            <div v-if="step.hiddenItems && step.hiddenItems.length">
+              <p class="helper-text">숨긴 기본 항목</p>
+              <div
+                v-for="item in step.hiddenItems"
+                :key="`item-hidden-${item.key}`"
+                class="item-row"
+              >
+                <span class="hidden-item-label">{{ item.label }}</span>
+                <button
+                  type="button"
+                  class="mini-button"
+                  :disabled="itemBusy[step.key]"
+                  @click="restoreItem(step, item)"
+                >
+                  되돌리기
+                </button>
+              </div>
+            </div>
+          </template>
+        </div>
 
         <div class="step-actions-editor">
           <div class="editor-head">
@@ -229,8 +319,10 @@ import { computed, onMounted, reactive, ref } from "vue";
 import {
   fetchArcRoutine,
   formatArcDateTime,
+  saveArcRoutineItem,
   saveArcRoutineStep,
 } from "@/lib/arc";
+import { staffAuthState } from "@/lib/staffAuth";
 
 const routine = ref({
   period: "",
@@ -242,10 +334,19 @@ const routine = ref({
   alerts: [],
 });
 const drafts = reactive({});
+const itemDrafts = reactive({});
+const newItemDrafts = reactive({});
+const itemEditorOpen = reactive({});
+const itemBusy = reactive({});
 const isSaving = reactive({});
 const isLoading = ref(false);
 const errorMessage = ref("");
 const savedMessage = ref("");
+
+// 체크리스트 문구·항목 편집은 ARC 대표(총괄)만 할 수 있어요.
+const isDirector = computed(() =>
+  Boolean(staffAuthState.employee?.isArcDirector)
+);
 
 const today = computed(() => routine.value.today ?? { period: "", day: null });
 const isCurrentPeriod = computed(
@@ -326,6 +427,86 @@ function syncDrafts(steps) {
 
   steps.forEach((step) => {
     drafts[step.key] = buildDraft(step);
+    resetItemDrafts(step);
+  });
+}
+
+function itemDraftKey(stepKey, itemKey) {
+  return `${stepKey}::${itemKey}`;
+}
+
+function isCustomItem(item) {
+  return String(item?.key ?? "").startsWith("custom-");
+}
+
+function toggleItemEditor(step) {
+  itemEditorOpen[step.key] = !itemEditorOpen[step.key];
+}
+
+function resetItemDrafts(step) {
+  step.items.forEach((item) => {
+    itemDrafts[itemDraftKey(step.key, item.key)] = item.label;
+  });
+}
+
+async function submitItemEdit(step, payload) {
+  if (itemBusy[step.key]) return false;
+
+  itemBusy[step.key] = true;
+  errorMessage.value = "";
+  savedMessage.value = "";
+
+  try {
+    const result = await saveArcRoutineItem({
+      period: routine.value.period,
+      stepKey: step.key,
+      ...payload,
+    });
+
+    applySavedStep(result, { keepDraft: true });
+    savedMessage.value = `'${step.title}' 체크리스트를 수정했어요.`;
+    return true;
+  } catch (error) {
+    errorMessage.value = error?.message || "체크리스트를 수정하지 못했어요.";
+    return false;
+  } finally {
+    itemBusy[step.key] = false;
+  }
+}
+
+function renameItem(step, item) {
+  const label = String(
+    itemDrafts[itemDraftKey(step.key, item.key)] ?? ""
+  ).trim();
+
+  if (!label) {
+    errorMessage.value = "항목 내용을 적어 주세요.";
+    return;
+  }
+
+  submitItemEdit(step, { action: "rename", itemKey: item.key, label });
+}
+
+function removeItem(step, item) {
+  submitItemEdit(step, { action: "remove", itemKey: item.key });
+}
+
+function restoreItem(step, item) {
+  submitItemEdit(step, { action: "restore", itemKey: item.key });
+}
+
+function addItem(step) {
+  const label = String(newItemDrafts[step.key] ?? "").trim();
+
+  if (!label) {
+    errorMessage.value = "추가할 항목 내용을 적어 주세요.";
+    return;
+  }
+
+  submitItemEdit(step, { action: "add", label }).then((ok) => {
+    if (ok) {
+      newItemDrafts[step.key] = "";
+    }
   });
 }
 
@@ -447,11 +628,13 @@ async function reopen(step) {
   }
 }
 
-function applySavedStep(result) {
+function applySavedStep(result, { keepDraft = false } = {}) {
   if (!result?.step) {
     loadRoutine(routine.value.period);
     return;
   }
+
+  const previous = drafts[result.step.key];
 
   routine.value.steps = routine.value.steps.map((row) =>
     row.key === result.step.key ? result.step : row
@@ -461,6 +644,18 @@ function applySavedStep(result) {
     ? result.alerts
     : routine.value.alerts;
   drafts[result.step.key] = buildDraft(result.step);
+  resetItemDrafts(result.step);
+
+  // 항목 문구만 고쳤을 때는 작성 중이던 체크·메모·후속조치를 그대로 둡니다.
+  if (keepDraft && previous) {
+    result.step.items.forEach((item) => {
+      drafts[result.step.key].checklist[item.key] = Boolean(
+        previous.checklist[item.key]
+      );
+    });
+    drafts[result.step.key].note = previous.note;
+    drafts[result.step.key].actions = previous.actions;
+  }
 }
 
 onMounted(() => loadRoutine());
@@ -777,6 +972,39 @@ onMounted(() => loadRoutine());
   padding: 12px;
   border-radius: 12px;
   background: rgba(0, 0, 0, 0.18);
+}
+
+.item-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px dashed rgba(129, 140, 248, 0.45);
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.item-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.item-label-input {
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.hidden-item-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  text-decoration: line-through;
 }
 
 .editor-head {

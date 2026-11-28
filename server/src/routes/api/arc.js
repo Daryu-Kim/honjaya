@@ -62,6 +62,7 @@ import {
 import {
   arcRoutineSummary,
   listArcRoutine,
+  saveArcRoutineItem,
   saveArcRoutineStep,
 } from "../../arcRoutine.js";
 import {
@@ -494,6 +495,38 @@ export function registerArcRoutes(app) {
 
     return listArcRoutine({ period: query.period });
   });
+
+  // 루틴 체크리스트 문구·항목 편집 — ARC 대표(총괄) 전용
+  app.post(
+    "/api/arc/routine/items",
+    { preHandler: [requireView, requireArcDirector] },
+    async (request) => {
+      const employee = currentEmployee(request);
+      const body = readBody(request);
+      const result = await saveArcRoutineItem(
+        {
+          action: body.action,
+          period: body.period,
+          stepKey: body.stepKey,
+          itemKey: body.itemKey,
+          label: body.label,
+        },
+        employee
+      );
+
+      await writeAuditLog({
+        employee,
+        action: `arc.routine.item.${String(body.action ?? "add").trim().toLowerCase()}`,
+        targetType: "arc_routine_items",
+        targetId: `${result.period}:${body.stepKey}`,
+        detail: { itemKey: body.itemKey ?? "", label: body.label ?? "" },
+        ip: clientIp(request),
+        log: request.log,
+      });
+
+      return result;
+    }
+  );
 
   app.patch(
     "/api/arc/routine/:stepKey",

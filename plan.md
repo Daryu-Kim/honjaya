@@ -2505,6 +2505,53 @@ blocks of the 5 edited `.vue` files; `sass.compileString` clean on every `<style
 `buildArcStudyPack({kind:"SURPRISE"})` returns 6 exam items / 40 pts / 5 critical / 34 knowledge / 27 glossary.
 No lint/typecheck/build executed yet — awaiting the operator's go-ahead per rule 15.
 
+### P14T — Routine item editing, AED removal, anonymous requests board
+
+**Requested (2026-11-29):** ① 최윤희 must be able to edit/register everything inside every ARC
+menu, including the 월간 운영 루틴 checklist items, ② 혼자야 owns **no AED** — remove every AED
+reference, especially from 구두시험 시험지 / 교육자용 output, ③ 요청게시판 must be free for all
+staff with **anonymous** posting, especially 근접사고 / 위험사고, including a pre-printed
+"이 글은 익명으로 보호됩니다" note plus guidance on what to write.
+
+**① Routine checklist editing (director-only):**
+- New table `public.arc_routine_items` (idempotent DDL in `arc.sql`):
+  `(period, step_key, item_key, label, hidden, sort_order, created_by, created_by_name)` +
+  `unique (period, step_key, item_key)` + index on `(period, step_key)`.
+- `server/src/arcRoutine.js`: `applyItemOverrides(step, rows)` merges a month's rows into the
+  code template — a row with `hidden=true` removes a default item (and reports it in
+  `step.hiddenItems` so the UI can offer 되돌리기), an override `label` renames a default item,
+  and `item_key` values prefixed `custom-` append new items (max 30/step). `listArcRoutine()`
+  loads the rows once; `saveArcRoutineStep()` merges before `sanitizeChecklist()` so freshly
+  added items can be checked in the same request.
+- `saveArcRoutineItem({action})` — `add` | `rename` | `remove` | `restore`; `remove` hides a
+  default item but deletes a custom one, `restore` deletes the row so the template shows through.
+- Route `POST /api/arc/routine/items` behind `requireArcDirector` + audit log
+  `arc.routine.item.<action>`. Every response returns the refreshed step so the UI updates in one hop.
+- `AdminArcRoutineView.vue`: "체크리스트 문구·항목 편집" panel per step (편집 열기 toggle) with
+  per-item text input + 문구 저장 / 숨기기·삭제, an 항목 추가 row, and a 숨긴 기본 항목 restore list.
+  Item edits keep the in-progress checks/memo/후속조치 (`applySavedStep(..., {keepDraft:true})`).
+- Client write-gate bugs fixed while auditing "can the director register everything":
+  `AdminArcConsentView` (`arc.care` → `arc.consent`), `AdminArcEventsView` (`arc.care` → `arc.event`),
+  `AdminArcQualityView` (`arc.care` → `arc.quality`), `AdminArcStockView` (`canManage` was
+  `arc.admin` → folded into `canStock` = `arc.stock`, matching the server guard).
+
+**② AED removal:** `arcVerbal.js`, `arcTraining.js`, `arcTrainingDeepBasics.js`,
+`arcTrainingDeepCases.js`, `arcTrainingGuide.js`, `arcGlossary.js`, `arcRoutine.js`, `arcEvents.js`,
+`AdminArcEventsView.vue`, `AdminArcTrainingGuideView.vue`. The CPR/심정지 content now teaches
+119 **스피커폰** + uninterrupted compressions + handover instead of a shock device; the glossary
+term was deleted; the AED critical item (10 pts) was replaced by an equally critical 인계 item so the
+exam's 100-point scale and 85 % cut line stay intact. `arc_events.aed_location` is kept as a legacy
+column but the payload always writes `""` and the API no longer returns a value.
+
+**③ Requests board anonymity:** `arcRequests.js` gained `NEAR_MISS` / `HAZARD` categories with
+6-step `guide` arrays and `anonymousByDefault`, plus `ARC_REQUEST_ANONYMITY_NOTE`. `mapRequest()`
+returns `authorEmployeeId: null` / `authorName: "익명"` / `authorRole: ""` for anonymous rows — the
+director cannot see the author either. `arc.sql`: `anonymous boolean not null default false`
+(+ idempotent `add column if not exists`) and a `do $$` block swapping the category CHECK to
+`arc_requests_category_v2_check` (9 categories). `AdminArcRequestsView.vue`: 분류별 안내 box,
+"익명으로 남기기" checkbox (auto-checks for 근접사고/위험요인), anonymity note, 익명 chip in list and
+detail, category-specific body placeholder.
+
 ---
 
 ## 4. Open questions

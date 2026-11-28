@@ -371,15 +371,6 @@
         <h3>현장 정보(EAP)</h3>
         <div class="field-grid">
           <label class="field">
-            <span>AED 위치</span>
-            <input
-              v-model.trim="draft.aedLocation"
-              type="text"
-              maxlength="200"
-              placeholder="예: 바 카운터 옆 벽면"
-            />
-          </label>
-          <label class="field">
             <span>집결지</span>
             <input
               v-model.trim="draft.assemblyPoint"
@@ -454,7 +445,7 @@
               v-model.trim="draft.stationNote"
               rows="2"
               maxlength="500"
-              placeholder="예: 바 왼쪽 끝 구급상자 + AED, 담당 1명 상시 대기, 무전 3번"
+              placeholder="예: 바 왼쪽 끝 구급상자, 담당 1명 상시 대기, 무전 3번"
             ></textarea>
           </label>
         </div>
@@ -619,9 +610,6 @@
         </div>
         <div>
           <span>연락처</span><strong>{{ selected.hostContact || "-" }}</strong>
-        </div>
-        <div>
-          <span>AED</span><strong>{{ selected.aedLocation || "-" }}</strong>
         </div>
         <div>
           <span>집결지</span
@@ -1040,7 +1028,7 @@ const selected = ref(null);
 const selectedIncidents = ref([]);
 const summary = ref(emptySummary());
 const catalogs = ref(emptyCatalogs());
-const canWrite = ref(hasPermission("arc.care"));
+const canWrite = ref(hasPermission("arc.event"));
 const isLoading = ref(false);
 const isSaving = ref(false);
 const errorMessage = ref("");
@@ -1123,7 +1111,6 @@ function emptyDraft() {
     scopeAgreed: false,
     scopeNote: "",
     billing: "NONE",
-    aedLocation: "",
     assemblyPoint: "",
     nearestEr: "",
     eapNote: "",
@@ -1278,7 +1265,6 @@ function startEdit(event) {
     scopeAgreed: event.scopeAgreed,
     scopeNote: event.scopeNote,
     billing: event.billing,
-    aedLocation: event.aedLocation,
     assemblyPoint: event.assemblyPoint,
     nearestEr: event.nearestEr,
     eapNote: event.eapNote,

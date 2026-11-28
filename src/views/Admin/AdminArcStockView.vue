@@ -254,7 +254,7 @@
                     폐기
                   </button>
                   <button
-                    v-if="canManage"
+                    v-if="canStock"
                     type="button"
                     class="text-button"
                     @click="openEdit(item)"
@@ -412,7 +412,7 @@
       </div>
     </section>
 
-    <section v-if="canManage && editForm.open" class="panel">
+    <section v-if="canStock && editForm.open" class="panel">
       <h2>{{ editForm.id ? "품목 수정" : "품목 추가" }}</h2>
 
       <div class="field-grid">
@@ -524,7 +524,7 @@
       </div>
     </section>
 
-    <section v-if="canManage" class="panel">
+    <section v-if="canStock" class="panel">
       <div class="panel-head">
         <h2>품목 마스터</h2>
         <button type="button" class="preset-button" @click="openCreate">
@@ -626,7 +626,6 @@ const editForm = reactive({
   active: true,
 });
 
-const canManage = computed(() => hasPermission("arc.admin"));
 const canStock = computed(() => hasPermission("arc.stock"));
 const selectedId = computed(() => activeItem.value?.id ?? "");
 

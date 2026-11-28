@@ -37,7 +37,7 @@ export const ARC_EVENT_KINDS = [
     guidance:
       "주류·군중·소음이 겹치는 유형이에요. 실신·주취·낙상·과호흡을 먼저 봅니다.",
     risks: ["주취·실신", "군중 밀집", "낙상·충돌", "큰 소음·과호흡", "야간 이동"],
-    kit: ["구토봉투", "생수·얼음", "AED 패드", "경추 고정 보조", "휴대 손전등"],
+    kit: ["구토봉투", "생수·얼음", "경추 고정 보조", "휴대 손전등"],
   },
   {
     key: "LIVE",
@@ -200,7 +200,7 @@ export const ARC_EVENT_TASK_TEMPLATES = [
   {
     phase: "BEFORE",
     label: "행사용 응급행동계획(EAP) 갱신",
-    hint: "119 신고 담당·AED 위치·집결지·인계 병원을 정해요.",
+    hint: "119 신고 담당·집결지·구급대 진입 동선·인계 병원을 정해요.",
     required: true,
   },
   {
@@ -217,8 +217,8 @@ export const ARC_EVENT_TASK_TEMPLATES = [
   },
   {
     phase: "BEFORE",
-    label: "AED 배터리·패드 유효기간 확인",
-    hint: "패드 EXP와 배터리 표시등을 직접 봅니다.",
+    label: "구급대 진입 동선·집결지 확인",
+    hint: "차량 진입 위치와 들것이 지나갈 폭을 미리 봐 둡니다.",
     required: true,
   },
   {
@@ -714,15 +714,6 @@ function blockersOf(event, taskStats, staffStats) {
     });
   }
 
-  if (event.arcLevel !== "NONE" && !event.aedLocation) {
-    items.push({
-      key: "aed",
-      label: "AED 위치가 비어 있어요",
-      hint: "행사장 기준 AED 위치를 적어 주세요.",
-      severity: "normal",
-    });
-  }
-
   if (event.arcLevel !== "NONE" && !event.promoChecked) {
     items.push({
       key: "promo",
@@ -826,7 +817,6 @@ function mapEvent(row, tasks = [], staff = []) {
     scopeAgreed: Boolean(row.scope_agreed),
     scopeNote: row.scope_note ?? "",
     billing: row.billing ?? "NONE",
-    aedLocation: row.aed_location ?? "",
     assemblyPoint: row.assembly_point ?? "",
     nearestEr: row.nearest_er ?? "",
     eapNote: row.eap_note ?? "",
@@ -1084,7 +1074,8 @@ function eventPayload(body = {}) {
     billing: ["NONE", "EXPENSE", "CONTRACT"].includes(body.billing)
       ? body.billing
       : "NONE",
-    aedLocation: text(body.aedLocation),
+    // aed_location 컬럼은 레거시로 남겨 두고 값은 항상 비웁니다(매장에 장비 없음).
+    aedLocation: "",
     assemblyPoint: text(body.assemblyPoint),
     nearestEr: text(body.nearestEr),
     eapNote: longText(body.eapNote, 1000),
@@ -1209,7 +1200,6 @@ export async function updateArcEvent(eventId, body = {}) {
     scopeAgreed: current.scope_agreed,
     scopeNote: current.scope_note ?? "",
     billing: current.billing ?? "NONE",
-    aedLocation: current.aed_location ?? "",
     assemblyPoint: current.assembly_point ?? "",
     nearestEr: current.nearest_er ?? "",
     eapNote: current.eap_note ?? "",

@@ -369,7 +369,7 @@ const isSaving = ref(false);
 const errorMessage = ref("");
 const okMessage = ref("");
 
-const canWrite = computed(() => hasPermission("arc.care"));
+const canWrite = computed(() => hasPermission("arc.consent"));
 
 const CONSENT_FORM_PRESETS = [
   {
