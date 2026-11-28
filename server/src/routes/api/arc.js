@@ -375,6 +375,7 @@ export function registerArcRoutes(app) {
   );
 
   // 족보 교육자료 — 이번 시험 문제 + 주변 지식을 한 부로 묶습니다(총괄 전용).
+  // audience=CANDIDATE 면 채점 기준표를 뺀 응시자 학습용, TEACHER 면 채점기준 포함.
   app.get(
     "/api/arc/verbal/study-pack",
     { preHandler: [requireView, requireArcDirector] },
@@ -388,6 +389,7 @@ export function registerArcRoutes(app) {
         targetName: query.targetName,
         reviewer: currentEmployee(request)?.name || "",
         aiVaried: query.aiVaried !== "false",
+        audience: query.audience,
       });
     }
   );

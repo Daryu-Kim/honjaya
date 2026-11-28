@@ -7,7 +7,9 @@
           뽑을 때마다 문제 순서와 표현이 새로 바뀝니다. 같은 시험지를 다시
           뽑으려면
           <strong>시드</strong>를 그대로 두세요. 족보는 같은 시드로 뽑으면 이번
-          시험 문항과 정확히 같은 문제로 교육자료가 만들어집니다.
+          시험 문항과 정확히 같은 문제로 교육자료가 만들어집니다. 자료와 시험
+          종류는 <strong>여러 개를 함께 골라</strong> 한 번에 인쇄할 수 있고, 한
+          부씩 페이지가 나뉩니다.
         </p>
       </div>
       <span class="director-badge">ARC 대표(RN) 전용</span>
@@ -15,37 +17,50 @@
 
     <div class="control-panel no-print">
       <div class="control-block wide">
-        <span class="control-label">1. 출력할 자료</span>
+        <span class="control-label">1. 출력할 자료 (여러 개 선택 가능)</span>
         <div class="choice-row">
           <button
             v-for="item in OUTPUTS"
             :key="item.key"
             type="button"
             class="choice-button"
-            :class="{ active: form.output === item.key }"
-            @click="selectOutput(item.key)"
+            :class="{ active: form.outputs.includes(item.key) }"
+            @click="toggleOutput(item.key)"
           >
+            <span class="choice-check">{{
+              form.outputs.includes(item.key) ? "✓" : "+"
+            }}</span>
             <strong>{{ item.label }}</strong>
             <small>{{ item.desc }}</small>
           </button>
         </div>
+        <small class="control-hint">
+          시험지·교육자용·족보(응시자 전용)·족보(교육자 전용)를 한 번에 뽑아도
+          됩니다. 최소 한 개는 선택해야 해요.
+        </small>
       </div>
 
       <div class="control-block">
-        <span class="control-label">2. 시험 종류</span>
+        <span class="control-label">2. 시험 종류 (여러 개 선택 가능)</span>
         <div class="choice-row compact">
           <button
             v-for="kind in kinds"
             :key="kind.key"
             type="button"
             class="choice-button"
-            :class="{ active: form.kind === kind.key }"
-            @click="selectKind(kind.key)"
+            :class="{ active: form.kinds.includes(kind.key) }"
+            @click="toggleKind(kind.key)"
           >
+            <span class="choice-check">{{
+              form.kinds.includes(kind.key) ? "✓" : "+"
+            }}</span>
             <strong>{{ kind.label }}</strong>
             <small>{{ kind.minutes }}분 · 커트라인 {{ kind.cutline }}%</small>
           </button>
         </div>
+        <small class="control-hint">
+          불시·정규를 함께 선택하면 두 시험지가 모두 나옵니다(같은 시험지 번호).
+        </small>
       </div>
 
       <div class="control-block">
@@ -116,6 +131,9 @@
         <span v-if="form.seed" class="seed-chip"
           >시험지 번호 {{ form.seed }}</span
         >
+        <span v-if="docs.length" class="bundle-chip"
+          >자료 {{ docs.length }}부 · 페이지마다 한 부씩</span
+        >
       </div>
 
       <ul v-if="tips.length" class="tip-list">
@@ -127,7 +145,7 @@
     <p v-if="isLoading" class="empty-box no-print">자료를 만드는 중이에요.</p>
 
     <!-- 시험지(문제지) / 교육자용(답안지·평가표) -->
-    <article v-if="paper" class="paper-sheet">
+    <article v-for="paper in examPapers" :key="paper.key" class="paper-sheet">
       <header class="paper-head">
         <div class="paper-title">
           <p class="paper-eyebrow">혼자야 · ARC SAFETY</p>
@@ -180,11 +198,11 @@
               <span class="question-points">{{ row.points }}점</span>
             </div>
 
-            <p v-if="isTeacher && row.altQuestion" class="question-alt">
+            <p v-if="paper.teacher && row.altQuestion" class="question-alt">
               다른 표현: {{ row.altQuestion }}
             </p>
 
-            <div v-if="!isTeacher" class="answer-lines">
+            <div v-if="!paper.teacher" class="answer-lines">
               <span></span><span></span><span></span>
             </div>
 
@@ -243,7 +261,7 @@
               </span>
               <span class="question-points">{{ row.points }}점</span>
             </div>
-            <div v-if="!isTeacher" class="answer-lines">
+            <div v-if="!paper.teacher" class="answer-lines">
               <span></span><span></span>
             </div>
             <template v-else>
@@ -271,14 +289,14 @@
               <span class="question-text">{{ row.question }}</span>
               <span class="question-points">{{ row.points }}점</span>
             </div>
-            <div v-if="!isTeacher" class="answer-lines">
+            <div v-if="!paper.teacher" class="answer-lines">
               <span></span><span></span>
             </div>
           </li>
         </ol>
       </section>
 
-      <section v-if="isTeacher && paper.verdictRules" class="verdict-box">
+      <section v-if="paper.teacher && paper.verdictRules" class="verdict-box">
         <h3>판정 규칙 (커트라인 {{ paper.verdictRules.cutline }}%)</h3>
         <ul>
           <li v-for="rule in paper.verdictRules.rules" :key="rule">
@@ -300,8 +318,12 @@
       </footer>
     </article>
 
-    <!-- 족보 교육자료 -->
-    <article v-if="pack" class="paper-sheet study-sheet">
+    <!-- 족보 교육자료 (응시자 전용 / 교육자 전용) -->
+    <article
+      v-for="pack in studyPacks"
+      :key="pack.key"
+      class="paper-sheet study-sheet"
+    >
       <header class="paper-head">
         <div class="paper-title">
           <p class="paper-eyebrow">혼자야 · ARC SAFETY</p>
@@ -328,15 +350,15 @@
           <span class="paper-seed"
             >시험지 번호 <b>{{ pack.seed }}</b></span
           >
+          <span class="audience-chip">{{ pack.audienceLabel }}</span>
         </div>
       </header>
 
       <section class="study-block">
         <h3 class="section-head">
-          1. 이번 시험 문항 (문제 · 모범답안 · 채점기준 · 이론 근거)
+          {{ pack.examSectionTitle }}
           <small>
-            시험지와 같은 번호입니다. 답을 외우기 전에 "왜 그렇게 하는지"를 먼저
-            읽어 보세요.
+            {{ pack.examSectionHint }}
           </small>
         </h3>
         <ol class="question-list">
@@ -353,7 +375,7 @@
             <p class="teacher-answer">
               <b>모범답안</b> {{ row.answer || "—" }}
             </p>
-            <table class="criteria-table">
+            <table v-if="pack.audience === 'TEACHER'" class="criteria-table">
               <thead>
                 <tr>
                   <th>수행</th>
@@ -416,7 +438,7 @@
               <p class="teacher-answer">
                 <b>정답 요약</b> {{ item.answer || "—" }}
               </p>
-              <table class="criteria-table">
+              <table v-if="pack.audience === 'TEACHER'" class="criteria-table">
                 <thead>
                   <tr>
                     <th>수행</th>
@@ -501,10 +523,7 @@
           <span>작성자 ARC 대표(RN) ____________</span>
           <span>확인일 ____년 __월 __일</span>
         </div>
-        <p class="paper-fineprint">
-          족보 교육자료에는 정답이 들어 있습니다. 시험 전 응시자에게 넘어가지
-          않게 보관하고, 필요 없어지면 파쇄해 주세요.
-        </p>
+        <p class="paper-fineprint">{{ pack.footerNote }}</p>
       </footer>
     </article>
   </section>
@@ -523,7 +542,7 @@ const OUTPUTS = [
   {
     key: "EXAM",
     label: "시험지 (문제지)",
-    desc: "응시자에게 나눠 주는 문제지",
+    desc: "응시자에게 나누는 문제지",
   },
   {
     key: "TEACHER",
@@ -531,9 +550,14 @@ const OUTPUTS = [
     desc: "모범답안·채점기준·이론 근거",
   },
   {
-    key: "STUDY",
-    label: "족보 교육자료",
-    desc: "이번 시험 문제 + 전체 지식",
+    key: "STUDY_CANDIDATE",
+    label: "족보 · 응시자 전용",
+    desc: "공부용 지식 교육자료 (채점표 없음)",
+  },
+  {
+    key: "STUDY_TEACHER",
+    label: "족보 · 교육자 전용",
+    desc: "채점기준·판정규칙 포함 족보",
   },
 ];
 
@@ -543,14 +567,13 @@ const FALLBACK_KINDS = [
 ];
 
 const catalog = ref({ kinds: [], modes: [], tips: [] });
-const paper = ref(null);
-const pack = ref(null);
+const docs = ref([]);
 const isLoading = ref(false);
 const errorMessage = ref("");
 
 const form = reactive({
-  output: "EXAM",
-  kind: "REGULAR",
+  outputs: ["EXAM"],
+  kinds: ["REGULAR"],
   emphasis: "",
   targetName: "",
   seed: "",
@@ -561,10 +584,14 @@ const kinds = computed(() =>
   catalog.value.kinds?.length ? catalog.value.kinds : FALLBACK_KINDS
 );
 const tips = computed(() => catalog.value.tips ?? []);
-const isTeacher = computed(() => form.output === "TEACHER");
-const ready = computed(() =>
-  form.output === "STUDY" ? Boolean(pack.value) : Boolean(paper.value)
+// 인쇄는 시험지·교육자용을 먼저, 족보를 뒤에 놓습니다.
+const examPapers = computed(() =>
+  docs.value.filter((doc) => doc.type === "paper")
 );
+const studyPacks = computed(() =>
+  docs.value.filter((doc) => doc.type === "pack")
+);
+const ready = computed(() => docs.value.length > 0);
 
 function makeSeed() {
   return Math.random().toString(36).slice(2, 10);
@@ -587,24 +614,57 @@ async function load({ newSeed = false } = {}) {
   }
 
   const shared = {
-    kind: form.kind,
     seed: form.seed,
     emphasis: form.emphasis,
     targetName: form.targetName,
     aiVaried: form.aiVaried ? "true" : "false",
   };
 
+  const pickedKinds = kinds.value.filter((kind) =>
+    form.kinds.includes(kind.key)
+  );
+  const pickedOutputs = OUTPUTS.filter((output) =>
+    form.outputs.includes(output.key)
+  );
+  const built = [];
+
   try {
-    if (form.output === "STUDY") {
-      pack.value = await fetchArcStudyPack(shared);
-      paper.value = null;
-    } else {
-      paper.value = await fetchArcVerbalPaper({ ...shared, mode: form.output });
-      pack.value = null;
+    for (const kind of pickedKinds) {
+      for (const output of pickedOutputs) {
+        const key = `${kind.key}-${output.key}`;
+
+        if (
+          output.key === "STUDY_CANDIDATE" ||
+          output.key === "STUDY_TEACHER"
+        ) {
+          const pack = await fetchArcStudyPack({
+            ...shared,
+            kind: kind.key,
+            audience:
+              output.key === "STUDY_CANDIDATE" ? "CANDIDATE" : "TEACHER",
+          });
+
+          built.push({ ...pack, key, type: "pack" });
+        } else {
+          const paper = await fetchArcVerbalPaper({
+            ...shared,
+            kind: kind.key,
+            mode: output.key,
+          });
+
+          built.push({
+            ...paper,
+            key,
+            type: "paper",
+            teacher: output.key === "TEACHER",
+          });
+        }
+      }
     }
+
+    docs.value = built;
   } catch (error) {
-    paper.value = null;
-    pack.value = null;
+    docs.value = [];
     errorMessage.value =
       error?.response?.data?.message ||
       error?.message ||
@@ -619,17 +679,32 @@ function shuffle() {
   load();
 }
 
-function selectOutput(key) {
-  if (form.output === key) return;
+// 최소 한 개는 남겨 둡니다(모두 끄면 인쇄할 게 없어집니다).
+function toggleOutput(key) {
+  if (form.outputs.includes(key)) {
+    if (form.outputs.length === 1) return;
 
-  form.output = key;
+    form.outputs = form.outputs.filter((item) => item !== key);
+  } else {
+    form.outputs = OUTPUTS.filter(
+      (item) => form.outputs.includes(item.key) || item.key === key
+    ).map((item) => item.key);
+  }
+
   load();
 }
 
-function selectKind(key) {
-  if (form.kind === key) return;
+function toggleKind(key) {
+  if (form.kinds.includes(key)) {
+    if (form.kinds.length === 1) return;
 
-  form.kind = key;
+    form.kinds = form.kinds.filter((item) => item !== key);
+  } else {
+    form.kinds = kinds.value
+      .filter((item) => form.kinds.includes(item.key) || item.key === key)
+      .map((item) => item.key);
+  }
+
   load();
 }
 
@@ -761,6 +836,26 @@ onBeforeUnmount(() => {
   }
 }
 
+.choice-check {
+  align-self: flex-start;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  border: 1px solid var(--arc-line-2, #cbd5e1);
+  background: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 16px;
+  text-align: center;
+  color: var(--arc-ink-3, #64748b);
+}
+
+.choice-button.active .choice-check {
+  border-color: var(--arc-brand, #b45309);
+  background: var(--arc-brand, #b45309);
+  color: #fff;
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -821,6 +916,26 @@ textarea {
   font-size: 11.5px;
   font-weight: 700;
   color: var(--arc-ink-2, #41506a);
+}
+
+.bundle-chip {
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #1d4ed8;
+}
+
+.audience-chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid #c7d2fe;
+  background: #eef2ff;
+  font-size: 11px;
+  font-weight: 800;
+  color: #3730a3;
 }
 
 .tip-list {
@@ -1240,6 +1355,12 @@ textarea {
     border: none;
     border-radius: 0;
     box-shadow: none;
+  }
+
+  /* 여러 부를 한 번에 뽑을 때 한 부씩 새 페이지에서 시작합니다. */
+  body.arc-study-open .paper-sheet + .paper-sheet {
+    break-before: page;
+    page-break-before: always;
   }
 
   body.arc-study-open .question-item,

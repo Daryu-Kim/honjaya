@@ -2554,6 +2554,43 @@ detail, category-specific body placeholder.
 
 ---
 
+## 3-17. P14U — 족보 응시자/교육자 분리 + 다중 선택 인쇄 (2026-11-29)
+
+User request: "족보교육자료는 응시자 전용과 교육자 자료 따로 / 그리고 시험지, 교육자용,
+족보교육자료 … 중복으로 선택할 수 있음 / 시험 종류도 불시·정규 중복해서 선택할 수 있음".
+
+### Decisions
+- 족보 splits into two audiences (`ARC_STUDY_PACK_AUDIENCES`):
+  - `CANDIDATE` (응시자 전용): 문제 · 정답 요약 · 이론 근거 · 꼬리질문 · 위험한 답 · 질문
+    은행 · 용어 풀이. **No 채점 기준표 (수행/부분수행/미수행) and no 판정 규칙** — the user
+    explicitly said the candidate pack must not be a grading sheet.
+  - `TEACHER` (교육자 전용): everything above **plus** 채점 기준표 + 판정 규칙 + educator
+    print checklist/footer. This reproduces the old single-pack behaviour.
+- Audience also drives the printed header title/subtitle, section-1 title/hint, checklist and
+  footer note, so the two packs never look interchangeable.
+- Client keeps four output toggles (`EXAM`, `TEACHER`, `STUDY_CANDIDATE`, `STUDY_TEACHER`) and
+  two exam-kind toggles (`SURPRISE`, `REGULAR`); every combination is fetched and stacked.
+- Least-churn render strategy: the two existing `<article>` blocks were kept and converted to
+  `v-for` over `examPapers` / `studyPacks`; no data-field renames.
+- Minimum one item must stay selected in each group (deselecting the last is a no-op).
+
+### Files
+- `server/src/arcStudyPack.js`: `ARC_STUDY_PACK_AUDIENCES`, `normalizeAudience()`,
+  `rowToStudy(row, { includeCriteria })`, `audience` option + audience-specific
+  header/examSectionTitle/examSectionHint/checklist/footerNote/verdictRules.
+- `server/src/routes/api/arc.js`: `/api/arc/verbal/study-pack` forwards `audience`.
+- `src/components/arc/ArcExamPrintPanel.vue`: multi-select controls (`toggleOutput` /
+  `toggleKind`), `docs` array with `examPapers` / `studyPacks` computeds, `audience-chip` /
+  `bundle-chip` / `choice-check` styles, and a print rule
+  `body.arc-study-open .paper-sheet + .paper-sheet { break-before: page }` so each copy starts
+  on its own page.
+
+### Verification
+- `vue/compiler-sfc` parse + compileScript + compileTemplate: OK; `sass.compileString`: OK.
+- `node --check server/src/arcStudyPack.js` and `.../routes/api/arc.js`: OK.
+
+---
+
 ## 4. Open questions
 
 1. ~~**₩30,000 point-redemption threshold**: before or after discount?~~ → **resolved in P5**: after discount, before point deduction.
