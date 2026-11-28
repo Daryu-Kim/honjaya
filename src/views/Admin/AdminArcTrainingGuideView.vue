@@ -558,11 +558,21 @@
           <li v-for="item in visibleForbidden" :key="item.key">
             <p class="forbidden-text">{{ item.text }}</p>
             <template v-if="isTeacher">
-              <p v-if="item.guide" class="forbidden-why">
-                이유 · {{ item.guide.why }}
+              <p v-if="item.why" class="forbidden-why">이유 · {{ item.why }}</p>
+              <p v-if="item.instead" class="forbidden-instead">
+                대신 이렇게 · {{ item.instead }}
               </p>
-              <p v-if="item.guide" class="forbidden-instead">
-                대신 이렇게 · {{ item.guide.instead }}
+              <p v-if="item.risk" class="forbidden-risk">
+                어기면 · {{ item.risk }}
+              </p>
+              <p v-if="item.signs" class="forbidden-signs">
+                살펴볼 신호 · {{ item.signs }}
+              </p>
+              <p v-if="item.drill" class="forbidden-drill">
+                소리 내어 연습 · {{ item.drill }}
+              </p>
+              <p v-if="item.basis" class="forbidden-basis">
+                근거 · {{ item.basis }}
               </p>
               <p v-if="item.guide?.example" class="forbidden-example">
                 실제 사례 · {{ item.guide.example }}
@@ -1453,6 +1463,27 @@ onUnmounted(() => {
   margin-top: 2px;
   font-weight: 700;
   color: #15803d;
+}
+
+.forbidden-risk {
+  margin-top: 2px;
+  color: #b91c1c;
+}
+
+.forbidden-signs {
+  margin-top: 2px;
+  color: #b45309;
+}
+
+.forbidden-drill {
+  margin-top: 2px;
+  color: #0f766e;
+}
+
+.forbidden-basis {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #64748b;
 }
 
 .sheet-foot {

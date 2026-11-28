@@ -1163,10 +1163,12 @@ export const ARC_TRAINING_KIND_LABELS = {
   DRILL: "상황연습",
   REFRESH: "보수·재교육",
   ROUTINE: "월간 운영 루틴",
+  VERBAL: "정기 구두테스트",
+  VERBAL_SURPRISE: "불시 구두테스트",
   PERSONAL: "개인 일정",
 };
 
-/** 달력·필터에 쓰는 7종 분류 순서(개인 일정은 총괄 본인만 조회). */
+/** 달력·필터에 쓰는 분류 순서(개인 일정·구두테스트는 총괄 본인만 조회). */
 export const ARC_TRAINING_KIND_ORDER = [
   "OT",
   "REGULAR",
@@ -1174,6 +1176,8 @@ export const ARC_TRAINING_KIND_ORDER = [
   "DRILL",
   "REFRESH",
   "ROUTINE",
+  "VERBAL",
+  "VERBAL_SURPRISE",
   "PERSONAL",
 ];
 
@@ -1218,6 +1222,210 @@ export async function deleteArcTrainingSession(sessionId) {
   return apiPost(
     `${TRAINING_PATH}/${encodeURIComponent(sessionId)}/delete`,
     {}
+  );
+}
+
+// ── 교육자료 총괄 수정 + 작성 도우미 ────────────────────────────────────
+// 교육자료 원문은 코드가 원본이고, 총괄이 고친 부분만 서버에 저장합니다.
+// 저장·되돌리기·도우미는 ARC 대표(RN)만 쓸 수 있습니다.
+
+export async function fetchArcTrainingContent() {
+  return apiGet(`${TRAINING_PATH}/content`);
+}
+
+export async function saveArcTrainingContent(payload) {
+  return apiRequest(`${TRAINING_PATH}/content`, {
+    method: "PUT",
+    body: payload,
+  });
+}
+
+export async function resetArcTrainingContent(scope, key) {
+  return apiPost(`${TRAINING_PATH}/content/delete`, { scope, key });
+}
+
+export async function buildArcTrainingHelper(payload) {
+  return apiPost(`${TRAINING_PATH}/content/helper`, payload);
+}
+
+// ── 구두테스트(ARC 대표 전용) ───────────────────────────────────────────
+
+const VERBAL_PATH = "/api/arc/verbal";
+
+export const ARC_VERBAL_RESULT_LABELS = {
+  PERFORM: "수행",
+  PARTIAL: "부분수행",
+  NONE: "미수행",
+};
+
+export const ARC_VERBAL_VERDICT_LABELS = {
+  PENDING: "채점 전",
+  PASS: "통과",
+  RETAKE: "재시험",
+  FAIL: "재교육",
+};
+
+export const ARC_VERBAL_VERDICT_TONES = {
+  PENDING: "muted",
+  PASS: "ok",
+  RETAKE: "warn",
+  FAIL: "danger",
+};
+
+export const ARC_VERBAL_KIND_LABELS = {
+  REGULAR: "정기 구두테스트",
+  SURPRISE: "불시 구두테스트",
+};
+
+export async function fetchArcVerbal(params = {}) {
+  return apiGet(`${VERBAL_PATH}${queryString(params)}`);
+}
+
+export async function fetchArcVerbalExam(examId) {
+  return apiGet(`${VERBAL_PATH}/${encodeURIComponent(examId)}`);
+}
+
+export async function createArcVerbalExam(payload) {
+  return apiPost(VERBAL_PATH, payload);
+}
+
+export async function gradeArcVerbalExam(examId, payload) {
+  return apiPost(`${VERBAL_PATH}/${encodeURIComponent(examId)}/grade`, payload);
+}
+
+export async function deleteArcVerbalExam(examId) {
+  return apiPost(`${VERBAL_PATH}/${encodeURIComponent(examId)}/delete`, {});
+}
+
+// ── 요청 게시판(전 직원 → ARC 대표) ─────────────────────────────────────
+// 직원·사장 모두 글을 남길 수 있고, 열람·답글·완료는 총괄이 처리합니다.
+
+const REQUESTS_PATH = "/api/arc/requests";
+
+export const ARC_REQUEST_STATUS_LABELS = {
+  PENDING: "대기중",
+  READ: "읽음",
+  DONE: "완료",
+};
+
+export const ARC_REQUEST_STATUS_TONES = {
+  PENDING: "warn",
+  READ: "info",
+  DONE: "ok",
+};
+
+export const ARC_REQUEST_CATEGORY_LABELS = {
+  QUESTION: "질문",
+  COMPLAINT: "불만·건의",
+  SUPPLY: "비품·약품 요청",
+  EDUCATION: "교육 요청",
+  FACILITY: "시설·환경",
+  HEALTH: "건강·컨디션",
+  ETC: "기타",
+};
+
+export async function fetchArcRequests(params = {}) {
+  return apiGet(`${REQUESTS_PATH}${queryString(params)}`);
+}
+
+export async function fetchArcRequest(requestId) {
+  return apiGet(`${REQUESTS_PATH}/${encodeURIComponent(requestId)}`);
+}
+
+export async function createArcRequest(payload) {
+  return apiPost(REQUESTS_PATH, payload);
+}
+
+export async function replyArcRequest(requestId, payload) {
+  return apiPost(
+    `${REQUESTS_PATH}/${encodeURIComponent(requestId)}/replies`,
+    payload
+  );
+}
+
+export async function completeArcRequest(requestId, payload) {
+  return apiPost(
+    `${REQUESTS_PATH}/${encodeURIComponent(requestId)}/complete`,
+    payload
+  );
+}
+
+export async function reopenArcRequest(requestId, payload = {}) {
+  return apiPost(
+    `${REQUESTS_PATH}/${encodeURIComponent(requestId)}/reopen`,
+    payload
+  );
+}
+
+export async function deleteArcRequest(requestId) {
+  return apiPost(
+    `${REQUESTS_PATH}/${encodeURIComponent(requestId)}/delete`,
+    {}
+  );
+}
+
+// ── 직원 개인 상비약 사용대장 · 단가 · 정산 ─────────────────────────────
+
+const OTC_LEDGER_PATH = "/api/arc/otc";
+
+export const ARC_OTC_LEDGER_STATUS_LABELS = {
+  ACTIVE: "사용",
+  VOID: "취소",
+};
+
+export const ARC_OTC_SETTLEMENT_STATUS_LABELS = {
+  REQUESTED: "정산 요청",
+  PAID: "지급 완료",
+  CANCELED: "요청 취소",
+};
+
+export const ARC_OTC_SETTLEMENT_TONES = {
+  REQUESTED: "warn",
+  PAID: "ok",
+  CANCELED: "muted",
+};
+
+export async function fetchArcOtcLedger(params = {}) {
+  return apiGet(`${OTC_LEDGER_PATH}/ledger${queryString(params)}`);
+}
+
+export async function createArcOtcUsage(payload) {
+  return apiPost(`${OTC_LEDGER_PATH}/usages`, payload);
+}
+
+export async function voidArcOtcUsage(usageId, payload = {}) {
+  return apiPost(
+    `${OTC_LEDGER_PATH}/usages/${encodeURIComponent(usageId)}/void`,
+    payload
+  );
+}
+
+export async function saveArcOtcPrice(payload) {
+  return apiPost(`${OTC_LEDGER_PATH}/prices`, payload);
+}
+
+export async function deleteArcOtcPrice(priceId) {
+  return apiPost(
+    `${OTC_LEDGER_PATH}/prices/${encodeURIComponent(priceId)}/delete`,
+    {}
+  );
+}
+
+export async function requestArcOtcSettlement(payload) {
+  return apiPost(`${OTC_LEDGER_PATH}/settlements/request`, payload);
+}
+
+export async function payArcOtcSettlement(settlementId, payload = {}) {
+  return apiPost(
+    `${OTC_LEDGER_PATH}/settlements/${encodeURIComponent(settlementId)}/pay`,
+    payload
+  );
+}
+
+export async function cancelArcOtcSettlement(settlementId, payload = {}) {
+  return apiPost(
+    `${OTC_LEDGER_PATH}/settlements/${encodeURIComponent(settlementId)}/cancel`,
+    payload
   );
 }
 

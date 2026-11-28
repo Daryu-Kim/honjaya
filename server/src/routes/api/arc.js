@@ -121,6 +121,45 @@ import {
   updateArcTrainingSession,
 } from "../../arcTraining.js";
 import { arcTrainingGuide } from "../../arcTrainingGuide.js";
+import {
+  buildTrainingHelper,
+  deleteTrainingContent,
+  listTrainingContent,
+  loadTrainingOverrides,
+  saveTrainingContent,
+} from "../../arcTrainingContent.js";
+import {
+  arcVerbalSummary,
+  arcVerbalTemplate,
+  createArcVerbalExam,
+  deleteArcVerbalExam,
+  getArcVerbalExam,
+  gradeArcVerbalExam,
+  listArcVerbalExams,
+} from "../../arcVerbal.js";
+import {
+  completeArcRequest,
+  createArcRequest,
+  deleteArcRequest,
+  getArcRequest,
+  listArcRequests,
+  reopenArcRequest,
+  replyToArcRequest,
+} from "../../arcRequests.js";
+import {
+  arcOtcLedgerCatalog,
+  arcOtcLedgerSummary,
+  cancelArcOtcSettlement,
+  createArcOtcUsage,
+  deleteArcOtcPrice,
+  listArcOtcPrices,
+  listArcOtcSettlements,
+  listArcOtcUsages,
+  payArcOtcSettlement,
+  requestArcOtcSettlement,
+  saveArcOtcPrice,
+  voidArcOtcUsage,
+} from "../../arcOtcLedger.js";
 import { HttpError } from "../../http/errors.js";
 import {
   addArcEventTask,
@@ -1182,30 +1221,45 @@ export function registerArcRoutes(app) {
 
   app.get("/api/arc/training", { preHandler: requireView }, async (request) => {
     const employee = currentEmployee(request);
+    const viewerIsDirector = isArcDirector(employee?.loginId);
+    // 총괄이 고친 교육자료가 있으면 원문 위에 덮어써서 내려 줍니다.
+    const overrides = await loadTrainingOverrides();
     const list = await listArcTrainingSessions({
       period: request.query?.period || null,
       limit: request.query?.limit,
-      // 개인 달력(PERSONAL)은 본인 것만 보입니다.
+      // 개인 달력(PERSONAL)·구두테스트는 총괄에게만 보입니다.
       viewerLoginId: employee?.loginId || "",
+      viewerIsDirector,
     });
 
     return {
       ...list,
-      catalog: arcTrainingCatalog(),
+      catalog: arcTrainingCatalog({ overrides: overrides.grouped }),
       staff: await listArcTrainingStaff(),
-      stats: await arcTrainingSummary({ period: list.period }),
-      canWrite: isArcDirector(employee?.loginId),
+      stats: await arcTrainingSummary({ period: list.period, viewerIsDirector }),
+      canWrite: viewerIsDirector,
       viewerLoginId: employee?.loginId || "",
+      viewerIsDirector,
     };
   });
 
-  app.get("/api/arc/training/catalog", { preHandler: requireView }, async () =>
-    arcTrainingCatalog()
-  );
+  app.get("/api/arc/training/catalog", { preHandler: requireView }, async (request) => {
+    const overrides = await loadTrainingOverrides();
 
-  app.get("/api/arc/training/guide", { preHandler: requireView }, async () =>
-    arcTrainingGuide()
-  );
+    return {
+      ...arcTrainingCatalog({ overrides: overrides.grouped }),
+      canWrite: isArcDirector(currentEmployee(request)?.loginId),
+    };
+  });
+
+  app.get("/api/arc/training/guide", { preHandler: requireView }, async (request) => {
+    const overrides = await loadTrainingOverrides();
+
+    return {
+      ...arcTrainingGuide({ overrides: overrides.grouped }),
+      canWrite: isArcDirector(currentEmployee(request)?.loginId),
+    };
+  });
 
   app.post("/api/arc/training", { preHandler: requireDirector }, async (request) => {
     const employee = currentEmployee(request);
@@ -1305,6 +1359,460 @@ export function registerArcRoutes(app) {
 
       return result;
     }
+  );
+
+  // ── P14O · 교육자료 총괄 수정 + 작성 도우미 ─────────────────────────
+  // 교육자료 원문은 코드가 원본이고, 총괄이 고친 부분만 저장합니다.
+  // 저장·되돌리기·도우미는 모두 ARC 대표(RN)만 가능합니다.
+
+  app.get("/api/arc/training/content", { preHandler: requireDirector }, async () => ({
+    rows: await listTrainingContent(),
+  }));
+
+  app.put("/api/arc/training/content", { preHandler: requireDirector }, async (request) => {
+    const employee = currentEmployee(request);
+    const content = await saveTrainingContent(readBody(request), employee);
+
+    await writeAuditLog({
+      employee,
+      action: "arc.training.content.save",
+      targetType: "arc_training_content",
+      targetId: `${content.scope}:${content.key}`,
+      detail: { scope: content.scope, key: content.key, restored: content.restored },
+      ip: clientIp(request),
+      log: request.log,
+    });
+
+    return { content };
+  });
+
+  app.post(
+    "/api/arc/training/content/delete",
+    { preHandler: requireDirector },
+    async (request) => {
+      const employee = currentEmployee(request);
+      const result = await deleteTrainingContent(readBody(request));
+
+      await writeAuditLog({
+        employee,
+        action: "arc.training.content.reset",
+        targetType: "arc_training_content",
+        targetId: `${result.scope}:${result.key}`,
+        detail: result,
+        ip: clientIp(request),
+        log: request.log,
+      });
+
+      return result;
+    }
+  );
+
+  // 도우미: 총괄이 몇 줄만 적으면 교육자료에 붙일 문장을 만들어 줍니다.
+  app.post(
+    "/api/arc/training/content/helper",
+    { preHandler: requireDirector },
+    async (request) => ({ helper: buildTrainingHelper(readBody(request)) })
+  );
+
+  // ── P14O · 구두테스트(ARC 대표 전용) ───────────────────────────────
+  // 평가표·질문·응시 기록 모두 총괄만 조회·수정합니다.
+
+  app.get("/api/arc/verbal", { preHandler: requireDirector }, async (request) => {
+    const list = await listArcVerbalExams({
+      period: request.query?.period || null,
+      employeeId: request.query?.employeeId || "",
+      limit: request.query?.limit,
+    });
+
+    return {
+      ...list,
+      template: arcVerbalTemplate(),
+      staff: await listArcTrainingStaff(),
+      stats: await arcVerbalSummary({ period: list.period }),
+    };
+  });
+
+  app.get(
+    "/api/arc/verbal/template",
+    { preHandler: requireDirector },
+    async () => arcVerbalTemplate()
+  );
+
+  app.post("/api/arc/verbal", { preHandler: requireDirector }, async (request) => {
+    const employee = currentEmployee(request);
+    const exam = await createArcVerbalExam(readBody(request), employee);
+
+    await writeAuditLog({
+      employee,
+      action: "arc.verbal.create",
+      targetType: "arc_verbal_exam",
+      targetId: exam.id,
+      detail: { examNo: exam.examNo, kind: exam.kind, employeeName: exam.employeeName },
+      ip: clientIp(request),
+      log: request.log,
+    });
+
+    return { exam };
+  });
+
+  app.get("/api/arc/verbal/:examId", { preHandler: requireDirector }, async (request) => ({
+    exam: await getArcVerbalExam(request.params?.examId),
+  }));
+
+  app.post(
+    "/api/arc/verbal/:examId/grade",
+    { preHandler: requireDirector },
+    async (request) => {
+      const employee = currentEmployee(request);
+      const exam = await gradeArcVerbalExam(
+        request.params?.examId,
+        readBody(request),
+        employee
+      );
+
+      await writeAuditLog({
+        employee,
+        action: "arc.verbal.grade",
+        targetType: "arc_verbal_exam",
+        targetId: exam.id,
+        detail: {
+          examNo: exam.examNo,
+          verdict: exam.verdict,
+          percent: exam.percent,
+        },
+        ip: clientIp(request),
+        log: request.log,
+      });
+
+      return { exam };
+    }
+  );
+
+  app.post(
+    "/api/arc/verbal/:examId/delete",
+    { preHandler: requireDirector },
+    async (request) => {
+      const employee = currentEmployee(request);
+      const result = await deleteArcVerbalExam(request.params?.examId);
+
+      await writeAuditLog({
+        employee,
+        action: "arc.verbal.delete",
+        targetType: "arc_verbal_exam",
+        targetId: request.params?.examId,
+        detail: {},
+        ip: clientIp(request),
+        log: request.log,
+      });
+
+      return result;
+    }
+  );
+
+  // ── P14O · 요청 게시판(전 직원 → ARC 대표) ─────────────────────────
+  // ARC 화면 안에 있지만, 직원 계정도 글을 남길 수 있어야 하므로
+  // 이 경로만 로그인 확인(권한 없음)으로 엽니다. 개인정보·민감정보는 포함하지 않습니다.
+
+  const requireStaff = createStaffGuard();
+
+  app.get("/api/arc/requests", { preHandler: requireStaff }, async (request) => {
+    const employee = currentEmployee(request);
+    const isDirector = isArcDirector(employee?.loginId);
+
+    return {
+      ...(await listArcRequests({
+        isDirector,
+        employeeId: employee?.id ?? "",
+        status: request.query?.status || "",
+        category: request.query?.category || "",
+        period: request.query?.period || "",
+        limit: request.query?.limit,
+      })),
+      canManage: isDirector,
+      viewerName: employee?.name || employee?.loginId || "",
+    };
+  });
+
+  app.post("/api/arc/requests", { preHandler: requireStaff }, async (request) => {
+    const employee = currentEmployee(request);
+    const item = await createArcRequest(readBody(request), employee);
+
+    await writeAuditLog({
+      employee,
+      action: "arc.request.create",
+      targetType: "arc_request",
+      targetId: item.id,
+      detail: { requestNo: item.requestNo, category: item.category },
+      ip: clientIp(request),
+      log: request.log,
+    });
+
+    return { request: item };
+  });
+
+  app.get("/api/arc/requests/:requestId", { preHandler: requireStaff }, async (request) => {
+    const employee = currentEmployee(request);
+    const isDirector = isArcDirector(employee?.loginId);
+
+    return {
+      request: await getArcRequest(request.params?.requestId, {
+        isDirector,
+        employeeId: employee?.id ?? "",
+        employee,
+      }),
+      canManage: isDirector,
+    };
+  });
+
+  app.post(
+    "/api/arc/requests/:requestId/replies",
+    { preHandler: requireStaff },
+    async (request) => {
+      const employee = currentEmployee(request);
+      const item = await replyToArcRequest(
+        request.params?.requestId,
+        readBody(request),
+        employee,
+        { isDirector: isArcDirector(employee?.loginId) }
+      );
+
+      return { request: item };
+    }
+  );
+
+  app.post(
+    "/api/arc/requests/:requestId/complete",
+    { preHandler: requireStaff },
+    async (request) => {
+      const employee = currentEmployee(request);
+
+      if (!isArcDirector(employee?.loginId)) {
+        throw new HttpError(403, "HJ403", "완료 처리는 ARC 대표(RN)만 할 수 있어요.");
+      }
+
+      const item = await completeArcRequest(
+        request.params?.requestId,
+        readBody(request),
+        employee
+      );
+
+      await writeAuditLog({
+        employee,
+        action: "arc.request.complete",
+        targetType: "arc_request",
+        targetId: item.id,
+        detail: { requestNo: item.requestNo },
+        ip: clientIp(request),
+        log: request.log,
+      });
+
+      return { request: item };
+    }
+  );
+
+  app.post(
+    "/api/arc/requests/:requestId/reopen",
+    { preHandler: requireStaff },
+    async (request) => {
+      const employee = currentEmployee(request);
+
+      if (!isArcDirector(employee?.loginId)) {
+        throw new HttpError(403, "HJ403", "완료 취소는 ARC 대표(RN)만 할 수 있어요.");
+      }
+
+      return {
+        request: await reopenArcRequest(
+          request.params?.requestId,
+          readBody(request),
+          employee
+        ),
+      };
+    }
+  );
+
+  app.post(
+    "/api/arc/requests/:requestId/delete",
+    { preHandler: requireStaff },
+    async (request) => {
+      const employee = currentEmployee(request);
+      const result = await deleteArcRequest(request.params?.requestId, {
+        isDirector: isArcDirector(employee?.loginId),
+        employeeId: employee?.id ?? "",
+      });
+
+      await writeAuditLog({
+        employee,
+        action: "arc.request.delete",
+        targetType: "arc_request",
+        targetId: request.params?.requestId,
+        detail: {},
+        ip: clientIp(request),
+        log: request.log,
+      });
+
+      return result;
+    }
+  );
+
+  // ── P14O · 직원 개인 상비약 사용대장 · 단가 · 정산 ──────────────────
+  // 조회·사용 기록은 ARC 사용자, 단가·정산 요청은 총괄, 지급 확인은 사장입니다.
+
+  app.get("/api/arc/otc/ledger", { preHandler: requireView }, async (request) => {
+    const employee = currentEmployee(request);
+    const period = request.query?.period || "";
+    const isDirector = isArcDirector(employee?.loginId);
+
+    return {
+      period: period || null,
+      usages: await listArcOtcUsages({ period, limit: request.query?.limit }),
+      prices: await listArcOtcPrices({}),
+      settlements: await listArcOtcSettlements({ period }),
+      summary: await arcOtcLedgerSummary({ period }),
+      items: await listArcOtcItems({ employee, scopeAll: isDirector }),
+      catalog: arcOtcLedgerCatalog(),
+      canPrice: isDirector,
+      canSettle: isDirector,
+      canPay: isDirector || employee?.role === "OWNER",
+    };
+  });
+
+  app.post("/api/arc/otc/usages", { preHandler: requireView }, async (request) => {
+    const employee = currentEmployee(request);
+    const usage = await createArcOtcUsage(readBody(request), employee);
+
+    await writeAuditLog({
+      employee,
+      action: "arc.otc.usage.create",
+      targetType: "arc_otc_usage",
+      targetId: usage.id,
+      detail: {
+        usageNo: usage.usageNo,
+        itemName: usage.itemName,
+        qty: usage.qty,
+        amount: usage.amount,
+      },
+      ip: clientIp(request),
+      log: request.log,
+    });
+
+    return { usage };
+  });
+
+  app.post(
+    "/api/arc/otc/usages/:usageId/void",
+    { preHandler: requireView },
+    async (request) => {
+      const employee = currentEmployee(request);
+      const usage = await voidArcOtcUsage(
+        request.params?.usageId,
+        readBody(request),
+        employee
+      );
+
+      await writeAuditLog({
+        employee,
+        action: "arc.otc.usage.void",
+        targetType: "arc_otc_usage",
+        targetId: usage.id,
+        detail: { usageNo: usage.usageNo, reason: usage.voidReason },
+        ip: clientIp(request),
+        log: request.log,
+      });
+
+      return { usage };
+    }
+  );
+
+  app.post("/api/arc/otc/prices", { preHandler: requireDirector }, async (request) => {
+    const employee = currentEmployee(request);
+    const price = await saveArcOtcPrice(readBody(request), employee);
+
+    await writeAuditLog({
+      employee,
+      action: "arc.otc.price.save",
+      targetType: "arc_otc_item",
+      targetId: price.otcItemId,
+      detail: { itemName: price.itemName, unitPrice: price.unitPrice },
+      ip: clientIp(request),
+      log: request.log,
+    });
+
+    return { price };
+  });
+
+  app.post(
+    "/api/arc/otc/prices/:priceId/delete",
+    { preHandler: requireDirector },
+    async (request) => deleteArcOtcPrice(request.params?.priceId)
+  );
+
+  app.post(
+    "/api/arc/otc/settlements/request",
+    { preHandler: requireDirector },
+    async (request) => {
+      const employee = currentEmployee(request);
+      const settlement = await requestArcOtcSettlement(readBody(request), employee);
+
+      await writeAuditLog({
+        employee,
+        action: "arc.otc.settlement.request",
+        targetType: "arc_otc_settlement",
+        targetId: settlement.id,
+        detail: {
+          settlementNo: settlement.settlementNo,
+          totalAmount: settlement.totalAmount,
+        },
+        ip: clientIp(request),
+        log: request.log,
+      });
+
+      return { settlement };
+    }
+  );
+
+  app.post(
+    "/api/arc/otc/settlements/:settlementId/pay",
+    { preHandler: requireView },
+    async (request) => {
+      const employee = currentEmployee(request);
+
+      // 지급 확인은 사장(또는 총괄이 대신 기록)만 합니다.
+      if (!isArcDirector(employee?.loginId) && employee?.role !== "OWNER") {
+        throw new HttpError(403, "HJ403", "지급 확인은 사장만 할 수 있어요.");
+      }
+
+      const settlement = await payArcOtcSettlement(
+        request.params?.settlementId,
+        readBody(request),
+        employee
+      );
+
+      await writeAuditLog({
+        employee,
+        action: "arc.otc.settlement.pay",
+        targetType: "arc_otc_settlement",
+        targetId: settlement.id,
+        detail: {
+          settlementNo: settlement.settlementNo,
+          paidAmount: settlement.paidAmount,
+        },
+        ip: clientIp(request),
+        log: request.log,
+      });
+
+      return { settlement };
+    }
+  );
+
+  app.post(
+    "/api/arc/otc/settlements/:settlementId/cancel",
+    { preHandler: requireDirector },
+    async (request) => ({
+      settlement: await cancelArcOtcSettlement(
+        request.params?.settlementId,
+        readBody(request)
+      ),
+    })
   );
 
   // ── 품질관리(P14I · AS-REC-001 F11·F12·F13·F14) ─────────────────────

@@ -36,43 +36,45 @@
           </div>
         </button>
 
-        <template v-if="visibleArcMenuList.length">
-          <div class="nav-divider" aria-hidden="true"></div>
+        <div class="arc-group" :class="{ 'arc-first': arcFirst }">
+          <template v-if="visibleArcMenuList.length">
+            <div class="nav-divider" aria-hidden="true"></div>
 
-          <button
-            type="button"
-            class="nav-button arc-group-button"
-            :class="{ open: isArcMenuOpen }"
-            :aria-expanded="isArcMenuOpen"
-            @click="toggleArcMenu"
-          >
-            <div class="nav-button-main">
-              <strong>응급안전관리센터</strong>
-              <span>사장·매니저·ARC 총괄 전용</span>
-            </div>
-            <span class="arc-group-caret" aria-hidden="true">{{
-              isArcMenuOpen ? "−" : "+"
-            }}</span>
-          </button>
-
-          <div v-show="isArcMenuOpen" class="arc-sublist">
             <button
-              v-for="menu in visibleArcMenuList"
-              :key="menu.to"
               type="button"
-              class="nav-button arc-nav-button"
-              :class="{ active: isActiveMenu(menu) }"
-              :style="{ '--arc-color': menu.color }"
-              @click="goMenu(menu.to)"
+              class="nav-button arc-group-button"
+              :class="{ open: isArcMenuOpen }"
+              :aria-expanded="isArcMenuOpen"
+              @click="toggleArcMenu"
             >
-              <span class="arc-dot" aria-hidden="true"></span>
               <div class="nav-button-main">
-                <strong>{{ menu.label }}</strong>
-                <span>{{ menu.description }}</span>
+                <strong>응급안전관리센터</strong>
+                <span>{{ arcGroupHint }}</span>
               </div>
+              <span class="arc-group-caret" aria-hidden="true">{{
+                isArcMenuOpen ? "−" : "+"
+              }}</span>
             </button>
-          </div>
-        </template>
+
+            <div v-show="isArcMenuOpen" class="arc-sublist">
+              <button
+                v-for="menu in visibleArcMenuList"
+                :key="menu.to"
+                type="button"
+                class="nav-button arc-nav-button"
+                :class="{ active: isActiveMenu(menu) }"
+                :style="{ '--arc-color': menu.color }"
+                @click="goMenu(menu.to)"
+              >
+                <span class="arc-dot" aria-hidden="true"></span>
+                <div class="nav-button-main">
+                  <strong>{{ menu.label }}</strong>
+                  <span>{{ menu.description }}</span>
+                </div>
+              </button>
+            </div>
+          </template>
+        </div>
       </nav>
     </aside>
 
@@ -426,6 +428,15 @@ const arcMenuList = [
     permission: "arc.admin",
     color: "#94a3b8",
   },
+  {
+    // 요청 게시판은 사장·직원 모두 ARC 대표에게 올릴 수 있어야 해서 staffOk 로 열어 둡니다.
+    to: "/admin/arc/requests",
+    label: "요청 게시판",
+    description: "최윤희 대표에게 요청·질문",
+    matchStartsWith: "/admin/arc/requests",
+    staffOk: true,
+    color: "#38bdf8",
+  },
 ];
 
 // 총괄 계정(yoonhee1021)은 응급안전이 주 화면이라 그룹을 펼친 채로 시작합니다.
@@ -443,9 +454,10 @@ const visibleMenuList = computed(() => {
 
 // 응급안전관리센터는 역할 자체가 사장·매니저여야 열립니다.
 // (직원 계정에 arc.* 권한이 직접 들어 있어도 숨깁니다 — 서버도 같은 기준으로 막습니다.)
+// 단, 요청 게시판은 모든 직원이 ARC 대표에게 글을 올릴 수 있어야 하므로 예외입니다.
 const visibleArcMenuList = computed(() => {
   if (!canAccessArc(currentEmployee.value)) {
-    return [];
+    return arcMenuList.filter((menu) => menu.staffOk);
   }
 
   return arcMenuList.filter((menu) => {
@@ -455,6 +467,15 @@ const visibleArcMenuList = computed(() => {
     return !menu.permission || hasPermission(menu.permission);
   });
 });
+
+const arcGroupHint = computed(() =>
+  canAccessArc(currentEmployee.value)
+    ? "사장·매니저·ARC 총괄 전용"
+    : "직원 요청 게시판"
+);
+
+// ARC 대표(RN)는 응급안전관리센터를 사이드바 맨 위에 두고 봅니다.
+const arcFirst = computed(() => Boolean(currentEmployee.value?.isArcDirector));
 
 function toggleArcMenu() {
   isArcMenuOpen.value = !isArcMenuOpen.value;
@@ -584,6 +605,22 @@ watch(
 .sidebar-nav {
   display: grid;
   gap: 10px;
+}
+
+/* ARC 그룹은 통째로 감싸서 순서를 바꿀 수 있게 합니다. */
+.arc-group {
+  display: grid;
+  gap: 10px;
+}
+
+/* ARC 대표(RN)는 응급안전관리센터가 맨 위에 옵니다. */
+.arc-group.arc-first {
+  order: -1;
+}
+
+/* 맨 위로 올라가면 위쪽 구분선은 필요 없습니다. */
+.arc-group.arc-first .nav-divider {
+  display: none;
 }
 
 .nav-button {

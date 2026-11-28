@@ -22,6 +22,30 @@
     <p v-if="errorMessage" class="error-box">{{ errorMessage }}</p>
     <p v-if="okMessage" class="ok-box">{{ okMessage }}</p>
 
+    <!-- 등급(A·B·C) 안내: 처음 보는 사람도 바로 이해할 수 있게 위에 고정 -->
+    <section class="grade-legend">
+      <div class="grade-legend-head">
+        <h2>등급 표기 안내</h2>
+        <span class="grade-legend-sub">품목마다 접근 등급이 정해져 있어요</span>
+      </div>
+      <ul class="grade-legend-list">
+        <li v-for="row in GRADE_LEGEND" :key="row.key">
+          <span :class="['grade-chip', `grade-${row.key.toLowerCase()}`]">
+            {{ row.key }}
+          </span>
+          <div class="grade-body">
+            <strong>{{ row.label }}</strong>
+            <span class="grade-desc">{{ row.desc }}</span>
+            <span class="grade-who">{{ row.who }}</span>
+          </div>
+        </li>
+      </ul>
+      <p class="grade-note">
+        ※ 등급은 '누가 꺼내 쓸 수 있는지'를 정한 표시예요. 유효기간(만료일)과는
+        별개이며, 만료·개봉 후 기한 초과 품목은 등급과 상관없이 사용 금지입니다.
+      </p>
+    </section>
+
     <section class="summary-grid">
       <article class="summary-card">
         <span class="summary-label">사용 중 품목</span>
@@ -534,6 +558,27 @@ const items = ref([]);
 const summary = ref({});
 const lots = ref([]);
 const moves = ref([]);
+// 등급 표기(A/B/C)는 처음 보는 사람이 가장 많이 헷갈려 하는 부분이라 화면 위에 풀어 씁니다.
+const GRADE_LEGEND = [
+  {
+    key: "A",
+    label: "A · 응급·SOP",
+    desc: "심정지·질식·대량출혈처럼 즉시 써야 하는 품목이에요.",
+    who: "현장에 있는 누구나 바로 사용 가능 (사용 후 즉시 기록)",
+  },
+  {
+    key: "B",
+    label: "B · 교육·승인",
+    desc: "교육을 이수한 사람이 쓰거나, 사용 전 확인이 필요한 품목이에요.",
+    who: "ARC 교육 이수자 · 담당 확인 후 사용",
+  },
+  {
+    key: "C",
+    label: "C · RN 제한",
+    desc: "판단이 어렵거나 잘못 쓰면 위험한 품목(주사·전문 처치 등)이에요.",
+    who: "ARC 대표(RN)만 취급 · 무단 개봉 금지",
+  },
+];
 const activeItem = ref(null);
 const isLoading = ref(false);
 const isSaving = ref(false);
@@ -819,6 +864,107 @@ onMounted(loadItems);
   font-weight: 700;
   text-decoration: none;
   white-space: nowrap;
+}
+
+.grade-legend {
+  padding: 14px 16px;
+  border: 1px solid #dbeafe;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+}
+
+.grade-legend-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 10px;
+
+  h2 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 800;
+    color: #1e3a8a;
+  }
+}
+
+.grade-legend-sub {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.grade-legend-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    background: #fff;
+  }
+}
+
+.grade-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #fff;
+
+  &.grade-a {
+    background: #dc2626;
+  }
+
+  &.grade-b {
+    background: #d97706;
+  }
+
+  &.grade-c {
+    background: #4338ca;
+  }
+}
+
+.grade-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+
+  strong {
+    font-size: 13px;
+    font-weight: 700;
+    color: #111827;
+  }
+}
+
+.grade-desc {
+  font-size: 12px;
+  line-height: 1.55;
+  color: #374151;
+}
+
+.grade-who {
+  font-size: 11px;
+  line-height: 1.5;
+  color: #6b7280;
+}
+
+.grade-note {
+  margin: 10px 0 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: #64748b;
 }
 
 .summary-grid {

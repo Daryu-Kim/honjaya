@@ -14,6 +14,7 @@ import {
   ARC_TRAINING_SCENARIOS,
 } from "./arcTraining.js";
 import { ARC_GLOSSARY, collectArcTerms } from "./arcGlossary.js";
+import { mergeTrainingContent } from "./arcTrainingDeep.js";
 
 const MODULE_GUIDE = {
   ROLE: {
@@ -1599,9 +1600,18 @@ const TEACHER_KIT = {
   ],
 };
 
-export function arcTrainingGuide() {
+export function arcTrainingGuide({ overrides = {} } = {}) {
   const totalMinutes = ARC_TRAINING_MODULES.reduce((sum, item) => sum + (item.minutes ?? 0), 0);
   const coreMinutes = TEACHER_KIT.timePlan.reduce((sum, item) => sum + (item.minutes ?? 0), 0);
+  // 원문 → 심화(상세 설명) → 총괄 수정 순서로 합칩니다.
+  const merged = mergeTrainingContent(
+    {
+      modules: ARC_TRAINING_MODULES,
+      scenarios: ARC_TRAINING_SCENARIOS,
+      forbidden: ARC_TRAINING_FORBIDDEN,
+    },
+    overrides
+  );
 
   return {
     source:
@@ -1610,13 +1620,13 @@ export function arcTrainingGuide() {
     glossary: GLOSSARY,
     teacherKit: TEACHER_KIT,
     totals: {
-      modules: ARC_TRAINING_MODULES.length,
-      scenarios: ARC_TRAINING_SCENARIOS.length,
-      forbidden: ARC_TRAINING_FORBIDDEN.length,
+      modules: merged.modules.length,
+      scenarios: merged.scenarios.length,
+      forbidden: merged.forbidden.length,
       moduleMinutes: totalMinutes,
       sessionMinutes: coreMinutes,
     },
-    modules: ARC_TRAINING_MODULES.map((item) => {
+    modules: merged.modules.map((item) => {
       const guide = MODULE_GUIDE[item.key]
         ? { ...MODULE_GUIDE[item.key], ...(MODULE_EXTRA[item.key] ?? {}) }
         : (MODULE_EXTRA[item.key] ?? null);
@@ -1633,18 +1643,30 @@ export function arcTrainingGuide() {
         itemTerms: lines.map((line) => collectArcTerms(line)),
         terms: collectArcTerms([
           item.goal,
+          item.summary,
+          item.why,
           guide?.easy,
           guide?.why,
           ...(guide?.steps ?? []),
           ...(guide?.tips ?? []),
           ...(guide?.mistakes ?? []),
+          ...Object.values(item.itemDetails ?? {}),
         ]),
         materials: item.materials ?? [],
         evaluation: item.evaluation ?? [],
         guide,
+        // P14O 심화 — 요약·근거·항목별 설명·흔한 실수·구두질문·체크리스트
+        summary: item.summary ?? "",
+        why: item.why ?? "",
+        basis: item.basis ?? [],
+        itemDetails: item.itemDetails ?? {},
+        pitfalls: item.pitfalls ?? [],
+        quiz: item.quiz ?? [],
+        checklist: item.checklist ?? [],
+        helperNote: item.helperNote ?? "",
       };
     }),
-    scenarios: ARC_TRAINING_SCENARIOS.map((item) => {
+    scenarios: merged.scenarios.map((item) => {
       const guide = SCENARIO_GUIDE[item.key]
         ? { ...SCENARIO_GUIDE[item.key], ...(SCENARIO_EXTRA[item.key] ?? {}) }
         : (SCENARIO_EXTRA[item.key] ?? null);
@@ -1658,16 +1680,23 @@ export function arcTrainingGuide() {
         terms: collectArcTerms([
           item.scene,
           item.answer,
+          item.why,
           guide?.easy,
           guide?.why,
           guide?.trap,
+          ...(item.steps ?? []),
           ...(guide?.steps ?? []),
           ...(guide?.never ?? []),
         ]),
         guide,
+        why: item.why ?? "",
+        steps: item.steps ?? [],
+        wrong: item.wrong ?? "",
+        basis: item.basis ?? "",
+        helperNote: item.helperNote ?? "",
       };
     }),
-    forbidden: ARC_TRAINING_FORBIDDEN.map((item) => {
+    forbidden: merged.forbidden.map((item) => {
       const guide = FORBIDDEN_GUIDE[item.key]
         ? { ...FORBIDDEN_GUIDE[item.key], ...(FORBIDDEN_EXTRA[item.key] ?? {}) }
         : (FORBIDDEN_EXTRA[item.key] ?? null);
@@ -1677,11 +1706,24 @@ export function arcTrainingGuide() {
         text: item.text,
         terms: collectArcTerms([
           item.text,
+          item.why,
+          item.instead,
+          item.risk,
+          item.signs,
+          item.drill,
+          item.basis,
           guide?.why,
           guide?.instead,
           guide?.example,
         ]),
         guide,
+        why: item.why ?? "",
+        instead: item.instead ?? "",
+        risk: item.risk ?? "",
+        signs: item.signs ?? "",
+        drill: item.drill ?? "",
+        basis: item.basis ?? "",
+        helperNote: item.helperNote ?? "",
       };
     }),
   };

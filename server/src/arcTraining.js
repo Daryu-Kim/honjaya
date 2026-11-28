@@ -10,6 +10,7 @@
 import { randomUUID } from "node:crypto";
 
 import { collectArcTerms } from "./arcGlossary.js";
+import { mergeTrainingContent } from "./arcTrainingDeep.js";
 import { pool } from "./db.js";
 import { badRequest, HttpError } from "./http/errors.js";
 
@@ -77,7 +78,34 @@ export const ARC_TRAINING_KINDS = [
     // 본인만 볼 수 있는 달력 (서버에서도 본인 것만 돌려줍니다)
     personal: true,
   },
+  {
+    key: "VERBAL",
+    label: "정기 구두테스트",
+    desc:
+      "미리 예고한 날짜에 직원·사장을 한 명씩 불러 핵심술기와 이론을 구두로 확인합니다. " +
+      "결과는 평가표에 수행/부분수행/미수행으로 남고, 총괄만 볼 수 있습니다.",
+    minutes: 20,
+    modules: [],
+    modulesOptional: true,
+    directorOnly: true,
+  },
+  {
+    key: "VERBAL_SURPRISE",
+    label: "불시 구두테스트",
+    desc:
+      "예고 없이 영업 중 짧게 확인하는 테스트입니다. 3~5분 안에 끝나야 하며, " +
+      "틀린 항목은 그 자리에서 바로 알려 주고 14일 안에 다시 확인합니다.",
+    minutes: 10,
+    modules: [],
+    modulesOptional: true,
+    directorOnly: true,
+  },
 ];
+
+// 총괄(ARC 대표)만 조회·수정할 수 있는 구분 — 다른 계정에는 아예 내려보내지 않습니다.
+const DIRECTOR_ONLY_KINDS = ARC_TRAINING_KINDS.filter((item) => item.directorOnly).map(
+  (item) => item.key
+);
 
 export const ARC_TRAINING_STATUSES = [
   { key: "PLANNED", label: "예정" },
@@ -635,25 +663,56 @@ export const ARC_TRAINING_FORBIDDEN = [
   { key: "F30", text: "눈·화상·깊은 상처에 포비돈·과산화수소·마데카솔을 임의로 바르기" },
 ];
 
-export function arcTrainingCatalog() {
+export function arcTrainingCatalog({ overrides = {} } = {}) {
+  // 원문 → 심화 → 총괄 수정 순서로 합칩니다.
+  const merged = mergeTrainingContent(
+    {
+      modules: ARC_TRAINING_MODULES,
+      scenarios: ARC_TRAINING_SCENARIOS,
+      forbidden: ARC_TRAINING_FORBIDDEN,
+    },
+    overrides
+  );
+
   return {
     kinds: ARC_TRAINING_KINDS,
     statuses: ARC_TRAINING_STATUSES,
     results: ARC_TRAINING_RESULTS,
     // 교육자료는 일반인(사장·직원)이 그대로 읽습니다.
     // 어려운 말이 나오면 항목마다 쉬운 풀이(terms)를 함께 내려 줍니다.
-    modules: ARC_TRAINING_MODULES.map((item) => ({
+    modules: merged.modules.map((item) => ({
       ...item,
       itemTerms: (item.items ?? []).map(([, line]) => collectArcTerms(line)),
-      terms: collectArcTerms([item.goal, ...(item.items ?? []).map(([, line]) => line)]),
+      terms: collectArcTerms([
+        item.goal,
+        item.summary,
+        item.why,
+        ...(item.items ?? []).map(([, line]) => line),
+        ...Object.values(item.itemDetails ?? {}),
+      ]),
     })),
-    scenarios: ARC_TRAINING_SCENARIOS.map((item) => ({
+    scenarios: merged.scenarios.map((item) => ({
       ...item,
-      terms: collectArcTerms([item.scene, item.answer]),
+      terms: collectArcTerms([
+        item.scene,
+        item.answer,
+        item.why,
+        item.steps,
+        item.wrong,
+        item.basis,
+      ]),
     })),
-    forbidden: ARC_TRAINING_FORBIDDEN.map((item) => ({
+    forbidden: merged.forbidden.map((item) => ({
       ...item,
-      terms: collectArcTerms(item.text),
+      terms: collectArcTerms([
+        item.text,
+        item.why,
+        item.instead,
+        item.risk,
+        item.signs,
+        item.drill,
+        item.basis,
+      ]),
     })),
     makeupDays: MAKEUP_DAYS,
   };
@@ -884,6 +943,7 @@ export async function listArcTrainingSessions({
   period = null,
   limit = 60,
   viewerLoginId = "",
+  viewerIsDirector = false,
 } = {}) {
   const safePeriod = text(period, 7);
   const safeLimit = Math.min(Math.max(Number(limit) || 60, 1), MAX_LIMIT);
@@ -898,9 +958,10 @@ export async function listArcTrainingSessions({
        from public.arc_training_sessions
       where ($1::text is null or period = $1)
         and (kind <> 'PERSONAL' or (owner_login_id <> '' and owner_login_id = $3))
+        and (not (kind = any($4::text[])) or $5::boolean)
       order by scheduled_on desc, start_time desc, created_at desc
       limit $2`,
-    [safePeriod || null, safeLimit, viewer]
+    [safePeriod || null, safeLimit, viewer, DIRECTOR_ONLY_KINDS, Boolean(viewerIsDirector)]
   );
 
   const attendees = await loadAttendees(rows.map((row) => row.id));
@@ -1179,7 +1240,7 @@ export async function saveArcTrainingAttendees(sessionId, attendees = [], employ
 }
 
 /** 화면 상단 카드용 — 이번 달 진행률과 보충 대상자. */
-export async function arcTrainingSummary({ period = null } = {}) {
+export async function arcTrainingSummary({ period = null, viewerIsDirector = false } = {}) {
   const safePeriod = PERIOD_PATTERN.test(text(period, 7)) ? text(period, 7) : todayIso().slice(0, 7);
   const { rows } = await pool.query(
     `select
@@ -1188,8 +1249,9 @@ export async function arcTrainingSummary({ period = null } = {}) {
         count(*)::int as total
        from public.arc_training_sessions s
       where s.period = $1
-        and s.kind <> 'PERSONAL'`,
-    [safePeriod]
+        and s.kind <> 'PERSONAL'
+        and (not (s.kind = any($2::text[])) or $3::boolean)`,
+    [safePeriod, DIRECTOR_ONLY_KINDS, Boolean(viewerIsDirector)]
   );
   const { rows: followupRows } = await pool.query(
     `select a.employee_name, a.result, a.makeup_due_on, s.session_no, s.title

@@ -39,7 +39,7 @@ export const ARC_GLOSSARY = [
   },
   {
     term: "가슴압박",
-    aliases: ["흉부압박", "직접압박"],
+    aliases: ["흉부압박"],
     plain:
       "가슴뼈(명치 위) 아래쪽 중앙을 손바닥으로 5cm 깊이, 분당 100~120회 속도로 누르는 것.",
   },
@@ -99,6 +99,7 @@ export const ARC_GLOSSARY = [
   },
   {
     term: "지혈",
+    aliases: ["직접압박"],
     plain: "피를 멈추게 하는 것. 깨끗한 천으로 상처를 직접 눌러 줍니다(직접압박).",
   },
   {

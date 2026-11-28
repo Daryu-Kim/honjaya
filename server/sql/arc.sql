@@ -967,7 +967,8 @@ alter table public.arc_training_sessions
 
 alter table public.arc_training_sessions
   add constraint arc_training_sessions_kind_check
-  check (kind in ('OT', 'REGULAR', 'NEWBIE', 'DRILL', 'REFRESH', 'ROUTINE', 'PERSONAL'));
+  check (kind in ('OT', 'REGULAR', 'NEWBIE', 'DRILL', 'REFRESH', 'ROUTINE',
+                  'PERSONAL', 'VERBAL', 'VERBAL_SURPRISE'));
 
 create index if not exists arc_training_sessions_owner_idx
   on public.arc_training_sessions (owner_login_id, scheduled_on);
@@ -1252,3 +1253,246 @@ create index if not exists arc_incidents_event_idx
 create index if not exists arc_incidents_event_no_idx
   on public.arc_incidents (event_no)
   where event_no <> '';
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- P14O — 교육자료 총괄 수정 · 구두테스트 · 요청 게시판 · 상비약 사용/정산
+-- ══════════════════════════════════════════════════════════════════════════
+
+-- ── 교육자료 총괄 수정(override) ────────────────────────────────────────────
+-- 교육자료 원문은 코드(arcTraining.js / arcTrainingDeep.js)가 원본입니다.
+-- ARC 대표(RN)가 화면에서 고친 부분만 여기에 남기고, 조회할 때 원문 위에 덮어
+-- 씁니다. 그래서 원문이 개선되면 고치지 않은 항목은 자동으로 따라옵니다.
+create table if not exists public.arc_training_content (
+  id           uuid primary key default gen_random_uuid(),
+  -- MODULE=교육 모듈 / SCENARIO=상황연습 / FORBIDDEN=절대금지
+  scope        text not null check (scope in ('MODULE', 'SCENARIO', 'FORBIDDEN')),
+  -- 모듈키(ROLE)·상황키(S01)·절대금지키(F01)
+  content_key  text not null,
+  -- 덮어쓸 필드만 담습니다(예: {"summary": "...", "goal": "..."}).
+  payload      jsonb not null default '{}'::jsonb,
+  -- '도우미'에 입력한 이번 달 보강 메모(자동 문장 생성의 근거).
+  helper_input jsonb not null default '{}'::jsonb,
+  updated_by   text not null default '',
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now(),
+  unique (scope, content_key)
+);
+
+-- ── 구두테스트(정기·불시) 응시 기록 ─────────────────────────────────────────
+-- 문항·배점 원본은 코드(arcVerbal.js)가 원본이고, 여기에는 "누가 언제 어떤
+-- 항목을 수행/부분수행/미수행 했는지"만 남깁니다.
+create table if not exists public.arc_verbal_exams (
+  id            uuid primary key default gen_random_uuid(),
+  -- VB-YYYYMMDD-nn
+  exam_no       text not null,
+  -- 달력에 잡은 교육 세션과 연결(선택). 불시 테스트도 세션을 만들어 두고 붙입니다.
+  session_id    uuid references public.arc_training_sessions (id) on delete set null,
+  -- REGULAR=정기 구두테스트 / SURPRISE=사전예고 없는 불시 테스트
+  kind          text not null default 'REGULAR'
+                  check (kind in ('REGULAR', 'SURPRISE')),
+  scheduled_on  date not null,
+  employee_id   text references public.employees (id) on delete set null,
+  employee_name text not null default '',
+  examiner_name text not null default '',
+  -- 채점 합계(수행 1.0 · 부분수행 0.5 · 미수행 0 배점 합산)
+  total_score   numeric(6, 2) not null default 0 check (total_score >= 0),
+  max_score     numeric(6, 2) not null default 0 check (max_score >= 0),
+  -- PENDING=미채점 / PASS=통과 / RETAKE=재평가 / FAIL=재교육
+  verdict       text not null default 'PENDING'
+                  check (verdict in ('PENDING', 'PASS', 'RETAKE', 'FAIL')),
+  feedback      text not null default '',
+  retest_on     date,
+  created_by    text not null default '',
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  unique (exam_no)
+);
+
+create index if not exists arc_verbal_exams_employee_idx
+  on public.arc_verbal_exams (employee_id, scheduled_on desc);
+
+create index if not exists arc_verbal_exams_date_idx
+  on public.arc_verbal_exams (scheduled_on desc, kind);
+
+create table if not exists public.arc_verbal_scores (
+  id          uuid primary key default gen_random_uuid(),
+  exam_id     uuid not null references public.arc_verbal_exams (id) on delete cascade,
+  section_key text not null default '',
+  item_key    text not null default '',
+  -- PERFORM=수행 / PARTIAL=부분수행 / NONE=미수행
+  result      text not null default 'NONE'
+                check (result in ('PERFORM', 'PARTIAL', 'NONE')),
+  score       numeric(6, 2) not null default 0 check (score >= 0),
+  note        text not null default '',
+  sort_order  integer not null default 0,
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists arc_verbal_scores_exam_idx
+  on public.arc_verbal_scores (exam_id, sort_order);
+
+-- 구두테스트도 달력(arc_training_sessions)에 잡히므로 kind 허용값을 늘립니다.
+-- 두 구분은 ARC 대표(RN)에게만 보입니다(불시 테스트가 미리 새면 안 됨).
+alter table public.arc_training_sessions
+  drop constraint if exists arc_training_sessions_kind_check;
+
+alter table public.arc_training_sessions
+  add constraint arc_training_sessions_kind_check
+  check (kind in ('OT', 'REGULAR', 'NEWBIE', 'DRILL', 'REFRESH', 'ROUTINE',
+                  'PERSONAL', 'VERBAL', 'VERBAL_SURPRISE'));
+
+-- ── 요청 게시판(직원·사장 → ARC 대표) ──────────────────────────────────────
+-- 모든 재직 직원이 ARC 화면에서 글을 남깁니다. 총괄이 열어 보면 READ,
+-- 완료 처리는 반드시 완료 사유(done_note)를 적어야 합니다.
+create table if not exists public.arc_requests (
+  id                 uuid primary key default gen_random_uuid(),
+  -- REQ-YYYYMMDD-nn
+  request_no         text not null,
+  -- QUESTION=질문 / COMPLAINT=불만·건의 / SUPPLY=응급물품·비품 /
+  -- EDUCATION=교육·훈련 / FACILITY=안전시설·환경 / HEALTH=건강·컨디션 / ETC=기타
+  category           text not null default 'QUESTION'
+                       check (category in ('QUESTION', 'COMPLAINT', 'SUPPLY',
+                                           'EDUCATION', 'FACILITY', 'HEALTH', 'ETC')),
+  title              text not null default '',
+  body               text not null default '',
+  urgent             boolean not null default false,
+  -- PENDING=대기중 / READ=읽음 / DONE=완료
+  status             text not null default 'PENDING'
+                       check (status in ('PENDING', 'READ', 'DONE')),
+  author_employee_id text references public.employees (id) on delete set null,
+  author_name        text not null default '',
+  author_role        text not null default '',
+  read_at            timestamptz,
+  read_by            text not null default '',
+  done_at            timestamptz,
+  done_by            text not null default '',
+  -- 완료 처리는 이 사유가 있어야만 가능합니다.
+  done_note          text not null default '',
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now(),
+  unique (request_no)
+);
+
+create index if not exists arc_requests_status_idx
+  on public.arc_requests (status, created_at desc);
+
+create index if not exists arc_requests_author_idx
+  on public.arc_requests (author_employee_id, created_at desc);
+
+create table if not exists public.arc_request_replies (
+  id                 uuid primary key default gen_random_uuid(),
+  request_id         uuid not null references public.arc_requests (id) on delete cascade,
+  author_employee_id text references public.employees (id) on delete set null,
+  author_name        text not null default '',
+  author_role        text not null default '',
+  is_director        boolean not null default false,
+  body               text not null default '',
+  created_at         timestamptz not null default now()
+);
+
+create index if not exists arc_request_replies_request_idx
+  on public.arc_request_replies (request_id, created_at);
+
+-- ── 직원 개인 상비약 단가 이력 ─────────────────────────────────────────────
+-- 총괄이 단가를 미리 등록해 두면 사용 기록에서 금액이 바로 계산됩니다.
+-- 적용일이 지난 가장 최근 단가를 스냅샷으로 복사합니다(과거 금액은 안 바뀜).
+create table if not exists public.arc_otc_prices (
+  id             uuid primary key default gen_random_uuid(),
+  otc_item_id    uuid not null references public.arc_otc_items (id) on delete cascade,
+  item_code      text not null default '',
+  item_name      text not null default '',
+  unit_price     integer not null default 0 check (unit_price >= 0),
+  effective_from date not null default current_date,
+  note           text not null default '',
+  employee_id    text references public.employees (id) on delete set null,
+  employee_name  text not null default '',
+  created_at     timestamptz not null default now()
+);
+
+create index if not exists arc_otc_prices_item_idx
+  on public.arc_otc_prices (otc_item_id, effective_from desc, created_at desc);
+
+-- ── 직원 개인 상비약 사용 기록(육하원칙) ───────────────────────────────────
+-- 언제·누가·어디서·무엇을·얼마나·왜. 건강 상세는 AS-CARE 에만 적습니다.
+create table if not exists public.arc_otc_usages (
+  id                uuid primary key default gen_random_uuid(),
+  -- OTCU-YYYYMMDD-nn
+  usage_no          text not null,
+  otc_item_id       uuid references public.arc_otc_items (id) on delete set null,
+  item_code         text not null default '',
+  item_name         text not null default '',
+  item_unit         text not null default '',
+  -- 'YYYY-MM' (정산 기간 묶음)
+  period            text not null default '',
+  used_on           date not null default current_date,
+  used_time         text not null default '',
+  place             text not null default '',
+  -- SELF=본인 복용 / STAFF=다른 직원 / OWNER=사장 / ETC=기타
+  target_kind       text not null default 'SELF'
+                      check (target_kind in ('SELF', 'STAFF', 'OWNER', 'ETC')),
+  target_employee_id text references public.employees (id) on delete set null,
+  target_name       text not null default '',
+  reason            text not null default '',
+  symptom           text not null default '',
+  qty               numeric(12, 2) not null check (qty > 0),
+  unit_price        integer not null default 0 check (unit_price >= 0),
+  amount            integer not null default 0 check (amount >= 0),
+  care_incident_no  text not null default '',
+  -- 지급 확인(정산) 연결. 취소된 사용 기록은 정산에서 빠집니다.
+  settlement_id     uuid,
+  note              text not null default '',
+  status            text not null default 'ACTIVE'
+                      check (status in ('ACTIVE', 'VOID')),
+  void_reason       text not null default '',
+  voided_at         timestamptz,
+  voided_by_name    text not null default '',
+  employee_id       text references public.employees (id) on delete set null,
+  employee_name     text not null default '',
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now(),
+  unique (usage_no)
+);
+
+create index if not exists arc_otc_usages_period_idx
+  on public.arc_otc_usages (period, used_on desc);
+
+create index if not exists arc_otc_usages_item_idx
+  on public.arc_otc_usages (otc_item_id, used_on desc);
+
+-- ── 직원 개인 상비약 정산(총괄 요청 → 사장 지급) ────────────────────────────
+-- 월 단위로 묶어 지급을 요청하고, 사장이 지급하면 PAID 로 바뀝니다.
+create table if not exists public.arc_otc_settlements (
+  id             uuid primary key default gen_random_uuid(),
+  -- OTCS-YYYYMM-nn
+  settlement_no  text not null,
+  period         text not null,
+  requested_on   date not null default current_date,
+  usage_count    integer not null default 0 check (usage_count >= 0),
+  total_amount   integer not null default 0 check (total_amount >= 0),
+  -- REQUESTED=지급 요청 / PAID=지급 완료 / CANCELED=요청 취소
+  status         text not null default 'REQUESTED'
+                   check (status in ('REQUESTED', 'PAID', 'CANCELED')),
+  requested_by   text not null default '',
+  request_note   text not null default '',
+  paid_on        date,
+  paid_amount    integer not null default 0 check (paid_amount >= 0),
+  paid_method    text not null default 'TRANSFER'
+                   check (paid_method in ('TRANSFER', 'CASH', 'CARD', 'ETC')),
+  paid_note      text not null default '',
+  paid_by        text not null default '',
+  -- 지급 요청에 포함된 사용 기록 스냅샷(나중에 내역이 바뀌어도 금액 근거 유지)
+  detail         jsonb not null default '[]'::jsonb,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now(),
+  unique (settlement_no)
+);
+
+create index if not exists arc_otc_settlements_period_idx
+  on public.arc_otc_settlements (period, status);
+
+alter table public.arc_otc_usages
+  drop constraint if exists arc_otc_usages_settlement_fk;
+
+alter table public.arc_otc_usages
+  add constraint arc_otc_usages_settlement_fk
+  foreign key (settlement_id) references public.arc_otc_settlements (id) on delete set null;

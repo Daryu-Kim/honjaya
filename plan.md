@@ -2281,6 +2281,66 @@ all 6 touched SFCs; ESM syntax check on the 3 touched `src` modules.
 
 ---
 
+## 3-16. P14O — ARC: director toolkit (training depth, verbal exam, requests board, OTC ledger)
+
+**Status:** code complete, dev-DB verified. No lint/build/commit yet (Rule 15).
+
+### What shipped
+1. **Deep training content** — 4 new server modules merged into the existing catalog:
+   `arcTrainingDeepBasics.js` (ROLE/SAFE/CPR/CHOKE), `arcTrainingDeepInjury.js` (BLEED/BURN/INTOX/
+   SUDDEN/MISC/INFECT), `arcTrainingDeepOps.js` (KIT/OTC/REPORT/PRIVACY/GATE), `arcTrainingDeepCases.js`
+   (S01–S21 + F01–F30). `arcTrainingDeep.js` aggregates and exposes `mergeTrainingContent()`;
+   `arcTrainingCatalog()` / `arcTrainingGuide()` deep-merge 원문 → 심화 → 총괄 수정.
+   - Module 15: summary 150–215 chars + `why`, 6–8 `items`, 3 `basis`, 3–4 `pitfalls`, 4–5 `quiz`,
+     4–5 `checklist`, 2–11 glossary `terms`.
+   - Scenario 21: 4 `steps` + `why` + `wrong` + `basis`.
+   - Forbidden 30: `why` / `instead` / `risk` / `signs` / `drill` / `basis` (avg 363 chars per item,
+     up from ~77 — 4.7×).
+2. **Director-only editing + helper** — `arcTrainingContent.js`: `saveTrainingContent()`,
+   `deleteTrainingContent()` (restore 원문), `buildTrainingHelper()` returns
+   `{scope, key, month, helperNote, focus, summary, pitfalls, quiz, audience}`. `sanitizeTrainingPayload()`
+   whitelists per-scope fields; FORBIDDEN now also accepts `signs`/`drill`/`basis`, and
+   `applyForbidden()` in `arcTrainingDeep.js` applies them so edits survive the merge.
+3. **Verbal exam (구두테스트)** — `arcVerbal.js`: 8 sections / 34 items with
+   `criteria{perform,partial,none}`, 10 hard questions, verdict rules (PASS ≥ 85 %, RETAKE ≥ 70 %,
+   ≥ 2 critical NONE → FAIL). `createArcVerbalExam()` also writes an `arc_training_sessions` row
+   (`VERBAL` / `VERBAL_SURPRISE`) so exams show on the director's calendar.
+4. **Requests board** — `arcRequests.js`: 7 categories, `PENDING → READ → DONE`, replies,
+   `completeArcRequest()` requires `doneNote` ≥ 5 chars, `reopenArcRequest()` restores `READ`.
+5. **OTC ledger** — `arcOtcLedger.js`: prices (effective-dated) / usages (server-computed amount,
+   decrements `arc_otc_items.qty`) / settlements (`REQUESTED → PAID | CANCELED`) / summary.
+6. **Client** — `AdminArcTrainingView.vue` (구두테스트 tab, deep-content rendering, `ArcTrainingEditor`),
+   `AdminArcTrainingGuideView.vue` (print teacher mode renders deep forbidden fields),
+   `AdminArcRequestsView.vue`, `ArcOtcLedgerPanel.vue`, `AdminArcOtcView.vue` (재고·점검 / 사용·정산 tabs),
+   `AdminArcStockView.vue` (A/B/C grade legend), `AdminLayout.vue` (`.arc-first` puts ARC on top for the
+   director only), `router/index.js` (`/admin/arc/requests` is the only ARC path open to non-ARC staff).
+
+### Verification
+- `node --check` on every touched server file; `vue/compiler-sfc` compile clean on 9 SFCs.
+- 20/20 runtime assertions against the embedded dev Postgres (content depth, save/restore, helper,
+  verbal create→grade→list→delete, request create→read→reply→complete→reopen→delete,
+  price→usage→settlement→pay, and both refusal guards).
+- `arc.sql` applied twice in a row → idempotent.
+
+### Gotchas learned
+- **`collectArcTerms()` aliases are load-bearing.** `가슴압박` had alias `직접압박`, so any bleeding
+  content displayed "가슴압박 = 가슴뼈를 누르는 것". Alias moved to `지혈`.
+- `scoreArcVerbal()` derives `critical` from the **template item**, not the submitted entry, so entries
+  must carry real `{sectionKey, itemKey}` pairs; unknown pairs are skipped (percent 0 → `PENDING`).
+- `gradeArcVerbalExam()` returns the mapped exam — the score field is `percent` / `totalScore`,
+  **not** `score`.
+- `listArcVerbalExams()` returns `{period, exams, summary}`; `getArcVerbalExam()` **throws** 404.
+- `voidArcOtcUsage()` is blocked while the usage is attached to a settlement ("정산이 요청된 기록은
+  취소할 수 없어요"), and `cancelArcOtcSettlement()` refuses a `PAID` settlement — so cleaning up test
+  data requires SQL, not the API.
+- `arc.sql` keeps the **first** `arc_training_sessions_kind_check` definition alive on re-apply; the
+  earliest block must list `VERBAL`/`VERBAL_SURPRISE` too, otherwise re-applying against a DB that
+  already has those rows fails the CHECK.
+- The ARC admin shell is dark (`#0b1220`): page-level text must be white/translucent, or the component
+  must own a white card with explicit `#334155` / `#0f172a` text.
+
+---
+
 ## 4. Open questions
 
 1. ~~**₩30,000 point-redemption threshold**: before or after discount?~~ → **resolved in P5**: after discount, before point deduction.

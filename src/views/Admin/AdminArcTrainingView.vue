@@ -92,7 +92,7 @@
 
     <nav class="tab-bar">
       <button
-        v-for="item in TABS"
+        v-for="item in visibleTabs"
         :key="item.key"
         type="button"
         :class="['tab-button', { active: tab === item.key }]"
@@ -601,12 +601,37 @@
     </section>
 
     <!-- 교육자료 -->
-    <section v-else class="library-panel">
+    <section v-else-if="tab === 'library'" class="library-panel">
       <p class="helper-text">
         AS-GDE-001 「현장 응급처치 교육 가이드」와 AS-KIT-001 「구급상자 운영
         관리대장」에서 옮긴 교육 자료예요. 교육 3일 전에 이 화면을 그대로 읽으며
         준비하면 됩니다.
       </p>
+
+      <div v-if="canWrite" class="library-tools">
+        <button
+          type="button"
+          class="primary-button small"
+          @click="editorOpen = !editorOpen"
+        >
+          {{
+            editorOpen
+              ? "교육자료 수정 닫기"
+              : "교육자료 수정하기 (ARC 대표 전용)"
+          }}
+        </button>
+        <span class="tool-hint">
+          교육자료는 최윤희 선생님만 고칠 수 있어요. 도우미에 몇 줄만 적으면
+          보강 포인트·요약·질문 초안이 자동으로 만들어집니다.
+        </span>
+      </div>
+
+      <ArcTrainingEditor
+        v-if="canWrite && editorOpen"
+        :catalog="catalog"
+        @saved="reloadCatalog"
+        @close="editorOpen = false"
+      />
 
       <div class="library-tabs">
         <button
@@ -633,9 +658,26 @@
             </span>
           </header>
           <p class="library-goal">목표: {{ module.goal }}</p>
-          <ul>
-            <li v-for="item in module.checklist" :key="item.key">
-              {{ item.label }}
+
+          <p v-if="module.summary" class="library-summary">
+            {{ module.summary }}
+          </p>
+          <div v-if="module.helperNote" class="helper-note">
+            <p class="helper-note-title">이번 달 보강 포인트</p>
+            <pre>{{ module.helperNote }}</pre>
+          </div>
+
+          <div v-if="module.why" class="deep-block">
+            <p class="deep-title">왜 이 교육을 하나요</p>
+            <p class="deep-text">{{ module.why }}</p>
+          </div>
+
+          <ul class="step-list">
+            <li v-for="item in module.steps" :key="item.key">
+              <span class="step-label">{{ item.label }}</span>
+              <small v-if="item.detail" class="step-detail">
+                {{ item.detail }}
+              </small>
               <small
                 v-for="note in item.terms"
                 :key="note.term"
@@ -645,6 +687,41 @@
               </small>
             </li>
           </ul>
+
+          <div v-if="module.basisList.length" class="deep-block">
+            <p class="deep-title">이론 근거</p>
+            <ul class="deep-list">
+              <li v-for="line in module.basisList" :key="line">{{ line }}</li>
+            </ul>
+          </div>
+
+          <div v-if="module.pitfallList.length" class="deep-block warn">
+            <p class="deep-title">자주 하는 실수</p>
+            <ul class="deep-list">
+              <li v-for="row in module.pitfallList" :key="row.text">
+                <strong>{{ row.text }}</strong>
+                <span v-if="row.why"> — {{ row.why }}</span>
+              </li>
+            </ul>
+          </div>
+
+          <div v-if="module.quizList.length" class="deep-block">
+            <p class="deep-title">교육 후 확인 질문</p>
+            <ol class="deep-list">
+              <li v-for="row in module.quizList" :key="row.q">
+                <span class="quiz-q">{{ row.q }}</span>
+                <span class="quiz-a">정답: {{ row.a }}</span>
+              </li>
+            </ol>
+          </div>
+
+          <div v-if="module.checkList.length" class="deep-block">
+            <p class="deep-title">교육 후 스스로 점검</p>
+            <ul class="deep-list">
+              <li v-for="line in module.checkList" :key="line">{{ line }}</li>
+            </ul>
+          </div>
+
           <div v-if="module.terms.length" class="term-box">
             <p class="term-title">어려운 말, 이렇게 이해하세요</p>
             <p v-for="note in module.terms" :key="note.term" class="term-row">
@@ -665,6 +742,27 @@
         >
           <p class="scenario-scene">{{ scenario.no }}. {{ scenario.scene }}</p>
           <p class="scenario-answer">정답: {{ scenario.answer }}</p>
+          <div v-if="scenario.why" class="deep-block">
+            <p class="deep-title">왜 이렇게 해야 하나요</p>
+            <p class="deep-text">{{ scenario.why }}</p>
+          </div>
+          <div v-if="scenario.steps?.length" class="deep-block">
+            <p class="deep-title">순서대로 이렇게 하세요</p>
+            <ol class="deep-list">
+              <li v-for="step in scenario.steps" :key="step">{{ step }}</li>
+            </ol>
+          </div>
+          <div v-if="scenario.wrong" class="deep-block warn">
+            <p class="deep-title">이렇게 하면 위험해요</p>
+            <p class="deep-text">{{ scenario.wrong }}</p>
+          </div>
+          <p v-if="scenario.basis" class="scenario-basis">
+            근거: {{ scenario.basis }}
+          </p>
+          <div v-if="scenario.helperNote" class="helper-note">
+            <p class="helper-note-title">이번 달 보강 포인트</p>
+            <pre>{{ scenario.helperNote }}</pre>
+          </div>
           <div v-if="scenario.terms?.length" class="term-box">
             <p class="term-title">어려운 말, 이렇게 이해하세요</p>
             <p v-for="note in scenario.terms" :key="note.term" class="term-row">
@@ -678,7 +776,26 @@
       <div v-else class="library-body">
         <ol class="forbidden-list">
           <li v-for="row in catalog.forbidden" :key="row.key">
-            {{ row.text }}
+            <span class="forbidden-text">{{ row.text }}</span>
+            <span v-if="row.why" class="forbidden-why">왜: {{ row.why }}</span>
+            <span v-if="row.instead" class="forbidden-instead">
+              대신: {{ row.instead }}
+            </span>
+            <span v-if="row.risk" class="forbidden-risk">
+              어기면: {{ row.risk }}
+            </span>
+            <span v-if="row.signs" class="forbidden-signs">
+              살펴볼 신호: {{ row.signs }}
+            </span>
+            <span v-if="row.drill" class="forbidden-drill">
+              연습: {{ row.drill }}
+            </span>
+            <span v-if="row.basis" class="forbidden-basis">
+              근거: {{ row.basis }}
+            </span>
+            <span v-if="row.helperNote" class="forbidden-helper">
+              {{ row.helperNote }}
+            </span>
             <span v-if="row.terms?.length" class="term-inline">
               {{
                 row.terms
@@ -690,6 +807,8 @@
         </ol>
       </div>
     </section>
+    <!-- 구두테스트 (ARC 대표 전용) -->
+    <ArcVerbalPanel v-else-if="tab === 'verbal'" :period="board.period" />
   </div>
 </template>
 
@@ -708,12 +827,16 @@ import {
   saveArcTrainingAttendees,
   updateArcTrainingSession,
 } from "@/lib/arc";
+import ArcTrainingEditor from "@/components/arc/ArcTrainingEditor.vue";
+import ArcVerbalPanel from "@/components/arc/ArcVerbalPanel.vue";
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 const TABS = [
   { key: "calendar", label: "달력" },
   { key: "sessions", label: "일정·출석" },
   { key: "library", label: "교육자료" },
+  // 구두테스트는 ARC 대표(RN) 전용 탭입니다.
+  { key: "verbal", label: "구두테스트", directorOnly: true },
 ];
 const LIBRARY_TABS = [
   { key: "modules", label: "교육 모듈" },
@@ -756,6 +879,7 @@ const board = ref({
 const routineSteps = ref([]);
 const tab = ref("calendar");
 const libraryTab = ref("modules");
+const editorOpen = ref(false);
 const selectedIso = ref("");
 const openIds = ref([]);
 const isLoading = ref(false);
@@ -802,6 +926,11 @@ const isCurrentPeriod = computed(
   () => board.value.period === (stats.value.today ?? "").slice(0, 7)
 );
 
+// 구두테스트 탭은 ARC 대표(RN)에게만 보입니다(서버도 다시 막습니다).
+const visibleTabs = computed(() =>
+  TABS.filter((item) => !item.directorOnly || canWrite.value)
+);
+
 // 개인 일정(PERSONAL)은 ARC 대표(RN) 본인 계정에서만 만들고 볼 수 있습니다.
 const kindFilters = computed(() =>
   ARC_TRAINING_KIND_ORDER.filter(
@@ -840,11 +969,21 @@ function toggleKindFilter(key) {
 const libraryModules = computed(() =>
   (catalog.value.modules ?? []).map((module) => ({
     ...module,
-    checklist: (module.items ?? []).map((item, index) => ({
-      key: Array.isArray(item) ? item[0] : item.key,
-      label: Array.isArray(item) ? item[1] : item.label,
-      terms: module.itemTerms?.[index] ?? [],
-    })),
+    steps: (module.items ?? []).map((item, index) => {
+      const key = Array.isArray(item) ? item[0] : item.key;
+      const label = Array.isArray(item) ? item[1] : item.label;
+
+      return {
+        key,
+        label,
+        detail: module.itemDetails?.[key] ?? "",
+        terms: module.itemTerms?.[index] ?? [],
+      };
+    }),
+    basisList: module.basis ?? [],
+    pitfallList: module.pitfalls ?? [],
+    quizList: module.quiz ?? [],
+    checkList: module.checklist ?? [],
     terms: module.terms ?? [],
   }))
 );
@@ -996,6 +1135,11 @@ async function load(period = board.value.period) {
   } finally {
     isLoading.value = false;
   }
+}
+
+// 교육자료를 고친 뒤에는 카탈로그를 다시 받아 화면을 최신으로 맞춥니다.
+function reloadCatalog() {
+  return load(board.value.period);
 }
 
 async function loadRoutine(period) {
@@ -2295,6 +2439,201 @@ onMounted(() => {
   border: 1px dashed #d1d5db;
   border-radius: 12px;
   background: #f9fafb;
+}
+
+.library-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  background: #eff6ff;
+}
+
+.tool-hint {
+  flex: 1 1 260px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #1e40af;
+}
+
+.library-summary {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #dbeafe;
+  background: #f8fbff;
+  font-size: 13px;
+  line-height: 1.65;
+  color: #1f2937;
+}
+
+.helper-note {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border-left: 3px solid #7c3aed;
+  background: #f5f3ff;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #4c1d95;
+}
+
+.helper-note-title {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #6d28d9;
+}
+
+.helper-note pre {
+  margin: 0;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #4c1d95;
+}
+
+.forbidden-text {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.6;
+  color: #111827;
+}
+
+.forbidden-why,
+.forbidden-instead,
+.forbidden-risk,
+.forbidden-helper {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #4b5563;
+}
+
+.forbidden-instead {
+  color: #1d4ed8;
+}
+
+.forbidden-risk {
+  color: #b91c1c;
+}
+
+.forbidden-signs,
+.forbidden-drill,
+.forbidden-basis {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #4b5563;
+}
+
+.forbidden-signs {
+  color: #b45309;
+}
+
+.forbidden-drill {
+  color: #0f766e;
+}
+
+.forbidden-basis {
+  color: #6b7280;
+  font-size: 11.5px;
+}
+
+.forbidden-helper {
+  padding-left: 8px;
+  border-left: 2px solid #c4b5fd;
+  color: #6d28d9;
+}
+
+.deep-block {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  background: #fcfcfd;
+}
+
+.deep-block.warn {
+  border-color: #fed7aa;
+  background: #fffaf5;
+}
+
+.deep-title {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #374151;
+}
+
+.deep-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #1f2937;
+  white-space: pre-line;
+}
+
+.deep-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: #1f2937;
+}
+
+.step-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: #1f2937;
+}
+
+.step-label {
+  font-weight: 600;
+  color: #111827;
+}
+
+.step-detail {
+  display: block;
+  margin-top: 2px;
+  color: #4b5563;
+}
+
+.quiz-q {
+  font-weight: 600;
+  color: #111827;
+}
+
+.quiz-a {
+  display: block;
+  margin-top: 2px;
+  color: #374151;
+}
+
+.scenario-basis {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #4b5563;
 }
 
 .empty-line {

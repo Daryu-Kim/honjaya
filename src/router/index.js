@@ -48,6 +48,7 @@ import AdminArcExpenseView from "@/views/Admin/AdminArcExpenseView.vue";
 import AdminArcQualityView from "@/views/Admin/AdminArcQualityView.vue";
 import AdminArcEventsView from "@/views/Admin/AdminArcEventsView.vue";
 import AdminArcAssistantView from "@/views/Admin/AdminArcAssistantView.vue";
+import AdminArcRequestsView from "@/views/Admin/AdminArcRequestsView.vue";
 import AdminArcPermissionsView from "@/views/Admin/AdminArcPermissionsView.vue";
 import StaffLoginView from "@/views/Staff/StaffLoginView.vue";
 import AdminLayout from "@/layouts/AdminLayout.vue";
@@ -333,6 +334,13 @@ const routes = [
         meta: { permission: "arc.view", arcDirectorOnly: true },
       },
       {
+        // 요청 게시판(P14O). 사장·직원 모두 ARC 대표에게 글을 올릴 수 있어 권한 검사를 두지 않습니다.
+        // (응급안전 화면 중 예외이며, 서버도 로그인한 직원이면 열어 줍니다.)
+        path: "arc/requests",
+        name: "admin-arc-requests",
+        component: AdminArcRequestsView,
+      },
+      {
         path: "customers",
         name: "admin-customers",
         component: AdminCustomerView,
@@ -415,7 +423,12 @@ router.beforeEach(async (to) => {
   if (employee) {
     // 응급안전관리센터는 사장·매니저 전용입니다.
     // 직원 계정에 arc.* 권한이 직접 들어 있어도 화면부터 막습니다.
-    if (to.path.startsWith("/admin/arc") && !canAccessArc(employee)) {
+    // 단, 요청 게시판은 모든 직원이 ARC 대표에게 글을 올릴 수 있어 예외입니다.
+    if (
+      to.path.startsWith("/admin/arc") &&
+      !to.path.startsWith("/admin/arc/requests") &&
+      !canAccessArc(employee)
+    ) {
       return { path: "/admin/dashboard" };
     }
 
