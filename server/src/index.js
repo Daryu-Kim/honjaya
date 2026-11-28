@@ -1,5 +1,6 @@
 import { buildApp } from "./app.js";
 import { purgeExpiredSessions } from "./auth/sessions.js";
+import { migrateLegacyArcPermissions } from "./auth/permissions.js";
 import { config } from "./config.js";
 import { closePool, pool } from "./db.js";
 import { messagingReadiness } from "./messaging.js";
@@ -81,6 +82,12 @@ if (config.autoSchema) {
     );
   }
 }
+
+// 예전 9종 응급안전 권한을 새 메뉴 단위(21종) 체계로 한 번만 옮깁니다.
+// 실패해도 서버는 그대로 뜨고, 총괄이 화면에서 다시 지정할 수 있습니다.
+migrateLegacyArcPermissions(console).catch((error) => {
+  console.warn(`[auth] 응급안전 권한 이전 실패: ${error.message}`);
+});
 
 const app = await buildApp();
 

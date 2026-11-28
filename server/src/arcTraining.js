@@ -80,7 +80,7 @@ export const ARC_TRAINING_KINDS = [
   },
   {
     key: "VERBAL",
-    label: "정기 구두테스트",
+    label: "정규 구두시험",
     desc:
       "미리 예고한 날짜에 직원·사장을 한 명씩 불러 핵심술기와 이론을 구두로 확인합니다. " +
       "결과는 평가표에 수행/부분수행/미수행으로 남고, 총괄만 볼 수 있습니다.",
@@ -91,7 +91,7 @@ export const ARC_TRAINING_KINDS = [
   },
   {
     key: "VERBAL_SURPRISE",
-    label: "불시 구두테스트",
+    label: "불시 구두시험",
     desc:
       "예고 없이 영업 중 짧게 확인하는 테스트입니다. 3~5분 안에 끝나야 하며, " +
       "틀린 항목은 그 자리에서 바로 알려 주고 14일 안에 다시 확인합니다.",

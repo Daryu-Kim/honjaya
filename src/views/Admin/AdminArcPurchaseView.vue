@@ -199,7 +199,9 @@
           </thead>
           <tbody>
             <tr v-for="row in purchases" :key="row.id">
-              <td>{{ row.purchasedOn || "-" }}</td>
+              <td>
+                {{ row.purchasedOn ? formatArcDate(row.purchasedOn) : "-" }}
+              </td>
               <td>
                 {{ row.itemName || "-" }}
                 <div class="mono dim">{{ row.itemCode }}</div>
@@ -229,7 +231,7 @@
                   {{ row.settledAmount.toLocaleString("ko-KR") }}원
                 </div>
                 <div v-else-if="row.settleDueOn" class="dim">
-                  예정 {{ row.settleDueOn }}
+                  예정 {{ formatArcDate(row.settleDueOn) }}
                 </div>
               </td>
               <td>
@@ -276,6 +278,7 @@ import {
   createArcPurchase,
   fetchArcPurchases,
   fetchArcStock,
+  formatArcDate,
   settleArcPurchase,
 } from "@/lib/arc";
 import { hasPermission } from "@/lib/staffAuth";

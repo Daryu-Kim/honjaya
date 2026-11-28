@@ -2,16 +2,21 @@
   <section class="verbal-panel">
     <header class="panel-head">
       <div>
-        <h2>구두테스트 — ARC 대표(RN) 전용</h2>
+        <h2>구두시험 — ARC 대표(RN) 전용</h2>
         <p class="panel-desc">
-          직원·사장을 상대로 정기·불시 구두테스트를 보고 채점하는 화면이에요. 이
+          직원·사장을 상대로 정기·불시 구두시험을 보고 채점하는 화면이에요. 이
           탭은 ARC 대표(RN)만 볼 수 있고, 아래 평가표·질문·이론 근거도 최윤희
           선생님만 조회·수정할 수 있어요.
         </p>
       </div>
-      <button type="button" class="ghost-button" @click="toggleGuide">
-        {{ showGuide ? "평가 안내 접기" : "평가 안내·질문 은행 펼치기" }}
-      </button>
+      <div class="head-actions">
+        <router-link to="/admin/arc/verbal-paper" class="paper-link-button">
+          시험지·교육자용 출력
+        </router-link>
+        <button type="button" class="ghost-button" @click="toggleGuide">
+          {{ showGuide ? "평가 안내 접기" : "평가 안내·질문 은행 펼치기" }}
+        </button>
+      </div>
     </header>
 
     <p v-if="errorMessage" class="error-box">{{ errorMessage }}</p>
@@ -32,7 +37,7 @@
         <p class="stat-hint">응시 등록만 하고 점수를 안 넣은 건</p>
       </article>
       <article>
-        <p class="stat-label">불시 테스트</p>
+        <p class="stat-label">불시 시험</p>
         <strong class="stat-value">{{ summary.surprise }}건</strong>
         <p class="stat-hint">사전 예고 없이 진행한 건</p>
       </article>
@@ -134,17 +139,17 @@
 
     <!-- 응시 등록 -->
     <section class="form-card">
-      <h3>구두테스트 일정 잡기</h3>
+      <h3>구두시험 일정 잡기</h3>
       <p class="form-hint">
-        달력에도 함께 올라가요. 불시 테스트는 달력에 "구두테스트(불시)"로만
+        달력에도 함께 올라가요. 불시 시험은 달력에 "불시 구두시험"으로만
         표시되니, 직원이 달력을 봐도 실제 질문은 그때 하시면 됩니다.
       </p>
       <div class="form-grid">
         <label>
           구분
           <select v-model="form.kind">
-            <option value="REGULAR">정기 구두테스트</option>
-            <option value="SURPRISE">불시 구두테스트</option>
+            <option value="REGULAR">정규 구두시험</option>
+            <option value="SURPRISE">불시 구두시험</option>
           </select>
         </label>
         <label>
@@ -200,7 +205,7 @@
       <h3>응시 기록</h3>
       <p v-if="isLoading" class="empty-box">불러오는 중이에요.</p>
       <p v-else-if="!exams.length" class="empty-box">
-        이번 달 구두테스트 기록이 아직 없어요.
+        이번 달 구두시험 기록이 아직 없어요.
       </p>
       <article v-for="exam in exams" :key="exam.id" class="exam-card">
         <header class="exam-head" @click="toggleExam(exam.id)">
@@ -421,8 +426,7 @@ async function load() {
     board.value = data;
     (data.exams ?? []).forEach((exam) => ensureDraft(exam));
   } catch (error) {
-    errorMessage.value =
-      error?.message ?? "구두테스트 기록을 불러오지 못했어요.";
+    errorMessage.value = error?.message ?? "구두시험 기록을 불러오지 못했어요.";
   } finally {
     isLoading.value = false;
   }
@@ -557,7 +561,7 @@ function toggleGuide() {
 
 async function submitExam() {
   if (!form.scheduledOn) {
-    errorMessage.value = "테스트 날짜를 선택해 주세요.";
+    errorMessage.value = "구두시험 날짜를 선택해 주세요.";
     return;
   }
 
@@ -571,7 +575,7 @@ async function submitExam() {
 
   try {
     await createArcVerbalExam({ ...form });
-    flash("구두테스트 일정을 등록했어요.");
+    flash("구두시험 일정을 등록했어요.");
     form.employeeName = "";
     form.note = "";
     await load();
@@ -603,7 +607,7 @@ async function saveGrade(exam) {
 }
 
 async function removeExam(exam) {
-  if (!window.confirm(`${exam.examNo} 구두테스트 기록을 삭제할까요?`)) return;
+  if (!window.confirm(`${exam.examNo} 구두시험 기록을 삭제할까요?`)) return;
 
   isSaving.value = true;
 
@@ -647,6 +651,28 @@ onMounted(() => {
   gap: 12px;
   align-items: flex-start;
   justify-content: space-between;
+}
+
+.head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.paper-link-button {
+  padding: 8px 14px;
+  border: 1px solid #1d4ed8;
+  border-radius: 9px;
+  background: #1d4ed8;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.paper-link-button:hover {
+  background: #1e40af;
 }
 
 .panel-head h2 {

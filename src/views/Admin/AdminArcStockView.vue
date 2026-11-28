@@ -179,7 +179,7 @@
               </td>
               <td>
                 <span v-if="item.expiresOn">
-                  {{ item.expiresOn }}
+                  유효기간 {{ formatArcDate(item.expiresOn) }}
                   <span class="dim">({{ item.daysLeft }}일)</span>
                 </span>
                 <span v-else class="dim">-</span>
@@ -299,7 +299,7 @@
             <td class="num">{{ lot.qty }}</td>
             <td>
               <span v-if="lot.expiresOn">
-                {{ lot.expiresOn }}
+                {{ formatArcDate(lot.expiresOn) }}
                 <span class="dim">({{ lot.daysLeft }}일)</span>
               </span>
               <span v-else class="dim">-</span>
@@ -547,6 +547,7 @@ import {
   createArcStockItem,
   fetchArcStock,
   fetchArcStockItem,
+  formatArcDate,
   formatArcDateTime,
   recordArcStockMove,
   runArcExpiryScan,

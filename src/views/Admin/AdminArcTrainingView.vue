@@ -411,7 +411,10 @@
             </div>
             <p class="session-meta">
               <span>{{ session.sessionNo }}</span>
-              <span>{{ session.scheduledOn }} {{ session.startTime }}</span>
+              <span
+                >{{ formatArcDate(session.scheduledOn) }}
+                {{ session.startTime }}</span
+              >
               <span>{{ session.durationMin }}분</span>
               <span v-if="session.place">장소 {{ session.place }}</span>
               <span v-if="session.instructor"
@@ -807,8 +810,10 @@
         </ol>
       </div>
     </section>
-    <!-- 구두테스트 (ARC 대표 전용) -->
+    <!-- 구두시험 (ARC 대표 전용) -->
     <ArcVerbalPanel v-else-if="tab === 'verbal'" :period="board.period" />
+    <!-- 근무 번표 — 최윤희 대표가 언제 매장에 올 수 있는지 알려 주는 달력 -->
+    <ArcShiftPanel v-else-if="tab === 'shift'" />
   </div>
 </template>
 
@@ -824,19 +829,25 @@ import {
   deleteArcTrainingSession,
   fetchArcRoutine,
   fetchArcTraining,
+  formatArcDate,
+  formatArcPeriod,
   saveArcTrainingAttendees,
   updateArcTrainingSession,
 } from "@/lib/arc";
 import ArcTrainingEditor from "@/components/arc/ArcTrainingEditor.vue";
 import ArcVerbalPanel from "@/components/arc/ArcVerbalPanel.vue";
+import ArcShiftPanel from "@/components/arc/ArcShiftPanel.vue";
+import { hasPermission } from "@/lib/staffAuth.js";
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 const TABS = [
   { key: "calendar", label: "달력" },
   { key: "sessions", label: "일정·출석" },
   { key: "library", label: "교육자료" },
-  // 구두테스트는 ARC 대표(RN) 전용 탭입니다.
-  { key: "verbal", label: "구두테스트", directorOnly: true },
+  // 구두시험는 ARC 대표(RN) 전용 탭입니다.
+  { key: "verbal", label: "구두시험", directorOnly: true },
+  // 번표는 응급안전 권한 관리에서 arc.shift 를 받은 사람만 보입니다.
+  { key: "shift", label: "번표", permission: "arc.shift" },
 ];
 const LIBRARY_TABS = [
   { key: "modules", label: "교육 모듈" },
@@ -926,9 +937,15 @@ const isCurrentPeriod = computed(
   () => board.value.period === (stats.value.today ?? "").slice(0, 7)
 );
 
-// 구두테스트 탭은 ARC 대표(RN)에게만 보입니다(서버도 다시 막습니다).
+// 구두시험 탭은 ARC 대표(RN)에게만, 번표 탭은 메뉴 권한(arc.shift)이 있는
+// 사람에게만 보입니다(서버도 같은 기준으로 막습니다).
 const visibleTabs = computed(() =>
-  TABS.filter((item) => !item.directorOnly || canWrite.value)
+  TABS.filter((item) => {
+    if (item.directorOnly && !canWrite.value) return false;
+    if (item.permission && !hasPermission(item.permission)) return false;
+
+    return true;
+  })
 );
 
 // 개인 일정(PERSONAL)은 ARC 대표(RN) 본인 계정에서만 만들고 볼 수 있습니다.
@@ -988,13 +1005,7 @@ const libraryModules = computed(() =>
   }))
 );
 
-const periodLabel = computed(() => {
-  const period = board.value.period;
-
-  if (!period) return "";
-
-  return `${period.slice(0, 4)}년 ${Number(period.slice(5, 7))}월`;
-});
+const periodLabel = computed(() => formatArcPeriod(board.value.period));
 
 const kindDescription = computed(
   () => catalog.value.kinds?.find((item) => item.key === form.kind)?.desc ?? ""

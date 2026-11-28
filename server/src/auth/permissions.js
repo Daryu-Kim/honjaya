@@ -3,6 +3,8 @@
 // 권한 문자열은 "영역.동작" 형태로 두고, 화면에서는 hasPermission() 만 확인합니다.
 // DB 권한 테이블로 빼지 않은 이유: 역할이 3개로 고정이라 코드가 더 명확합니다.
 
+import { pool } from "../db.js";
+
 export const ROLES = ["OWNER", "MANAGER", "STAFF"];
 
 export const ROLE_LABELS = {
@@ -58,7 +60,7 @@ export const PERMISSIONS = {
   DISCORD_SETTINGS: "discord.settings",
   SHOP_VIEW: "shop.view",
   SHOP_MANAGE: "shop.manage",
-  // P14 — 응급안전관리센터(ARC SAFETY)
+  // P14 — 응급안전관리센터(ARC SAFETY) 공통/업무 구분
   ARC_VIEW: "arc.view",
   ARC_STOCK: "arc.stock",
   ARC_EXPENSE: "arc.expense",
@@ -68,6 +70,19 @@ export const PERMISSIONS = {
   ARC_CARE: "arc.care",
   ARC_SENSITIVE: "arc.sensitive",
   ARC_ADMIN: "arc.admin",
+  // P14Q — 메뉴 단위 세분 권한 (사이드바 메뉴 1개 = 권한 1개)
+  ARC_ASSISTANT: "arc.assistant",
+  ARC_ROUTINE: "arc.routine",
+  ARC_TRAINING: "arc.training",
+  ARC_GUIDE: "arc.guide",
+  ARC_SHIFT: "arc.shift",
+  ARC_STOCKTAKE: "arc.stocktake",
+  ARC_PURCHASE: "arc.purchase",
+  ARC_OTC: "arc.otc",
+  ARC_USAGE: "arc.usage",
+  ARC_CONSENT: "arc.consent",
+  ARC_QUALITY: "arc.quality",
+  ARC_EVENT: "arc.event",
 };
 
 const STAFF_PERMISSIONS = [
@@ -317,19 +332,48 @@ export function normalizePermissions(value) {
   return ALL_PERMISSIONS.filter((permission) => unique.has(permission));
 }
 
-// 응급안전관리센터 9종. 역할 기본값은 사장·매니저가 전부 가지고, 직원은 없습니다.
-// 총괄(yoonhee1021)은 언제든 arc_permissions 로 다른 직원의 9종을 조정할 수 있습니다.
+// 응급안전관리센터 권한. 역할 기본값은 사장·매니저가 전부 가지고, 직원은 없습니다.
+// 총괄(yoonhee1021)은 언제든 arc_permissions 로 다른 직원의 권한을 조정할 수 있습니다.
 // (2026-11-28 대표 지시: ARC 권한 부여·회수는 오직 총괄만)
+// 2026-11-29 대표 지시: 메뉴 하나당 권한 하나로 아주 세세하게 조정할 수 있게 확장.
 export const ARC_PERMISSION_LIST = [
   PERMISSIONS.ARC_VIEW,
+  PERMISSIONS.ARC_ASSISTANT,
+  PERMISSIONS.ARC_ROUTINE,
+  PERMISSIONS.ARC_TRAINING,
+  PERMISSIONS.ARC_GUIDE,
+  PERMISSIONS.ARC_SHIFT,
   PERMISSIONS.ARC_STOCK,
+  PERMISSIONS.ARC_STOCKTAKE,
+  PERMISSIONS.ARC_PURCHASE,
+  PERMISSIONS.ARC_OTC,
+  PERMISSIONS.ARC_USAGE,
   PERMISSIONS.ARC_EXPENSE,
+  PERMISSIONS.ARC_CARE,
+  PERMISSIONS.ARC_CONSENT,
+  PERMISSIONS.ARC_SENSITIVE,
+  PERMISSIONS.ARC_QUALITY,
+  PERMISSIONS.ARC_EVENT,
   PERMISSIONS.ARC_APPROVE,
   PERMISSIONS.ARC_CHECK,
   PERMISSIONS.ARC_EDU,
-  PERMISSIONS.ARC_CARE,
-  PERMISSIONS.ARC_SENSITIVE,
   PERMISSIONS.ARC_ADMIN,
+];
+
+// 메뉴 단위로만 존재하는 권한(과거 9종 체계에는 없던 것).
+const ARC_MENU_ONLY_PERMISSIONS = [
+  PERMISSIONS.ARC_ASSISTANT,
+  PERMISSIONS.ARC_ROUTINE,
+  PERMISSIONS.ARC_TRAINING,
+  PERMISSIONS.ARC_GUIDE,
+  PERMISSIONS.ARC_SHIFT,
+  PERMISSIONS.ARC_STOCKTAKE,
+  PERMISSIONS.ARC_PURCHASE,
+  PERMISSIONS.ARC_OTC,
+  PERMISSIONS.ARC_USAGE,
+  PERMISSIONS.ARC_CONSENT,
+  PERMISSIONS.ARC_QUALITY,
+  PERMISSIONS.ARC_EVENT,
 ];
 
 const ARC_PERMISSION_SET = new Set(ARC_PERMISSION_LIST);
@@ -368,10 +412,12 @@ function roleDefaultArcPermissions(role) {
   return role === "OWNER" || role === "MANAGER" ? [...ARC_PERMISSION_LIST] : [];
 }
 
-// 응급안전 9종의 최종 권한.
-//   * 총괄 계정 → 항상 9종 전부
+// 응급안전 21종(메뉴 단위)의 최종 권한.
+//   * 총괄 계정 → 항상 전부
 //   * arc_permissions 배열 → 그 목록만 (빈 배열 = 응급안전 접근 불가)
-//   * arc_permissions null → 역할 기본값(사장·매니저 9종, 직원 없음)
+//       단, 예전 9종 체계로 저장된 배열이면 메뉴 권한을 전부 채워 넣습니다.
+//       (구버전 화면에서 저장한 값 때문에 메뉴가 사라지는 사고를 막습니다.)
+//   * arc_permissions null → 역할 기본값(사장·매니저 전부, 직원 없음)
 export function arcPermissionsForEmployee(row) {
   if (!row) {
     return [];
@@ -386,7 +432,109 @@ export function arcPermissionsForEmployee(row) {
     row.arc_permissions === undefined ? row.arcPermissions : row.arc_permissions
   );
 
-  return overrides || roleDefaultArcPermissions(row.role);
+  if (!overrides) {
+    return roleDefaultArcPermissions(row.role);
+  }
+
+  return overrides;
+}
+
+/**
+ * 예전 9종 체계 → 새 메뉴 단위(21종) 확장표.
+ * 예전 화면은 "재고/교육" 같은 큰 묶음 하나로 여러 메뉴를 열어 줬기 때문에,
+ * 그 권한을 가진 사람이 새 메뉴에서 갑자기 잠기지 않도록 자식 메뉴를 함께 켭니다.
+ */
+const ARC_LEGACY_EXPANSIONS = {
+  [PERMISSIONS.ARC_VIEW]: [PERMISSIONS.ARC_VIEW],
+  [PERMISSIONS.ARC_STOCK]: [
+    PERMISSIONS.ARC_STOCK,
+    PERMISSIONS.ARC_STOCKTAKE,
+    PERMISSIONS.ARC_PURCHASE,
+    PERMISSIONS.ARC_OTC,
+    PERMISSIONS.ARC_USAGE,
+  ],
+  [PERMISSIONS.ARC_EXPENSE]: [PERMISSIONS.ARC_EXPENSE, PERMISSIONS.ARC_USAGE],
+  [PERMISSIONS.ARC_APPROVE]: [PERMISSIONS.ARC_APPROVE],
+  [PERMISSIONS.ARC_CHECK]: [PERMISSIONS.ARC_CHECK, PERMISSIONS.ARC_QUALITY],
+  [PERMISSIONS.ARC_EDU]: [
+    PERMISSIONS.ARC_EDU,
+    PERMISSIONS.ARC_TRAINING,
+    PERMISSIONS.ARC_GUIDE,
+    PERMISSIONS.ARC_ROUTINE,
+  ],
+  [PERMISSIONS.ARC_CARE]: [PERMISSIONS.ARC_CARE, PERMISSIONS.ARC_CONSENT],
+  [PERMISSIONS.ARC_SENSITIVE]: [PERMISSIONS.ARC_SENSITIVE],
+  [PERMISSIONS.ARC_ADMIN]: [
+    PERMISSIONS.ARC_ADMIN,
+    PERMISSIONS.ARC_SHIFT,
+    PERMISSIONS.ARC_ASSISTANT,
+    PERMISSIONS.ARC_EVENT,
+  ],
+};
+
+/**
+ * 구버전 9종 체계로 저장된 arc_permissions 를 새 21종 체계로 한 번만 옮깁니다.
+ *
+ * 예전 화면은 메뉴 단위 권한을 저장하지 않았기 때문에, 그대로 두면 새로 쪼갠 메뉴가
+ * 전부 사라진 것처럼 보입니다. 확장표(ARC_LEGACY_EXPANSIONS)로 자식 메뉴를 함께 켭니다.
+ *
+ * 이미 한 번 돌았는지는 schema_state 표의 표식으로 확인합니다. 매번 기동할 때 다시
+ * 돌리면, 총괄이 일부러 좁혀 둔 권한까지 늘어나기 때문입니다.
+ */
+export async function migrateLegacyArcPermissions(log = console) {
+  const MARKER = "arc_permissions_v2";
+
+  const done = await pool.query(
+    "select 1 from public.schema_state where id = $1",
+    [MARKER]
+  );
+
+  if (done.rowCount > 0) {
+    return { migrated: 0, skipped: true };
+  }
+
+  const { rows } = await pool.query(
+    `select id, login_id, arc_permissions
+       from public.employees
+      where arc_permissions is not null
+        and coalesce(array_length(arc_permissions, 1), 0) > 0
+        and not (arc_permissions && $1::text[])`,
+    [ARC_MENU_ONLY_PERMISSIONS]
+  );
+
+  for (const row of rows) {
+    const expanded = [];
+
+    for (const permission of row.arc_permissions) {
+      expanded.push(...(ARC_LEGACY_EXPANSIONS[permission] ?? [permission]));
+    }
+
+    const next = normalizeArcPermissions(expanded);
+
+    if (next.length > 0) {
+      await pool.query(
+        "update public.employees set arc_permissions = $1 where id = $2",
+        [next, row.id]
+      );
+    }
+  }
+
+  await pool.query(
+    `insert into public.schema_state (id, sql_hash, applied_at)
+     values ($1, '', now())
+     on conflict (id) do nothing`,
+    [MARKER]
+  );
+
+  if (rows.length > 0) {
+    log.info(
+      `[auth] 예전 응급안전 권한 ${rows.length}건을 새 메뉴 체계로 옮겼습니다: ${rows
+        .map((row) => row.login_id)
+        .join(", ")}`
+    );
+  }
+
+  return { migrated: rows.length, skipped: false };
 }
 
 // 직원별 권한은 두 가지 상태를 가집니다.

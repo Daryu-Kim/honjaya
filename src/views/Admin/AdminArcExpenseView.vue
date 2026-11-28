@@ -286,7 +286,7 @@
                   </div>
                 </td>
                 <td class="dim">
-                  {{ row.dueOn || "-" }}
+                  {{ row.dueOn ? formatArcDate(row.dueOn) : "-" }}
                 </td>
                 <td>
                   <div class="row-actions">
@@ -441,6 +441,7 @@ import {
   createArcExpenseFromUsageMonth,
   fetchArcExpense,
   fetchArcExpenses,
+  formatArcDate,
   formatArcMoney,
   removeArcExpensePayment,
 } from "@/lib/arc";

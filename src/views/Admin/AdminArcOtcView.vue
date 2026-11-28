@@ -359,7 +359,9 @@
                 <td>{{ row.checkedOn }}</td>
                 <td>{{ row.name }}</td>
                 <td class="num">{{ row.qty }}</td>
-                <td>{{ row.expiresOn || "-" }}</td>
+                <td>
+                  {{ row.expiresOn ? formatArcDate(row.expiresOn) : "-" }}
+                </td>
                 <td>
                   <span
                     :class="{
@@ -392,6 +394,7 @@ import {
   createArcOtcCheck,
   createArcOtcItem,
   fetchArcOtc,
+  formatArcDate,
   updateArcOtcItem,
 } from "@/lib/arc";
 import { hasPermission } from "@/lib/staffAuth";

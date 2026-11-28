@@ -1255,7 +1255,7 @@ create index if not exists arc_incidents_event_no_idx
   where event_no <> '';
 
 -- ══════════════════════════════════════════════════════════════════════════
--- P14O — 교육자료 총괄 수정 · 구두테스트 · 요청 게시판 · 상비약 사용/정산
+-- P14O — 교육자료 총괄 수정 · 구두시험 · 요청 게시판 · 상비약 사용/정산
 -- ══════════════════════════════════════════════════════════════════════════
 
 -- ── 교육자료 총괄 수정(override) ────────────────────────────────────────────
@@ -1278,7 +1278,7 @@ create table if not exists public.arc_training_content (
   unique (scope, content_key)
 );
 
--- ── 구두테스트(정기·불시) 응시 기록 ─────────────────────────────────────────
+-- ── 구두시험(정기·불시) 응시 기록 ─────────────────────────────────────────
 -- 문항·배점 원본은 코드(arcVerbal.js)가 원본이고, 여기에는 "누가 언제 어떤
 -- 항목을 수행/부분수행/미수행 했는지"만 남깁니다.
 create table if not exists public.arc_verbal_exams (
@@ -1287,7 +1287,7 @@ create table if not exists public.arc_verbal_exams (
   exam_no       text not null,
   -- 달력에 잡은 교육 세션과 연결(선택). 불시 테스트도 세션을 만들어 두고 붙입니다.
   session_id    uuid references public.arc_training_sessions (id) on delete set null,
-  -- REGULAR=정기 구두테스트 / SURPRISE=사전예고 없는 불시 테스트
+  -- REGULAR=정규 구두시험 / SURPRISE=사전예고 없는 불시 테스트
   kind          text not null default 'REGULAR'
                   check (kind in ('REGULAR', 'SURPRISE')),
   scheduled_on  date not null,
@@ -1331,7 +1331,7 @@ create table if not exists public.arc_verbal_scores (
 create index if not exists arc_verbal_scores_exam_idx
   on public.arc_verbal_scores (exam_id, sort_order);
 
--- 구두테스트도 달력(arc_training_sessions)에 잡히므로 kind 허용값을 늘립니다.
+-- 구두시험도 달력(arc_training_sessions)에 잡히므로 kind 허용값을 늘립니다.
 -- 두 구분은 ARC 대표(RN)에게만 보입니다(불시 테스트가 미리 새면 안 됨).
 alter table public.arc_training_sessions
   drop constraint if exists arc_training_sessions_kind_check;
@@ -1496,3 +1496,70 @@ alter table public.arc_otc_usages
 alter table public.arc_otc_usages
   add constraint arc_otc_usages_settlement_fk
   foreign key (settlement_id) references public.arc_otc_settlements (id) on delete set null;
+
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- P14Q — ARC 대표(RN) 번표(근무표)
+-- ════════════════════════════════════════════════════════════════════════════
+-- 최윤희 대표의 병원 근무조(D·E·N·S)와 "올 수 있음 / 올 수 없음"을 담습니다.
+-- 등록은 총괄만 하고, 사장은 전체를, 그 외 계정은 시간만 봅니다.
+create table if not exists public.arc_shifts (
+  id             uuid primary key default gen_random_uuid(),
+  -- 번표 주인(지금은 yoonhee1021 한 명)
+  owner_login_id text not null default '',
+  owner_name     text not null default '',
+  work_on        date not null,
+  -- SHIFT=병원 근무 / AVAILABLE=매장에 올 수 있음 / UNAVAILABLE=올 수 없음
+  kind           text not null default 'SHIFT'
+                   check (kind in ('SHIFT', 'AVAILABLE', 'UNAVAILABLE')),
+  shift_code     text not null default ''
+                   check (shift_code in ('', 'D', 'E', 'N', 'S')),
+  start_time     text not null default '',
+  end_time       text not null default '',
+  overnight      boolean not null default false,
+  note           text not null default '',
+  created_by     text not null default '',
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now(),
+  unique (owner_login_id, work_on, kind, shift_code)
+);
+
+create index if not exists arc_shifts_month_idx
+  on public.arc_shifts (work_on desc, owner_login_id);
+
+-- ── P14Q · ARC 인사카드 (최윤희 전용 직원·사장 관리) ─────────────────────────
+-- 응급안전관리센터를 운영하려면 총괄이 직원·사장의 기본 정보를 한 표에서 봐야 합니다.
+-- 주민등록번호와 건강 관련 항목은 평문으로 남기지 않고 *_enc 에만 암호화해 저장합니다.
+-- (AS-CARE 상세 건강기록과 별개입니다. 그쪽은 동의·승인 절차를 그대로 거칩니다.)
+create table if not exists public.arc_people (
+  id               uuid primary key default gen_random_uuid(),
+  -- employees 테이블과 연결(계정이 지워져도 카드는 남깁니다). employees.id 는 text 입니다.
+  employee_id      text references public.employees (id) on delete set null,
+  login_id         text not null default '',
+  name             text not null default '',
+  role_label       text not null default '',
+  -- 주민등록번호: 암호문만 저장. 화면에는 resident_mask(앞 6자리-*••••••)만 보입니다.
+  resident_no_enc  text not null default '',
+  resident_mask    text not null default '',
+  birth_on         date,
+  phone            text not null default '',
+  emergency_name   text not null default '',
+  emergency_phone  text not null default '',
+  address          text not null default '',
+  -- 건강 항목(혈액형·알레르기·지병·복용약·메모)을 JSON 으로 묶어 암호화합니다.
+  health_enc       text not null default '',
+  joined_on        date,
+  employment       text not null default 'FULL'
+                     check (employment in ('FULL', 'PART', 'CONTRACT', 'OWNER', 'ETC')),
+  note             text not null default '',
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now()
+);
+
+-- 계정이 연결된 카드는 한 계정당 하나만. 계정 없는 임시 카드(login_id = '')는 여러 장 허용.
+create unique index if not exists arc_people_login_id_key
+  on public.arc_people (login_id)
+  where login_id <> '';
+
+create index if not exists arc_people_name_idx
+  on public.arc_people (name);

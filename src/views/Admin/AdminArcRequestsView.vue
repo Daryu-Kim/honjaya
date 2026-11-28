@@ -322,6 +322,7 @@ import {
   deleteArcRequest,
   fetchArcRequest,
   fetchArcRequests,
+  formatArcDateTime,
   reopenArcRequest,
   replyArcRequest,
 } from "@/lib/arc";
@@ -410,17 +411,7 @@ function statusTone(key) {
 function formatDate(value) {
   if (!value) return "-";
 
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
-
-  return new Intl.DateTimeFormat("ko-KR", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Asia/Seoul",
-  }).format(date);
+  return formatArcDateTime(value) || String(value).slice(0, 10);
 }
 
 function flash(message) {

@@ -1,4 +1,4 @@
-// P14O — ARC 대표(RN) 전용 구두테스트(정기·불시) 평가표.
+// P14O — ARC 대표(RN) 전용 구두시험(정기·불시) 평가표.
 //
 // 성격
 //   * 이 파일은 "최윤희가 실제로 들고 물어보는 평가표"입니다. 원문(AS-GDE-001 §15·§16,
@@ -887,7 +887,7 @@ export async function getArcVerbalExam(examId) {
   );
 
   if (rows.length === 0) {
-    throw new HttpError(404, "HJ404", "구두테스트 기록을 찾을 수 없어요.");
+    throw new HttpError(404, "HJ404", "구두시험 기록을 찾을 수 없어요.");
   }
 
   const { rows: scoreRows } = await pool.query(
@@ -902,7 +902,7 @@ export async function getArcVerbalExam(examId) {
 }
 
 /**
- * 구두테스트 일정을 잡습니다.
+ * 구두시험 일정을 잡습니다.
  * 달력(arc_training_sessions)에도 함께 올려서 월간 캘린더에서 바로 보이게 합니다.
  */
 export async function createArcVerbalExam(input = {}, employee = null) {
@@ -930,7 +930,7 @@ export async function createArcVerbalExam(input = {}, employee = null) {
         scheduledOn,
         startTime: text(input.startTime, 5) || "15:00",
         durationMin: Number(input.durationMin) > 0 ? Number(input.durationMin) : 20,
-        title: `${kind === "SURPRISE" ? "구두테스트(불시)" : "구두테스트(정기)"} · ${employeeName}`,
+        title: `${kind === "SURPRISE" ? "불시 구두시험" : "정규 구두시험"} · ${employeeName}`,
         place: text(input.place, 120) || "카운터",
         instructor: examinerName,
         status: "PLANNED",
@@ -971,7 +971,7 @@ export async function createArcVerbalExam(input = {}, employee = null) {
     }
   }
 
-  throw badRequest("구두테스트 번호를 만들지 못했어요. 잠시 후 다시 시도해 주세요.");
+  throw badRequest("구두시험 번호를 만들지 못했어요. 잠시 후 다시 시도해 주세요.");
 }
 
 /** 채점 결과를 저장합니다. 점수·판정은 서버가 다시 계산합니다. */
@@ -1063,7 +1063,7 @@ export async function deleteArcVerbalExam(examId) {
   );
 
   if (rowCount === 0) {
-    throw new HttpError(404, "HJ404", "구두테스트 기록을 찾을 수 없어요.");
+    throw new HttpError(404, "HJ404", "구두시험 기록을 찾을 수 없어요.");
   }
 
   return { deleted: true };

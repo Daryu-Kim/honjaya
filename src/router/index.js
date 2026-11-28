@@ -50,6 +50,8 @@ import AdminArcEventsView from "@/views/Admin/AdminArcEventsView.vue";
 import AdminArcAssistantView from "@/views/Admin/AdminArcAssistantView.vue";
 import AdminArcRequestsView from "@/views/Admin/AdminArcRequestsView.vue";
 import AdminArcPermissionsView from "@/views/Admin/AdminArcPermissionsView.vue";
+import AdminArcPeopleView from "@/views/Admin/AdminArcPeopleView.vue";
+import AdminArcVerbalPaperView from "@/views/Admin/AdminArcVerbalPaperView.vue";
 import StaffLoginView from "@/views/Staff/StaffLoginView.vue";
 import AdminLayout from "@/layouts/AdminLayout.vue";
 import { startGlobalBusy } from "@/lib/globalBusy";
@@ -204,93 +206,93 @@ const routes = [
         path: "arc/routine",
         name: "admin-arc-routine",
         component: AdminArcRoutineView,
-        meta: { permission: "arc.view" },
+        meta: { permission: "arc.routine" },
       },
       {
         // 월간 교육·OT. 등록·수정은 서버가 ARC 총괄만 허용합니다.
         path: "arc/training",
         name: "admin-arc-training",
         component: AdminArcTrainingView,
-        meta: { permission: "arc.view" },
+        meta: { permission: "arc.training" },
       },
       {
-        // 교육자료·오랄테스트 대비 인쇄용. AS-GDE-001 §15·§16·§17 기반.
+        // 교육자료·구두시험 대비 인쇄용. AS-GDE-001 §15·§16·§17 기반.
         path: "arc/training/guide",
         name: "admin-arc-training-guide",
         component: AdminArcTrainingGuideView,
-        meta: { permission: "arc.view" },
+        meta: { permission: "arc.guide" },
       },
       {
         path: "arc/stock",
         name: "admin-arc-stock",
         component: AdminArcStockView,
-        meta: { permission: "arc.view" },
+        meta: { permission: "arc.stock" },
       },
       {
         path: "arc/stocktakes",
         name: "admin-arc-stocktakes",
         component: AdminArcStocktakeView,
-        meta: { permission: "arc.view" },
+        meta: { permission: "arc.stocktake" },
       },
       {
         path: "arc/purchases",
         name: "admin-arc-purchases",
         component: AdminArcPurchaseView,
-        meta: { permission: "arc.view" },
+        meta: { permission: "arc.purchase" },
       },
       {
         path: "arc/otc",
         name: "admin-arc-otc",
         component: AdminArcOtcView,
-        meta: { permission: "arc.view" },
+        meta: { permission: "arc.otc" },
       },
       {
         // 사용대장. 소모품 사용과 단가·소모금액을 기록합니다.
         path: "arc/usages",
         name: "admin-arc-usages",
         component: AdminArcUsageView,
-        meta: { permission: "arc.view" },
+        meta: { permission: "arc.usage" },
       },
       {
         // 실비정산 대장. 금액·입금 처리는 서버가 arc.expense 로 다시 검사합니다.
         path: "arc/expenses",
         name: "admin-arc-expenses",
         component: AdminArcExpenseView,
-        meta: { permission: "arc.view" },
+        meta: { permission: "arc.expense" },
       },
       {
         path: "arc/consents",
         name: "admin-arc-consents",
         component: AdminArcConsentView,
-        meta: { permission: "arc.view" },
+        meta: { permission: "arc.consent" },
       },
       {
         // 사건 접수 목록. 상세 건강기록 본문은 열리지 않고 사건 메타만 보입니다.
         path: "arc/incidents",
         name: "admin-arc-incidents",
         component: AdminArcIncidentView,
-        meta: { permission: "arc.view" },
+        meta: { permission: "arc.care" },
       },
       {
         // AS-CARE 서식 목록. 사건 접수 목록과 분리해 서식·첨부 상태만 봅니다.
         path: "arc/care",
         name: "admin-arc-care",
         component: AdminArcCareListView,
-        meta: { permission: "arc.view" },
+        meta: { permission: "arc.sensitive" },
       },
       {
         // AS-CARE 상세기록. 서버가 arc.sensitive + 사건별 접근승인을 다시 검사합니다.
         path: "arc/care/:incidentId",
         name: "admin-arc-care-detail",
         component: AdminArcCareView,
-        meta: { permission: "arc.view" },
+        meta: { permission: "arc.sensitive" },
       },
       {
         // 예전 링크 호환용. 사건 접수 화면에서 상세기록으로 바로 들어오던 경로입니다.
         path: "arc/incidents/:incidentId",
         name: "admin-arc-incident-detail",
         component: AdminArcCareView,
-        meta: { permission: "arc.view" },
+        meta: { permission: "arc.care" },
       },
       {
         // 상세 건강기록 열람·승인 화면. 승인 처리는 서버가 arc.approve 로 다시 검사합니다.
@@ -310,27 +312,41 @@ const routes = [
         path: "arc/quality",
         name: "admin-arc-quality",
         component: AdminArcQualityView,
-        meta: { permission: "arc.view" },
+        meta: { permission: "arc.quality" },
       },
       {
         // 행사·의료지원(P14J). 행사별 ARC 지원 수준·의료진·체크리스트·고지서 교부.
         path: "arc/events",
         name: "admin-arc-events",
         component: AdminArcEventsView,
-        meta: { permission: "arc.view" },
+        meta: { permission: "arc.event" },
       },
       {
         // ARC 비서(P14N). 최윤희가 하루 일과를 한 화면에서 시작하는 브리핑입니다.
         path: "arc/assistant",
         name: "admin-arc-assistant",
         component: AdminArcAssistantView,
-        meta: { permission: "arc.view" },
+        meta: { permission: "arc.assistant" },
       },
       {
-        // 응급안전 9종 권한 관리. 부여·회수는 서버가 총괄 계정만 허용합니다.
+        // 응급안전 메뉴별 권한 관리. 부여·회수는 서버가 총괄 계정만 허용합니다.
         path: "arc/permissions",
         name: "admin-arc-permissions",
         component: AdminArcPermissionsView,
+        meta: { permission: "arc.view", arcDirectorOnly: true },
+      },
+      {
+        // 인사카드(직원·사장 관리). 주민등록번호·건강정보가 있어 총괄 전용입니다.
+        path: "arc/people",
+        name: "admin-arc-people",
+        component: AdminArcPeopleView,
+        meta: { permission: "arc.view", arcDirectorOnly: true },
+      },
+      {
+        // 구두시험 시험지·교육자용 자료 인쇄 화면. 오직 총괄만 열 수 있습니다.
+        path: "arc/verbal-paper",
+        name: "admin-arc-verbal-paper",
+        component: AdminArcVerbalPaperView,
         meta: { permission: "arc.view", arcDirectorOnly: true },
       },
       {

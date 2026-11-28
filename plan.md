@@ -2339,6 +2339,67 @@ all 6 touched SFCs; ESM syntax check on the 3 touched `src` modules.
 - The ARC admin shell is dark (`#0b1220`): page-level text must be white/translucent, or the component
   must own a white card with explicit `#334155` / `#0f172a` text.
 
+### P14Q — 번표, 구두시험 시험지, 한국어 날짜, 메뉴별 권한, 인사카드
+Requested (2026-11-29): ① 최윤희's hospital shift roster (번표) inside the 월간 교육·OT
+calendar, ② rename 오랄테스트 → 구두시험 with 불시/정규 types plus AI-varied printable
+papers + teacher answer keys, ③ every ARC date in `XXXX년 XX월 XX일`, ④ per-menu ARC
+permissions, ⑤ a director-only 인사카드 (employee/owner) menu.
+
+1. **Korean dates** — `src/lib/arc.js`: `formatArcDate` / `formatArcDateTime` now assemble
+   the string manually (`ARC_DATE_ONLY` regex avoids the UTC day-shift bug), plus new
+   `formatArcPeriod`, `formatArcDayWithWeekday`, `formatArcDayNumber`. 9 ARC
+   views/components switched over; the 실사일 "2026-11-29" complaint is fixed. Scope is ARC only.
+2. **번표** — `server/src/arcShifts.js` + `arc_shifts` table. Codes `D 06:30~15:30`,
+   `E 14:00~22:00`, `N 20:50~08:00`, `S 09:00~17:00`; kinds `SHIFT / AVAILABLE / UNAVAILABLE`.
+   `arcShiftDepart()` subtracts the 60-minute 혼자야 commute (previous-day flag for N).
+   `listArcShifts({period, viewer})` masks codes/notes and shows only times for anyone who is
+   neither the director nor an owner. Registration is director-only; the owner can read.
+   One SHIFT per day (a second code replaces the first, so mis-taps don't stack).
+   Client: `src/components/arc/ArcShiftPanel.vue`, mounted as a 번표 tab in
+   `AdminArcTrainingView.vue` (`permission: "arc.shift"`).
+3. **구두시험** — rename done in 10 files (also fixed `구두시험는/를` → `은/을`).
+   `server/src/arcVerbalPaper.js` builds 4 combinations (SURPRISE|REGULAR × EXAM|TEACHER):
+   SURPRISE = 5-minute, 5 critical rows, cutline 70; REGULAR = 20-minute, 2 rows per each of
+   8 sections, cutline 80. Rows carry `{question, altQuestion, points, critical, tail, answer,
+   criteria{perform,partial,none}, basis, wrong}`; EXAM mode strips the teacher-only fields.
+   Seeded so "그대로 다시 불러오기" reproduces the same paper while "다시 뽑기" varies it.
+   Client: `src/views/Admin/AdminArcVerbalPaperView.vue` (A4 print sheet, print CSS in a second
+   unscoped `<style>` block keyed on `body.arc-verbal-paper-open`).
+4. **Per-menu permissions** — 21 `arc.*` keys in `server/src/auth/permissions.js`
+   (`ARC_MENU_ONLY_PERMISSIONS` lists the 12 that are new). `server/src/arcPermissions.js` gained
+   `ARC_MENU_GATES` (23 URL-prefix rows, segment-boundary matching so `/api/arc/care` does not
+   swallow `/api/arc/care-files`), `arcMenuGateFor()`, `arcPermissionLabel()`, and a `groups`
+   payload. `arcGuard()` in `server/src/routes/api/arc.js` now calls `assertArcMenuAccess()`.
+   `AdminArcPermissionsView.vue` rewritten as a per-menu matrix (group toggles + 21 checkboxes).
+5. **인사카드** — `server/src/arcPeople.js` + `arc_people` table: 이름 / 연결 계정 / 직위 /
+   고용 형태 / 주민등록번호(암호화 + 마스크) / 생년월일 / 전화 / 비상연락 / 주소 / 5 건강 항목 /
+   메모. Cards without an account get `login_id = 'manual:<uuid>'`, hence the **partial** unique
+   index `where login_id <> ''`. Editing goes by `personId` so manual cards never duplicate.
+   `AdminArcPeopleView.vue` is the UI; route + menu are `arcDirectorOnly`.
+
+### Verification
+- `node --check` clean on 6 server files; dev Postgres `db:apply` applied `arc.sql` (153 statements).
+- 60/60 module-level assertions on the embedded dev Postgres: shift save/upsert/bulk/mask/delete,
+  people create (2 account-less cards prove the partial index)/edit/reveal/list/delete,
+  4 paper combinations + seed determinism, 21 permission keys, gate lookups, legacy expansion.
+- 25/25 HTTP assertions against a live `node src/index.js` on port 4010 (director session +
+  owner negative case: owner may read 번표 but gets 403 on register).
+- ARC views grepped for raw ISO rendering: only `formatArcDate`-based output remains.
+
+### Gotchas learned
+- **`arcPermissionsForEmployee()` no longer inflates.** Legacy 9-perm arrays are converted **once**
+  at boot by `migrateLegacyArcPermissions()` (guarded by a `schema_state` row `arc_permissions_v2`)
+  using `ARC_LEGACY_EXPANSIONS`. Keep it one-shot: re-running would widen permissions the director
+  narrowed on purpose.
+- **`arc.otc` and `arc.training` exist in both the old 9 and the new 21**, so "array has no
+  menu-only key" is NOT a safe legacy test on its own — the one-shot marker is what makes it safe.
+- `arcMenuGateFor()` returns the **gate object** `{prefix, permission}`, not a string.
+- `/api/arc/care` is `arc.care`; only `/api/arc/care-files` is `arc.sensitive`.
+- `ARRAY` columns (`arc_permissions`) must be passed as JS arrays — `JSON.stringify()` fails with
+  `malformed array literal`.
+- POST for shifts / people / permissions / verbal paper are all `requireArcDirector`; GET is not.
+- The verbal paper route is `/api/arc/verbal/paper` (not `/api/arc/verbal-paper`).
+
 ---
 
 ## 4. Open questions

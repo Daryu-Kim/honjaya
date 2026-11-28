@@ -304,7 +304,7 @@
             <tr v-for="row in filteredUsages" :key="row.id">
               <td class="mono">{{ row.usageNo }}</td>
               <td>
-                {{ row.usedOn }}
+                {{ formatArcDate(row.usedOn) }}
                 <div v-if="row.usedTime" class="dim">{{ row.usedTime }}</div>
               </td>
               <td>{{ row.itemName }}</td>
@@ -400,7 +400,8 @@
             {{ row.requestNote }}
           </p>
           <p v-if="row.status === 'PAID'" class="settle-paid">
-            지급 완료: {{ money(row.paidAmount) }} · {{ row.paidOn }} ·
+            지급 완료: {{ money(row.paidAmount) }} ·
+            {{ formatArcDate(row.paidOn) }} ·
             {{ payMethodLabel(row.paidMethod) }} · {{ row.paidBy }}
           </p>
 
@@ -408,9 +409,9 @@
             <summary>내역 {{ row.detail.length }}건 보기</summary>
             <ul>
               <li v-for="line in row.detail" :key="line.usageNo">
-                {{ line.usedOn }} · {{ line.itemName }} {{ line.qty }}개 ·
-                {{ money(line.amount) }} · {{ line.targetName }} ·
-                {{ line.employeeName }}
+                {{ formatArcDate(line.usedOn) }} · {{ line.itemName }}
+                {{ line.qty }}개 · {{ money(line.amount) }} ·
+                {{ line.targetName }} · {{ line.employeeName }}
               </li>
             </ul>
           </details>
@@ -485,6 +486,7 @@ import {
   createArcOtcUsage,
   deleteArcOtcPrice,
   fetchArcOtcLedger,
+  formatArcDate,
   payArcOtcSettlement,
   requestArcOtcSettlement,
   saveArcOtcPrice,

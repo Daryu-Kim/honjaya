@@ -103,13 +103,34 @@ import {
   voidArcUsage,
 } from "../../arcUsage.js";
 import { writeAuditLog } from "../../auth/audit.js";
-import { isArcDirector, PERMISSIONS } from "../../auth/permissions.js";
+import {
+  ARC_DIRECTOR_LOGIN_IDS,
+  isArcDirector,
+  PERMISSIONS,
+} from "../../auth/permissions.js";
 import { createStaffGuard } from "../../auth/sessions.js";
 import {
+  arcMenuGateFor,
+  arcPermissionLabel,
   listArcPermissionBoard,
   saveArcEmployeePermissions,
 } from "../../arcPermissions.js";
 import { arcAssistantBriefing } from "../../arcAssistant.js";
+import {
+  arcShiftBriefing,
+  bulkSaveArcShifts,
+  deleteArcShift,
+  listArcShifts,
+  saveArcShift,
+} from "../../arcShifts.js";
+import {
+  arcPeopleAccountOptions,
+  deleteArcPerson,
+  getArcPerson,
+  listArcPeople,
+  saveArcPerson,
+} from "../../arcPeople.js";
+import { arcVerbalPaperCatalog, buildArcVerbalPaper } from "../../arcVerbalPaper.js";
 import {
   arcTrainingCatalog,
   arcTrainingSummary,
@@ -194,7 +215,37 @@ function arcGuard(permission) {
         "응급안전관리센터는 사장·매니저·ARC 총괄만 사용할 수 있어요."
       );
     }
+
+    assertArcMenuAccess(request);
   };
+}
+
+/**
+ * 메뉴 하나당 권한 하나 — ARC 대표가 회수한 메뉴는 API도 막습니다.
+ * (화면에서만 숨기면 주소로 우회할 수 있어 서버에서 한 번 더 확인합니다.)
+ */
+function assertArcMenuAccess(request) {
+  const employee = request.staff?.employee;
+
+  if (isArcDirector(employee?.loginId)) {
+    return;
+  }
+
+  const gate = arcMenuGateFor(request.url);
+
+  if (!gate) {
+    return;
+  }
+
+  if (!hasPermission(request, gate.permission)) {
+    const label = arcPermissionLabel(gate.permission);
+
+    throw new HttpError(
+      403,
+      "HJ403",
+      `응급안전 권한 관리에서 '${label}' 권한이 회수되었어요. ARC 대표(RN)에게 요청해 주세요.`
+    );
+  }
 }
 
 function readBody(request) {
@@ -292,6 +343,122 @@ export function registerArcRoutes(app) {
         currentEmployee(request)
       );
     }
+  );
+
+  // ── 구두시험 시험지·교육자용 자료 (ARC 대표·RN 전용) ─────────────────
+  // 시험지·답안지·평가표는 오직 총괄만 뽑습니다. (2026-11-29 대표 지시)
+  app.get(
+    "/api/arc/verbal/paper",
+    { preHandler: [requireView, requireArcDirector] },
+    async (request) => {
+      const query = request.query || {};
+
+      return buildArcVerbalPaper({
+        kind: query.kind,
+        mode: query.mode,
+        seed: query.seed,
+        emphasis: query.emphasis,
+        targetName: query.targetName,
+        reviewer: currentEmployee(request)?.name || "",
+        aiVaried: query.aiVaried !== "false",
+      });
+    }
+  );
+
+  app.get(
+    "/api/arc/verbal/paper/catalog",
+    { preHandler: [requireView, requireArcDirector] },
+    async () => arcVerbalPaperCatalog()
+  );
+
+  // ── 근무 번표(최윤희 병원 근무표) ────────────────────────────────────
+  // 등록·수정·삭제는 오직 총괄만. 조회는 권한(arc.shift)을 받은 사람까지.
+  // 번표의 주인은 ARC 대표이므로, 기본 조회 대상도 총괄 계정입니다.
+  const shiftOwnerLoginId = (query) =>
+    String(query?.ownerLoginId || "").trim() || ARC_DIRECTOR_LOGIN_IDS[0];
+
+  app.get("/api/arc/shifts", { preHandler: requireView }, async (request) => {
+    const employee = currentEmployee(request);
+
+    return listArcShifts({
+      period: (request.query || {}).period,
+      ownerLoginId: shiftOwnerLoginId(request.query),
+      viewer: {
+        isArcDirector: isArcDirector(employee?.loginId),
+        isOwner: employee?.role === "OWNER",
+        canWrite: isArcDirector(employee?.loginId),
+      },
+    });
+  });
+
+  app.get("/api/arc/shifts/briefing", { preHandler: requireView }, async (request) => {
+    const employee = currentEmployee(request);
+
+    return arcShiftBriefing({
+      period: (request.query || {}).period,
+      ownerLoginId: shiftOwnerLoginId(request.query),
+      viewer: {
+        isArcDirector: isArcDirector(employee?.loginId),
+        isOwner: employee?.role === "OWNER",
+        canWrite: isArcDirector(employee?.loginId),
+      },
+    });
+  });
+
+  app.post(
+    "/api/arc/shifts",
+    { preHandler: [requireView, requireArcDirector] },
+    async (request) =>
+      saveArcShift(readBody(request), currentEmployee(request))
+  );
+
+  app.post(
+    "/api/arc/shifts/bulk",
+    { preHandler: [requireView, requireArcDirector] },
+    async (request) =>
+      bulkSaveArcShifts(readBody(request), currentEmployee(request))
+  );
+
+  app.post(
+    "/api/arc/shifts/:shiftId/delete",
+    { preHandler: [requireView, requireArcDirector] },
+    async (request) =>
+      deleteArcShift(request.params.shiftId, currentEmployee(request))
+  );
+
+  // ── 인사카드(직원·사장 관리, ARC 대표·RN 전용) ────────────────────────
+  // 주민등록번호·건강정보가 들어 있어 총괄 외에는 열 수 없습니다.
+  app.get(
+    "/api/arc/people",
+    { preHandler: [requireView, requireArcDirector] },
+    async (request) => listArcPeople({ keyword: (request.query || {}).keyword })
+  );
+
+  app.get(
+    "/api/arc/people/accounts",
+    { preHandler: [requireView, requireArcDirector] },
+    async () => ({ accounts: await arcPeopleAccountOptions() })
+  );
+
+  app.get(
+    "/api/arc/people/:personId",
+    { preHandler: [requireView, requireArcDirector] },
+    async (request) =>
+      getArcPerson(request.params.personId, {
+        revealResidentNo: isTruthyFlag((request.query || {}).reveal),
+      })
+  );
+
+  app.post(
+    "/api/arc/people",
+    { preHandler: [requireView, requireArcDirector] },
+    async (request) => saveArcPerson(readBody(request), currentEmployee(request))
+  );
+
+  app.post(
+    "/api/arc/people/:personId/delete",
+    { preHandler: [requireView, requireArcDirector] },
+    async (request) => deleteArcPerson(request.params.personId)
   );
 
   // ── ARC 비서 브리핑 ─────────────────────────────────────────────────
@@ -1227,7 +1394,7 @@ export function registerArcRoutes(app) {
     const list = await listArcTrainingSessions({
       period: request.query?.period || null,
       limit: request.query?.limit,
-      // 개인 달력(PERSONAL)·구두테스트는 총괄에게만 보입니다.
+      // 개인 달력(PERSONAL)·구두시험는 총괄에게만 보입니다.
       viewerLoginId: employee?.loginId || "",
       viewerIsDirector,
     });
@@ -1414,7 +1581,7 @@ export function registerArcRoutes(app) {
     async (request) => ({ helper: buildTrainingHelper(readBody(request)) })
   );
 
-  // ── P14O · 구두테스트(ARC 대표 전용) ───────────────────────────────
+  // ── P14O · 구두시험(ARC 대표 전용) ───────────────────────────────
   // 평가표·질문·응시 기록 모두 총괄만 조회·수정합니다.
 
   app.get("/api/arc/verbal", { preHandler: requireDirector }, async (request) => {

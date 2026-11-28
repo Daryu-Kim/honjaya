@@ -222,35 +222,103 @@ function queryString(params = {}) {
   return text ? `?${text}` : "";
 }
 
-export function formatArcDateTime(value) {
-  if (!value) return "-";
+// 2026-11-29 대표 지시: 응급안전관리센터의 모든 날짜는 "2026년 11월 29일" 로만 보여 줍니다.
+// toLocaleDateString("ko-KR") 은 "2026. 11. 29." 처럼 마침표를 찍어서 실사일 칸이
+// 영문 날짜처럼 보였습니다. 그래서 직접 조립합니다.
+const ARC_DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) return "-";
-
-  return date.toLocaleString("ko-KR", {
-    year: "2-digit",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+function pad2(value) {
+  return String(value).padStart(2, "0");
 }
 
+function arcDateParts(value) {
+  if (!value) return null;
+
+  // DB date 컬럼은 "2026-11-29" 로 옵니다. new Date() 로 넘기면 UTC 자정으로 읽혀
+  // 시간대에 따라 하루씩 밀릴 수 있어서, 날짜만 있는 값은 그대로 쪼갭니다.
+  const raw = String(value).trim();
+  const only = ARC_DATE_ONLY.exec(raw);
+
+  if (only) {
+    return {
+      year: Number(only[1]),
+      month: Number(only[2]),
+      day: Number(only[3]),
+    };
+  }
+
+  const date = new Date(raw);
+
+  if (Number.isNaN(date.getTime())) return null;
+
+  return {
+    year: date.getFullYear(),
+    month: date.getMonth() + 1,
+    day: date.getDate(),
+  };
+}
+
+function arcClock(value) {
+  const date = new Date(String(value).trim());
+
+  if (Number.isNaN(date.getTime())) return "";
+
+  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+}
+
+/** "2026년 11월 29일" */
 export function formatArcDate(value) {
-  if (!value) return "-";
+  const parts = arcDateParts(value);
 
-  const date = new Date(value);
+  if (!parts) return "-";
 
-  if (Number.isNaN(date.getTime())) return "-";
+  return `${parts.year}년 ${pad2(parts.month)}월 ${pad2(parts.day)}일`;
+}
 
-  return date.toLocaleDateString("ko-KR", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
+/** "2026년 11월 29일 15:30" — 날짜+시각. */
+export function formatArcDateTime(value) {
+  const parts = arcDateParts(value);
+
+  if (!parts) return "-";
+
+  const time = arcClock(value);
+  const day = `${parts.year}년 ${pad2(parts.month)}월 ${pad2(parts.day)}일`;
+
+  return time ? `${day} ${time}` : day;
+}
+
+/** "2026년 11월" — 월 단위 기간 표기. */
+export function formatArcPeriod(value) {
+  const text = String(value ?? "").trim();
+
+  if (/^\d{4}-(0[1-9]|1[0-2])$/.test(text)) {
+    return `${text.slice(0, 4)}년 ${text.slice(5, 7)}월`;
+  }
+
+  const parts = arcDateParts(value);
+
+  if (!parts) return "-";
+
+  return `${parts.year}년 ${pad2(parts.month)}월`;
+}
+
+/** "2026년 11월 29일 (일)" — 요일까지 필요할 때. */
+export function formatArcDayWithWeekday(value) {
+  const parts = arcDateParts(value);
+
+  if (!parts) return "-";
+
+  const date = new Date(parts.year, parts.month - 1, parts.day);
+  const names = ["일", "월", "화", "수", "목", "금", "토"];
+
+  return `${formatArcDate(value)} (${names[date.getDay()]})`;
+}
+
+/** "29일" 처럼 일(日) 숫자만. 달력 칸 안에서 씁니다. */
+export function formatArcDayNumber(value) {
+  const parts = arcDateParts(value);
+
+  return parts ? String(parts.day) : "";
 }
 
 /** 접근 승인 남은 시간을 "3시간 12분" 처럼 보여줍니다. */
@@ -1163,12 +1231,12 @@ export const ARC_TRAINING_KIND_LABELS = {
   DRILL: "상황연습",
   REFRESH: "보수·재교육",
   ROUTINE: "월간 운영 루틴",
-  VERBAL: "정기 구두테스트",
-  VERBAL_SURPRISE: "불시 구두테스트",
+  VERBAL: "정규 구두시험",
+  VERBAL_SURPRISE: "불시 구두시험",
   PERSONAL: "개인 일정",
 };
 
-/** 달력·필터에 쓰는 분류 순서(개인 일정·구두테스트는 총괄 본인만 조회). */
+/** 달력·필터에 쓰는 분류 순서(개인 일정·구두시험은 총괄 본인만 조회). */
 export const ARC_TRAINING_KIND_ORDER = [
   "OT",
   "REGULAR",
@@ -1248,7 +1316,7 @@ export async function buildArcTrainingHelper(payload) {
   return apiPost(`${TRAINING_PATH}/content/helper`, payload);
 }
 
-// ── 구두테스트(ARC 대표 전용) ───────────────────────────────────────────
+// ── 구두시험(ARC 대표 전용) ───────────────────────────────────────────
 
 const VERBAL_PATH = "/api/arc/verbal";
 
@@ -1273,8 +1341,8 @@ export const ARC_VERBAL_VERDICT_TONES = {
 };
 
 export const ARC_VERBAL_KIND_LABELS = {
-  REGULAR: "정기 구두테스트",
-  SURPRISE: "불시 구두테스트",
+  REGULAR: "정규 구두시험",
+  SURPRISE: "불시 구두시험",
 };
 
 export async function fetchArcVerbal(params = {}) {
@@ -1586,4 +1654,85 @@ export async function deleteArcEventStaff(eventId, staffId) {
     )}/delete`,
     {}
   );
+}
+
+// ── 근무 번표(ARC 대표 병원 근무표) ──────────────────────────────────────
+// 등록·수정·삭제는 ARC 대표만. 다른 사람은 볼 수만 있습니다(권한에 따라 시간만).
+
+const SHIFTS_PATH = "/api/arc/shifts";
+
+export async function fetchArcShifts(params = {}) {
+  return apiGet(`${SHIFTS_PATH}${queryString(params)}`);
+}
+
+export async function fetchArcShiftBriefing(params = {}) {
+  return apiGet(`${SHIFTS_PATH}/briefing${queryString(params)}`);
+}
+
+export async function saveArcShift(payload) {
+  return apiPost(SHIFTS_PATH, payload);
+}
+
+export async function bulkSaveArcShifts(payload) {
+  return apiPost(`${SHIFTS_PATH}/bulk`, payload);
+}
+
+export async function deleteArcShift(shiftId) {
+  return apiPost(`${SHIFTS_PATH}/${encodeURIComponent(shiftId)}/delete`, {});
+}
+
+// ── 인사카드(직원·사장 관리, ARC 대표 전용) ──────────────────────────────
+
+const PEOPLE_PATH = "/api/arc/people";
+
+export const ARC_EMPLOYMENT_LABELS = {
+  OWNER: "사장",
+  FULL: "정규직",
+  PART: "아르바이트",
+  CONTRACT: "계약직",
+  ETC: "기타",
+};
+
+export async function fetchArcPeople(params = {}) {
+  return apiGet(`${PEOPLE_PATH}${queryString(params)}`);
+}
+
+export async function fetchArcPeopleAccounts() {
+  return apiGet(`${PEOPLE_PATH}/accounts`);
+}
+
+export async function fetchArcPerson(personId, params = {}) {
+  return apiGet(
+    `${PEOPLE_PATH}/${encodeURIComponent(personId)}${queryString(params)}`
+  );
+}
+
+export async function saveArcPerson(payload) {
+  return apiPost(PEOPLE_PATH, payload);
+}
+
+export async function deleteArcPerson(personId) {
+  return apiPost(`${PEOPLE_PATH}/${encodeURIComponent(personId)}/delete`, {});
+}
+
+// ── 구두시험 시험지·교육자용 자료 ────────────────────────────────────────
+
+const PAPER_PATH = "/api/arc/verbal/paper";
+
+export const ARC_PAPER_KIND_LABELS = {
+  SURPRISE: "불시 구두시험",
+  REGULAR: "정규 구두시험",
+};
+
+export const ARC_PAPER_MODE_LABELS = {
+  EXAM: "시험지(응시자용)",
+  TEACHER: "교육자용(답안·평가표)",
+};
+
+export async function fetchArcVerbalPaper(params = {}) {
+  return apiGet(`${PAPER_PATH}${queryString(params)}`);
+}
+
+export async function fetchArcVerbalPaperCatalog() {
+  return apiGet(`${PAPER_PATH}/catalog`);
 }

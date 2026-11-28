@@ -81,8 +81,8 @@
             :key="row.id"
             :class="{ selected: selectedId === row.id }"
           >
-            <td class="mono">{{ row.period }}</td>
-            <td>{{ row.countedOn || "-" }}</td>
+            <td class="mono">{{ formatArcPeriod(row.period) }}</td>
+            <td>{{ row.countedOn ? formatArcDate(row.countedOn) : "-" }}</td>
             <td class="dim">{{ row.countedByName || "-" }}</td>
             <td class="num">{{ row.countedItems }} / {{ row.totalItems }}</td>
             <td class="num">{{ row.diffItems }}</td>
@@ -334,6 +334,8 @@ import {
   createArcStocktake,
   fetchArcStocktake,
   fetchArcStocktakes,
+  formatArcDate,
+  formatArcPeriod,
   saveArcStocktakeItem,
   updateArcStocktake,
 } from "@/lib/arc";

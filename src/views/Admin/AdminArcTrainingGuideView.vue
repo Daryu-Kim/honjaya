@@ -3,7 +3,7 @@
     <header class="page-header no-print">
       <div class="header-left">
         <p class="eyebrow">ARC SAFETY</p>
-        <h1>교육자료 · 오랄테스트 대비</h1>
+        <h1>교육자료 · 구두시험 대비</h1>
         <p class="description">
           AS-GDE-001 「현장응급처치 교육가이드」 기준으로 정리한 교육 교재예요.
           쉬운 설명·현장 사례·꼬리질문까지 담았고, <strong>교육자용</strong>과
@@ -119,7 +119,7 @@
           월간 교육 · OT 교재
         </h1>
         <p class="cover-sub">
-          일반직원 눈높이 교육자료 · 구술평가(오랄테스트) 대비 ·
+          일반직원 눈높이 교육자료 · 구두시험 대비 ·
           {{
             mode === "teacher" ? "교육자용(답안 포함)" : "교육생용(답안 가림)"
           }}
@@ -189,7 +189,7 @@
         <p class="sheet-brand">혼자야 · ARC SAFETY 응급안전관리센터</p>
         <h1>현장응급처치 교육자료</h1>
         <p class="sheet-sub">
-          월간 교육·OT 구술평가(오랄테스트) 대비 학습 자료 · 일반인 눈높이 ·
+          월간 교육·OT 구두시험 대비 학습 자료 · 일반인 눈높이 ·
           <strong class="sheet-mode">{{
             mode === "teacher" ? "교육자용" : "교육생용"
           }}</strong>

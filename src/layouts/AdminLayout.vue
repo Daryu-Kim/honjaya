@@ -296,7 +296,7 @@ const arcMenuList = [
     label: "ARC 비서",
     description: "오늘 할 일·사장 보고 요약",
     matchStartsWith: "/admin/arc/assistant",
-    permission: "arc.view",
+    permission: "arc.assistant",
     color: "#fbbf24",
   },
   {
@@ -304,7 +304,7 @@ const arcMenuList = [
     label: "월간 운영 루틴",
     description: "1년 업무달력·점검 순서",
     matchStartsWith: "/admin/arc/routine",
-    permission: "arc.view",
+    permission: "arc.routine",
     color: "#38bdf8",
   },
   {
@@ -312,7 +312,7 @@ const arcMenuList = [
     label: "월간 교육·OT",
     description: "정기교육·상황연습·출석",
     matchStartsWith: "/admin/arc/training",
-    permission: "arc.view",
+    permission: "arc.training",
     color: "#34d399",
   },
   {
@@ -320,7 +320,7 @@ const arcMenuList = [
     label: "구급상자 재고",
     description: "재고·유효기간·수불",
     matchStartsWith: "/admin/arc/stock",
-    permission: "arc.view",
+    permission: "arc.stock",
     color: "#ef4444",
   },
   {
@@ -328,7 +328,7 @@ const arcMenuList = [
     label: "월 1회 실사",
     description: "실물 수량 확인",
     matchStartsWith: "/admin/arc/stocktakes",
-    permission: "arc.view",
+    permission: "arc.stocktake",
     color: "#f97316",
   },
   {
@@ -336,7 +336,7 @@ const arcMenuList = [
     label: "보충·정산",
     description: "구매 대장·실비정산",
     matchStartsWith: "/admin/arc/purchases",
-    permission: "arc.view",
+    permission: "arc.purchase",
     color: "#eab308",
   },
   {
@@ -344,7 +344,7 @@ const arcMenuList = [
     label: "개인 상비약",
     description: "직원 자기점검",
     matchStartsWith: "/admin/arc/otc",
-    permission: "arc.view",
+    permission: "arc.otc",
     color: "#84cc16",
   },
   {
@@ -352,7 +352,7 @@ const arcMenuList = [
     label: "사용대장",
     description: "소모품 사용·단가",
     matchStartsWith: "/admin/arc/usages",
-    permission: "arc.view",
+    permission: "arc.usage",
     color: "#22c55e",
   },
   {
@@ -360,7 +360,7 @@ const arcMenuList = [
     label: "실비정산",
     description: "청구·부분입금",
     matchStartsWith: "/admin/arc/expenses",
-    permission: "arc.view",
+    permission: "arc.expense",
     color: "#14b8a6",
   },
   {
@@ -368,7 +368,7 @@ const arcMenuList = [
     label: "사건 접수",
     description: "사건·119 인계 접수",
     matchStartsWith: "/admin/arc/incidents",
-    permission: "arc.view",
+    permission: "arc.care",
     color: "#06b6d4",
   },
   {
@@ -384,7 +384,7 @@ const arcMenuList = [
     label: "응급안전 동의서",
     description: "동의 확인·철회",
     matchStartsWith: "/admin/arc/consents",
-    permission: "arc.view",
+    permission: "arc.consent",
     color: "#8b5cf6",
   },
   {
@@ -400,7 +400,7 @@ const arcMenuList = [
     label: "사후검토·개선",
     description: "F11~F14·연간 성과기준",
     matchStartsWith: "/admin/arc/quality",
-    permission: "arc.view",
+    permission: "arc.quality",
     color: "#a78bfa",
   },
   {
@@ -408,17 +408,27 @@ const arcMenuList = [
     label: "행사·의료지원",
     description: "행사별 ARC 지원·체크리스트",
     matchStartsWith: "/admin/arc/events",
-    permission: "arc.view",
+    permission: "arc.event",
     color: "#f59e0b",
   },
   {
     to: "/admin/arc/permissions",
     label: "응급안전 권한 관리",
-    description: "9종 권한 부여·회수(총괄 전용)",
+    description: "메뉴별 권한 부여·회수(총괄 전용)",
     matchStartsWith: "/admin/arc/permissions",
     permission: "arc.view",
     directorOnly: true,
     color: "#e879f9",
+  },
+  {
+    // 직원·사장 인사카드 — 주민등록번호·건강정보가 들어 있어 총괄 전용입니다.
+    to: "/admin/arc/people",
+    label: "인사카드",
+    description: "직원·사장 기본정보·건강상태",
+    matchStartsWith: "/admin/arc/people",
+    permission: "arc.view",
+    directorOnly: true,
+    color: "#f472b6",
   },
   {
     to: "/admin/arc/settings",
