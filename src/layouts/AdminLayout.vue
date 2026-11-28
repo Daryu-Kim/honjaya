@@ -279,7 +279,7 @@ const menuList = [
   },
 ];
 
-// 응급안전관리센터는 사장·매니저 전용 묶음입니다. 단독 메뉴로 흩어 두지 않고
+// 응급안전관리센터 메뉴 묶음. 단독 메뉴로 흩어 두지 않고
 // 사이드바 맨 아래에 구분선으로 분리해 한 그룹으로 모읍니다.
 // 메뉴마다 색을 달리해 어느 화면인지 바로 구분되게 합니다.
 const arcMenuList = [
@@ -462,8 +462,8 @@ const visibleMenuList = computed(() => {
   });
 });
 
-// 응급안전관리센터는 역할 자체가 사장·매니저여야 열립니다.
-// (직원 계정에 arc.* 권한이 직접 들어 있어도 숨깁니다 — 서버도 같은 기준으로 막습니다.)
+// 응급안전관리센터는 arc.view 권한이 있으면 누구나 열립니다.
+// (권한 관리에서 arc.view 를 끄면 메뉴가 통째로 사라집니다 — 서버도 같은 기준으로 막습니다.)
 // 단, 요청 게시판은 모든 직원이 ARC 대표에게 글을 올릴 수 있어야 하므로 예외입니다.
 const visibleArcMenuList = computed(() => {
   if (!canAccessArc(currentEmployee.value)) {
@@ -478,11 +478,17 @@ const visibleArcMenuList = computed(() => {
   });
 });
 
-const arcGroupHint = computed(() =>
-  canAccessArc(currentEmployee.value)
-    ? "사장·매니저·ARC 총괄 전용"
-    : "직원 요청 게시판"
-);
+const arcGroupHint = computed(() => {
+  const employee = currentEmployee.value;
+
+  if (!employee) return "응급안전관리센터";
+
+  if (employee.isArcDirector) return "ARC 대표(RN) 전용";
+
+  if (!canAccessArc(employee)) return "직원 요청 게시판";
+
+  return employee.role === "OWNER" ? "사장 권한 범위" : "내 권한 범위";
+});
 
 // ARC 대표(RN)는 응급안전관리센터를 사이드바 맨 위에 두고 봅니다.
 const arcFirst = computed(() => Boolean(currentEmployee.value?.isArcDirector));

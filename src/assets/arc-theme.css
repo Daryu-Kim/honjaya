@@ -1279,7 +1279,7 @@
 /* ── 12. Print: keep the workspace paper-white ──────────────────────── */
 
 @media print {
-  body:not(.arc-guide-open):not(.arc-verbal-paper-open) .admin-content.arc-mode {
+  body:not(.arc-guide-open):not(.arc-verbal-paper-open):not(.arc-study-open) .admin-content.arc-mode {
     background: #ffffff;
     color: #111827;
   }

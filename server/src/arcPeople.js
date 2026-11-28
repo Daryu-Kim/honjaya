@@ -18,13 +18,41 @@ import { badRequest, HttpError } from "./http/errors.js";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
+// P14S — 항목을 대폭 늘렸습니다. 전부 선택 입력이라 비워 두어도 저장됩니다.
+// 건강(응급 대응에 바로 쓰는 정보)
 export const ARC_HEALTH_FIELDS = [
-  { key: "bloodType", label: "혈액형", hint: "A·B·O·AB, 모르면 UNKNOWN" },
-  { key: "allergies", label: "알레르기", hint: "약·음식·벌레 등. 예: 페니실린, 새우" },
-  { key: "conditions", label: "지병·기왕력", hint: "천식·당뇨·심장질환·임신 등" },
+  { key: "bloodType", label: "혈액형", hint: "A·B·O·AB. 모르면 비워 두세요." },
+  { key: "allergies", label: "알레르기", hint: "약·음식·벌레 등. 예: 페니실린, 새우, 벌독" },
+  { key: "conditions", label: "지병·기왕력", hint: "천식·당뇨·심장질환·간질·공황 등" },
   { key: "medications", label: "복용 중인 약", hint: "상비약과 겹치면 위험한 조합을 확인" },
+  { key: "pregnancy", label: "임신·수유", hint: "해당되면 개월 수를 적어 주세요(응급처치 판단)" },
+  { key: "surgeries", label: "수술·입원 이력", hint: "시기와 부위. 예: 2023년 충수절제" },
+  { key: "vaccinations", label: "예방접종", hint: "파상풍·B형간염 등 최근 접종일" },
+  { key: "disability", label: "장애·보조기기", hint: "안경·보청기·보조기 등" },
+  { key: "vision", label: "시력·색각", hint: "안경 착용 여부, 색 구분이 어려운지" },
+  { key: "vitals", label: "평소 신장·체중·혈압", hint: "예: 165cm / 55kg / 110-70" },
+  { key: "smokingDrinking", label: "흡연·음주", hint: "응급 상황에서 의료진에게 전달할 정보" },
+  { key: "doctor", label: "주치의·단골병원", hint: "연락처까지 있으면 좋아요" },
   { key: "note", label: "현장 참고 메모", hint: "쓰러졌을 때 먼저 알아야 할 것" },
 ];
+
+// 인사(기본정보) — 급여·유니폼·연락 등 실무에 쓰는 정보
+export const ARC_PROFILE_FIELDS = [
+  { key: "englishName", label: "영문 이름", hint: "여권·서류와 맞출 때" },
+  { key: "hometown", label: "출생지·고향", hint: "본인 확인이 필요할 때 활용" },
+  { key: "education", label: "학력·전공", hint: "관련 자격·경력 정리에 도움" },
+  { key: "career", label: "주요 경력", hint: "이전 근무지·기간·업무" },
+  { key: "certificates", label: "자격·면허", hint: "간호조무사·위생교육·바리스타 등" },
+  { key: "languages", label: "가능 외국어", hint: "외국인 손님 응대 가능 여부" },
+  { key: "bankAccount", label: "급여 계좌", hint: "은행·예금주·계좌번호(정산용)" },
+  { key: "family", label: "가족·비상 연락", hint: "부모·배우자 등 연락 우선순위" },
+  { key: "addressDetail", label: "거주지 상세", hint: "건물·호수. 심야 귀가 확인에 사용" },
+  { key: "transport", label: "통근 수단·소요 시간", hint: "막차·대리 여부 판단" },
+  { key: "uniformSize", label: "유니폼·신발 사이즈", hint: "유니폼·안전화 지급용" },
+  { key: "memo", label: "기타 메모", hint: "ARC 대표가 알아 두면 좋은 것" },
+];
+
+const ARC_EXTRA_FIELDS = [...ARC_HEALTH_FIELDS, ...ARC_PROFILE_FIELDS];
 
 export const ARC_EMPLOYMENT_KINDS = [
   { key: "OWNER", label: "사장(대표)" },
@@ -37,6 +65,7 @@ export const ARC_EMPLOYMENT_KINDS = [
 export const ARC_PEOPLE_TIPS = [
   "주민등록번호는 앞 6자리만 화면에 보이고, 원문은 총괄이 '보기'를 누를 때만 열립니다.",
   "건강 항목은 '현장에서 쓰러졌을 때 먼저 알아야 할 것'만 적습니다. 진단명·처방 내역은 AS-CARE에 남깁니다.",
+  "모든 항목은 선택 입력입니다. 아는 것만 적고 비워 두어도 저장되니, 확인되는 대로 채워 주세요.",
   "이름·전화번호가 바뀌면 카드도 바로 고쳐 주세요. 사고 때 연락처가 틀리면 가장 위험합니다.",
   "입사일을 넣어 두면 신규직원 7일 교육·30일 실습 일정을 놓치지 않습니다.",
 ];
@@ -44,6 +73,7 @@ export const ARC_PEOPLE_TIPS = [
 export function arcPeopleCatalog() {
   return {
     healthFields: ARC_HEALTH_FIELDS,
+    profileFields: ARC_PROFILE_FIELDS,
     employmentKinds: ARC_EMPLOYMENT_KINDS,
     tips: ARC_PEOPLE_TIPS,
   };
@@ -93,46 +123,64 @@ function maskResidentNo(raw) {
   return `${front}-${head}${"*".repeat(Math.max(back.length - 1, 0))}`;
 }
 
-function normalizeHealth(input) {
+function normalizeExtras(input) {
   const source = input && typeof input === "object" ? input : {};
-  const health = {};
+  const extras = {};
 
-  ARC_HEALTH_FIELDS.forEach((field) => {
-    health[field.key] = text(source[field.key], 600);
+  ARC_EXTRA_FIELDS.forEach((field) => {
+    extras[field.key] = text(source[field.key], 600);
   });
 
-  return health;
+  return extras;
 }
 
-function readHealth(stored) {
+function emptyExtras() {
+  const extras = {};
+
+  ARC_EXTRA_FIELDS.forEach((field) => {
+    extras[field.key] = "";
+  });
+
+  return extras;
+}
+
+function readExtras(stored) {
   const plain = readField(stored);
 
   if (plain === null) {
-    return { failed: true, bloodType: "", allergies: "", conditions: "", medications: "", note: "" };
+    return { failed: true, ...emptyExtras() };
   }
 
   if (!plain) {
-    return { failed: false, bloodType: "", allergies: "", conditions: "", medications: "", note: "" };
+    return { failed: false, ...emptyExtras() };
   }
 
   try {
     const parsed = JSON.parse(plain);
+    const extras = { failed: false };
 
-    return {
-      failed: false,
-      bloodType: text(parsed.bloodType, 20),
-      allergies: text(parsed.allergies, 600),
-      conditions: text(parsed.conditions, 600),
-      medications: text(parsed.medications, 600),
-      note: text(parsed.note, 600),
-    };
+    ARC_EXTRA_FIELDS.forEach((field) => {
+      extras[field.key] = text(parsed?.[field.key], 600);
+    });
+
+    return extras;
   } catch {
-    return { failed: true, bloodType: "", allergies: "", conditions: "", medications: "", note: "" };
+    return { failed: true, ...emptyExtras() };
   }
 }
 
+function pickFields(source, fields) {
+  const picked = {};
+
+  fields.forEach((field) => {
+    picked[field.key] = source[field.key] ?? "";
+  });
+
+  return picked;
+}
+
 function shapeCard(row) {
-  const health = readHealth(row.health_enc);
+  const extras = readExtras(row.health_enc);
 
   return {
     id: row.id,
@@ -147,8 +195,9 @@ function shapeCard(row) {
     emergencyName: row.emergency_name ?? "",
     emergencyPhone: row.emergency_phone ?? "",
     address: row.address ?? "",
-    health,
-    healthReady: !health.failed,
+    health: pickFields(extras, ARC_HEALTH_FIELDS),
+    profile: pickFields(extras, ARC_PROFILE_FIELDS),
+    healthReady: !extras.failed,
     joinedOn: toDateString(row.joined_on),
     employment: row.employment ?? "FULL",
     employmentLabel:
@@ -200,7 +249,8 @@ export async function listArcPeople({ keyword = "" } = {}) {
       owner: cards.filter((card) => card.employment === "OWNER").length,
       staff: cards.filter((card) => card.employment !== "OWNER").length,
       missing: accounts.filter((row) => !linked.has(row.login_id)).length,
-      healthFilled: cards.filter((card) => card.health.allergies || card.health.conditions).length,
+      healthFilled: cards.filter((card) => Object.values(card.health).some(Boolean)).length,
+      profileFilled: cards.filter((card) => Object.values(card.profile).some(Boolean)).length,
     },
   };
 }
@@ -263,8 +313,9 @@ export async function saveArcPerson(input, actor) {
 
   const residentRaw = text(input.residentNo, 20);
   const mask = maskResidentNo(residentRaw);
-  const health = normalizeHealth(input.health);
-  const healthEnc = storeField(JSON.stringify(health));
+  // 건강·인사 항목은 모두 선택 입력입니다(빈 값이면 빈 문자열로 저장).
+  const extras = normalizeExtras({ ...(input.profile ?? {}), ...(input.health ?? {}) });
+  const healthEnc = storeField(JSON.stringify(extras));
 
   const values = [
     employeeId,

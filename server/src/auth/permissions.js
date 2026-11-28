@@ -83,6 +83,36 @@ export const PERMISSIONS = {
   ARC_CONSENT: "arc.consent",
   ARC_QUALITY: "arc.quality",
   ARC_EVENT: "arc.event",
+  // P14S — 메뉴 안쪽 '동작' 권한. 메뉴를 열 수 있어도 등록·승인·삭제는 따로 줍니다.
+  ARC_ROUTINE_CHECK: "arc.routine:check",
+  ARC_TRAINING_WRITE: "arc.training:write",
+  ARC_GUIDE_WRITE: "arc.guide:write",
+  ARC_SHIFT_WRITE: "arc.shift:write",
+  ARC_STOCK_WRITE: "arc.stock:write",
+  ARC_STOCK_DELETE: "arc.stock:delete",
+  ARC_STOCKTAKE_WRITE: "arc.stocktake:write",
+  ARC_STOCKTAKE_CONFIRM: "arc.stocktake:confirm",
+  ARC_PURCHASE_WRITE: "arc.purchase:write",
+  ARC_PURCHASE_SETTLE: "arc.purchase:settle",
+  ARC_OTC_WRITE: "arc.otc:write",
+  ARC_OTC_PRICE: "arc.otc:price",
+  ARC_OTC_SETTLE: "arc.otc:settle",
+  ARC_USAGE_WRITE: "arc.usage:write",
+  ARC_USAGE_PRICE: "arc.usage:price",
+  ARC_EXPENSE_WRITE: "arc.expense:write",
+  ARC_EXPENSE_SETTLE: "arc.expense:settle",
+  ARC_CARE_WRITE: "arc.care:write",
+  ARC_CARE_ADDENDUM: "arc.care:addendum",
+  ARC_CONSENT_WRITE: "arc.consent:write",
+  ARC_CONSENT_CONFIRM: "arc.consent:confirm",
+  ARC_SENSITIVE_REQUEST: "arc.sensitive:request",
+  ARC_SENSITIVE_APPROVE: "arc.sensitive:approve",
+  ARC_QUALITY_WRITE: "arc.quality:write",
+  ARC_QUALITY_CLOSE: "arc.quality:close",
+  ARC_EVENT_WRITE: "arc.event:write",
+  // ARC 대표(RN) 고유 권한 — 권한 관리 화면에는 잠금 상태로만 보입니다.
+  ARC_ADMIN_WRITE: "arc.admin:write",
+  ARC_EXAM: "arc.exam",
 };
 
 const STAFF_PERMISSIONS = [
@@ -98,8 +128,8 @@ const STAFF_PERMISSIONS = [
   PERMISSIONS.MENU_TOGGLE,
   PERMISSIONS.DISCORD_VIEW,
   PERMISSIONS.SHOP_VIEW,
-  // 응급안전관리센터(ARC)는 사장·매니저 전용이라 직원 기본 권한에 넣지 않습니다.
-  // (2026-11-28 대표 지시: 등록·조회 모두 사장·매니저만)
+  // 응급안전관리센터(ARC) 기본 권한은 roleDefaultArcPermissions 가 따로 정합니다.
+  // (P14S: 직원도 센터 입장·비서·교육·자기 상비약·사용대장은 기본으로 봅니다)
 ];
 
 const MANAGER_PERMISSIONS = [
@@ -332,11 +362,15 @@ export function normalizePermissions(value) {
   return ALL_PERMISSIONS.filter((permission) => unique.has(permission));
 }
 
-// 응급안전관리센터 권한. 역할 기본값은 사장·매니저가 전부 가지고, 직원은 없습니다.
-// 총괄(yoonhee1021)은 언제든 arc_permissions 로 다른 직원의 권한을 조정할 수 있습니다.
-// (2026-11-28 대표 지시: ARC 권한 부여·회수는 오직 총괄만)
-// 2026-11-29 대표 지시: 메뉴 하나당 권한 하나로 아주 세세하게 조정할 수 있게 확장.
-export const ARC_PERMISSION_LIST = [
+// 응급안전관리센터 권한. 역할 기본값은 사장·매니저가 전부 가지고, 직원은 최소만 가집니다.
+// 부여·회수는 오직 ARC 대표(RN)만 할 수 있습니다.
+// (2026-11-28 대표 지시 → 2026-11-29 메뉴 단위 → P14S 메뉴 안쪽 동작 단위까지 확장)
+//
+// 구조: 메뉴(화면) 권한 1개 + 그 안쪽 '동작' 권한 여러 개
+//   예) arc.stock  = 구급상자 재고 화면 열기
+//       arc.stock:write  = 품목·사용 기록 등록
+//       arc.stock:delete = 품목 삭제
+export const ARC_MENU_PERMISSIONS = [
   PERMISSIONS.ARC_VIEW,
   PERMISSIONS.ARC_ASSISTANT,
   PERMISSIONS.ARC_ROUTINE,
@@ -358,7 +392,76 @@ export const ARC_PERMISSION_LIST = [
   PERMISSIONS.ARC_CHECK,
   PERMISSIONS.ARC_EDU,
   PERMISSIONS.ARC_ADMIN,
+  PERMISSIONS.ARC_EXAM,
 ];
+
+// 메뉴별 동작 권한. 여기 적힌 동작만 화면에서 조정할 수 있습니다.
+export const ARC_ACTIONS_BY_MENU = {
+  [PERMISSIONS.ARC_ROUTINE]: [PERMISSIONS.ARC_ROUTINE_CHECK],
+  [PERMISSIONS.ARC_TRAINING]: [PERMISSIONS.ARC_TRAINING_WRITE],
+  [PERMISSIONS.ARC_GUIDE]: [PERMISSIONS.ARC_GUIDE_WRITE],
+  [PERMISSIONS.ARC_SHIFT]: [PERMISSIONS.ARC_SHIFT_WRITE],
+  [PERMISSIONS.ARC_STOCK]: [
+    PERMISSIONS.ARC_STOCK_WRITE,
+    PERMISSIONS.ARC_STOCK_DELETE,
+  ],
+  [PERMISSIONS.ARC_STOCKTAKE]: [
+    PERMISSIONS.ARC_STOCKTAKE_WRITE,
+    PERMISSIONS.ARC_STOCKTAKE_CONFIRM,
+  ],
+  [PERMISSIONS.ARC_PURCHASE]: [
+    PERMISSIONS.ARC_PURCHASE_WRITE,
+    PERMISSIONS.ARC_PURCHASE_SETTLE,
+  ],
+  [PERMISSIONS.ARC_OTC]: [
+    PERMISSIONS.ARC_OTC_WRITE,
+    PERMISSIONS.ARC_OTC_PRICE,
+    PERMISSIONS.ARC_OTC_SETTLE,
+  ],
+  [PERMISSIONS.ARC_USAGE]: [
+    PERMISSIONS.ARC_USAGE_WRITE,
+    PERMISSIONS.ARC_USAGE_PRICE,
+  ],
+  [PERMISSIONS.ARC_EXPENSE]: [
+    PERMISSIONS.ARC_EXPENSE_WRITE,
+    PERMISSIONS.ARC_EXPENSE_SETTLE,
+  ],
+  [PERMISSIONS.ARC_CARE]: [
+    PERMISSIONS.ARC_CARE_WRITE,
+    PERMISSIONS.ARC_CARE_ADDENDUM,
+  ],
+  [PERMISSIONS.ARC_CONSENT]: [
+    PERMISSIONS.ARC_CONSENT_WRITE,
+    PERMISSIONS.ARC_CONSENT_CONFIRM,
+  ],
+  [PERMISSIONS.ARC_SENSITIVE]: [
+    PERMISSIONS.ARC_SENSITIVE_REQUEST,
+    PERMISSIONS.ARC_SENSITIVE_APPROVE,
+  ],
+  [PERMISSIONS.ARC_QUALITY]: [
+    PERMISSIONS.ARC_QUALITY_WRITE,
+    PERMISSIONS.ARC_QUALITY_CLOSE,
+  ],
+  [PERMISSIONS.ARC_EVENT]: [PERMISSIONS.ARC_EVENT_WRITE],
+  [PERMISSIONS.ARC_ADMIN]: [PERMISSIONS.ARC_ADMIN_WRITE],
+};
+
+// 권한 관리 화면에 나오는 전체 목록(메뉴 먼저 → 그 메뉴의 동작들).
+export const ARC_PERMISSION_LIST = [
+  ...ARC_MENU_PERMISSIONS,
+  ...ARC_MENU_PERMISSIONS.flatMap(
+    (menu) => ARC_ACTIONS_BY_MENU[menu] || []
+  ),
+];
+
+// ARC 대표(RN)만 가질 수 있는 권한. 다른 사람에게는 저장 자체가 막힙니다.
+export const ARC_DIRECTOR_ONLY_PERMISSIONS = [PERMISSIONS.ARC_EXAM];
+
+const ARC_DIRECTOR_ONLY_SET = new Set(ARC_DIRECTOR_ONLY_PERMISSIONS);
+
+const ARC_ACTION_PERMISSIONS = ARC_PERMISSION_LIST.filter((permission) =>
+  permission.includes(":")
+);
 
 // 메뉴 단위로만 존재하는 권한(과거 9종 체계에는 없던 것).
 const ARC_MENU_ONLY_PERMISSIONS = [
@@ -390,6 +493,7 @@ export function stripArcPermissions(list) {
 }
 
 // 응급안전 권한만 따로 정규화합니다(다른 영역 권한은 버립니다).
+// ARC 대표 전용 권한은 목록에서 잘라 냅니다.
 export function normalizeArcPermissions(value) {
   if (!Array.isArray(value)) {
     return null;
@@ -405,19 +509,41 @@ export function normalizeArcPermissions(value) {
     }
   }
 
-  return ARC_PERMISSION_LIST.filter((permission) => unique.has(permission));
+  return ARC_PERMISSION_LIST.filter(
+    (permission) => unique.has(permission) && !ARC_DIRECTOR_ONLY_SET.has(permission)
+  );
 }
+
+// 직원 기본 ARC 권한.
+// "응급안전관리센터는 모든 사람이 볼 수 있게" 기본 세팅하고,
+// 자기 상비약·사용대장 기록처럼 직원이 직접 해야 하는 일만 열어 둡니다.
+// 나머지(재고·금액·동의서·민감정보·권한 관리)는 ARC 대표가 따로 켜 줘야 합니다.
+const ARC_STAFF_BASELINE = [
+  PERMISSIONS.ARC_VIEW,
+  PERMISSIONS.ARC_ASSISTANT,
+  PERMISSIONS.ARC_TRAINING,
+  PERMISSIONS.ARC_OTC,
+  PERMISSIONS.ARC_OTC_WRITE,
+  PERMISSIONS.ARC_USAGE,
+  PERMISSIONS.ARC_USAGE_WRITE,
+];
 
 function roleDefaultArcPermissions(role) {
-  return role === "OWNER" || role === "MANAGER" ? [...ARC_PERMISSION_LIST] : [];
+  if (role === "OWNER" || role === "MANAGER") {
+    return ARC_PERMISSION_LIST.filter(
+      (permission) => !ARC_DIRECTOR_ONLY_SET.has(permission)
+    );
+  }
+
+  return [...ARC_STAFF_BASELINE];
 }
 
-// 응급안전 21종(메뉴 단위)의 최종 권한.
-//   * 총괄 계정 → 항상 전부
+// 응급안전 권한의 최종 목록.
+//   * 총괄 계정 → 항상 전부(ARC 대표 전용 권한 포함)
 //   * arc_permissions 배열 → 그 목록만 (빈 배열 = 응급안전 접근 불가)
 //       단, 예전 9종 체계로 저장된 배열이면 메뉴 권한을 전부 채워 넣습니다.
 //       (구버전 화면에서 저장한 값 때문에 메뉴가 사라지는 사고를 막습니다.)
-//   * arc_permissions null → 역할 기본값(사장·매니저 전부, 직원 없음)
+//   * arc_permissions null → 역할 기본값
 export function arcPermissionsForEmployee(row) {
   if (!row) {
     return [];
@@ -473,23 +599,44 @@ const ARC_LEGACY_EXPANSIONS = {
 };
 
 /**
- * 구버전 9종 체계로 저장된 arc_permissions 를 새 21종 체계로 한 번만 옮깁니다.
+ * 예전 권한 체계로 저장된 arc_permissions 를 지금 체계로 한 번만 옮깁니다.
  *
- * 예전 화면은 메뉴 단위 권한을 저장하지 않았기 때문에, 그대로 두면 새로 쪼갠 메뉴가
- * 전부 사라진 것처럼 보입니다. 확장표(ARC_LEGACY_EXPANSIONS)로 자식 메뉴를 함께 켭니다.
+ *   v2 표식: 9종 묶음 → 메뉴 21종 (자식 메뉴 함께 켬)
+ *   v3 표식: 메뉴 21종 → 메뉴 + 동작(arc.xxx:write 등)
  *
  * 이미 한 번 돌았는지는 schema_state 표의 표식으로 확인합니다. 매번 기동할 때 다시
  * 돌리면, 총괄이 일부러 좁혀 둔 권한까지 늘어나기 때문입니다.
  */
 export async function migrateLegacyArcPermissions(log = console) {
-  const MARKER = "arc_permissions_v2";
+  const v2 = await migrateArcMenuPermissions(log);
+  const v3 = await migrateArcActionPermissions(log);
 
+  return { v2, v3 };
+}
+
+async function schemaMarkerExists(marker) {
   const done = await pool.query(
     "select 1 from public.schema_state where id = $1",
-    [MARKER]
+    [marker]
   );
 
-  if (done.rowCount > 0) {
+  return done.rowCount > 0;
+}
+
+async function writeSchemaMarker(marker) {
+  await pool.query(
+    `insert into public.schema_state (id, sql_hash, applied_at)
+     values ($1, '', now())
+     on conflict (id) do nothing`,
+    [marker]
+  );
+}
+
+/** v2 — 9종 묶음 권한을 메뉴 21종으로 펼칩니다. */
+async function migrateArcMenuPermissions(log) {
+  const MARKER = "arc_permissions_v2";
+
+  if (await schemaMarkerExists(MARKER)) {
     return { migrated: 0, skipped: true };
   }
 
@@ -519,16 +666,61 @@ export async function migrateLegacyArcPermissions(log = console) {
     }
   }
 
-  await pool.query(
-    `insert into public.schema_state (id, sql_hash, applied_at)
-     values ($1, '', now())
-     on conflict (id) do nothing`,
-    [MARKER]
-  );
+  await writeSchemaMarker(MARKER);
 
   if (rows.length > 0) {
     log.info(
       `[auth] 예전 응급안전 권한 ${rows.length}건을 새 메뉴 체계로 옮겼습니다: ${rows
+        .map((row) => row.login_id)
+        .join(", ")}`
+    );
+  }
+
+  return { migrated: rows.length, skipped: false };
+}
+
+/**
+ * v3 — 메뉴 권한만 있던 계정에 그 메뉴의 동작 권한을 함께 켭니다.
+ * (P14S 전에 저장된 계정이 등록·승인에서 갑자기 막히지 않게 하는 안전장치입니다.)
+ */
+async function migrateArcActionPermissions(log) {
+  const MARKER = "arc_permissions_v3";
+
+  if (await schemaMarkerExists(MARKER)) {
+    return { migrated: 0, skipped: true };
+  }
+
+  const { rows } = await pool.query(
+    `select id, login_id, arc_permissions
+       from public.employees
+      where arc_permissions is not null
+        and coalesce(array_length(arc_permissions, 1), 0) > 0
+        and not (arc_permissions && $1::text[])`,
+    [ARC_ACTION_PERMISSIONS]
+  );
+
+  for (const row of rows) {
+    const expanded = [...row.arc_permissions];
+
+    for (const permission of row.arc_permissions) {
+      expanded.push(...(ARC_ACTIONS_BY_MENU[permission] ?? []));
+    }
+
+    const next = normalizeArcPermissions(expanded);
+
+    if (next.length > 0) {
+      await pool.query(
+        "update public.employees set arc_permissions = $1 where id = $2",
+        [next, row.id]
+      );
+    }
+  }
+
+  await writeSchemaMarker(MARKER);
+
+  if (rows.length > 0) {
+    log.info(
+      `[auth] 응급안전 동작 권한을 ${rows.length}건에 함께 켰습니다: ${rows
         .map((row) => row.login_id)
         .join(", ")}`
     );

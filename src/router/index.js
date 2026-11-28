@@ -437,9 +437,9 @@ router.beforeEach(async (to) => {
   const employee = await loadStaffSession();
 
   if (employee) {
-    // 응급안전관리센터는 사장·매니저 전용입니다.
-    // 직원 계정에 arc.* 권한이 직접 들어 있어도 화면부터 막습니다.
-    // 단, 요청 게시판은 모든 직원이 ARC 대표에게 글을 올릴 수 있어 예외입니다.
+    // 응급안전관리센터는 arc.view 권한이 있으면 누구나 들어갈 수 있습니다.
+    // (권한 관리에서 arc.view 를 끄면 이 화면들은 모두 막힙니다.)
+    // 단, 요청 게시판은 권한과 무관하게 모든 직원이 ARC 대표에게 글을 올릴 수 있어 예외입니다.
     if (
       to.path.startsWith("/admin/arc") &&
       !to.path.startsWith("/admin/arc/requests") &&

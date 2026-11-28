@@ -110,6 +110,7 @@ import {
 } from "../../auth/permissions.js";
 import { createStaffGuard } from "../../auth/sessions.js";
 import {
+  arcActionForRequest,
   arcMenuGateFor,
   arcPermissionLabel,
   listArcPermissionBoard,
@@ -131,6 +132,7 @@ import {
   saveArcPerson,
 } from "../../arcPeople.js";
 import { arcVerbalPaperCatalog, buildArcVerbalPaper } from "../../arcVerbalPaper.js";
+import { buildArcStudyPack } from "../../arcStudyPack.js";
 import {
   arcTrainingCatalog,
   arcTrainingSummary,
@@ -196,32 +198,20 @@ import {
   updateArcEvent,
 } from "../../arcEvents.js";
 
-// 응급안전관리센터는 사장(대표)·매니저, 그리고 ARC 총괄 계정(yoonhee1021)만 씁니다.
-// 직원 계정에 arc.* 권한을 직접 넣어도 여기서 다시 막습니다. (2026-11-28 대표 지시)
-const ARC_ROLES = ["OWNER", "MANAGER"];
-
+// 응급안전관리센터 접근은 '권한'으로만 정합니다(역할 제한 없음).
+// 기본 세팅으로 모든 직원이 센터를 볼 수 있고, 무엇을 할 수 있는지는
+// ARC 대표(RN)가 /admin/arc/permissions 에서 메뉴·동작 단위로 조정합니다.
 function arcGuard(permission) {
   const base = createStaffGuard(permission);
 
   return async (request, reply) => {
     await base(request, reply);
-
-    const employee = request.staff?.employee;
-
-    if (!ARC_ROLES.includes(employee?.role) && !isArcDirector(employee?.loginId)) {
-      throw new HttpError(
-        403,
-        "HJ403",
-        "응급안전관리센터는 사장·매니저·ARC 총괄만 사용할 수 있어요."
-      );
-    }
-
     assertArcMenuAccess(request);
   };
 }
 
 /**
- * 메뉴 하나당 권한 하나 — ARC 대표가 회수한 메뉴는 API도 막습니다.
+ * 메뉴 하나당 권한 하나 + 메뉴 안쪽 동작 권한 — 회수한 것은 API도 막습니다.
  * (화면에서만 숨기면 주소로 우회할 수 있어 서버에서 한 번 더 확인합니다.)
  */
 function assertArcMenuAccess(request) {
@@ -244,6 +234,18 @@ function assertArcMenuAccess(request) {
       403,
       "HJ403",
       `응급안전 권한 관리에서 '${label}' 권한이 회수되었어요. ARC 대표(RN)에게 요청해 주세요.`
+    );
+  }
+
+  const action = arcActionForRequest(request.method, request.url);
+
+  if (action && !hasPermission(request, action)) {
+    const label = arcPermissionLabel(action);
+
+    throw new HttpError(
+      403,
+      "HJ403",
+      `'${label}' 동작 권한이 없어요. ARC 대표(RN)에게 요청해 주세요.`
     );
   }
 }
@@ -369,6 +371,24 @@ export function registerArcRoutes(app) {
     "/api/arc/verbal/paper/catalog",
     { preHandler: [requireView, requireArcDirector] },
     async () => arcVerbalPaperCatalog()
+  );
+
+  // 족보 교육자료 — 이번 시험 문제 + 주변 지식을 한 부로 묶습니다(총괄 전용).
+  app.get(
+    "/api/arc/verbal/study-pack",
+    { preHandler: [requireView, requireArcDirector] },
+    async (request) => {
+      const query = request.query || {};
+
+      return buildArcStudyPack({
+        kind: query.kind,
+        seed: query.seed,
+        emphasis: query.emphasis,
+        targetName: query.targetName,
+        reviewer: currentEmployee(request)?.name || "",
+        aiVaried: query.aiVaried !== "false",
+      });
+    }
   );
 
   // ── 근무 번표(최윤희 병원 근무표) ────────────────────────────────────
@@ -758,8 +778,8 @@ export function registerArcRoutes(app) {
 
   app.get("/api/arc/stocktakes", { preHandler: requireView }, async (request) => ({
     stocktakes: await listArcStocktakes({ limit: request.query?.limit }),
-    canCount: hasPermission(request, PERMISSIONS.ARC_STOCK),
-    canApply: hasPermission(request, PERMISSIONS.ARC_CHECK),
+    canCount: hasPermission(request, PERMISSIONS.ARC_STOCKTAKE_WRITE),
+    canApply: hasPermission(request, PERMISSIONS.ARC_STOCKTAKE_CONFIRM),
   }));
 
   app.get("/api/arc/stocktakes/:stocktakeId", { preHandler: requireView }, async (request) =>
@@ -816,8 +836,8 @@ export function registerArcRoutes(app) {
         period: request.query?.period || null,
         limit: request.query?.limit,
       }),
-      canCreate: hasPermission(request, PERMISSIONS.ARC_STOCK),
-      canSettle: hasPermission(request, PERMISSIONS.ARC_APPROVE),
+      canCreate: hasPermission(request, PERMISSIONS.ARC_PURCHASE_WRITE),
+      canSettle: hasPermission(request, PERMISSIONS.ARC_PURCHASE_SETTLE),
       viewer: employee?.name ?? "",
     };
   });
@@ -933,7 +953,7 @@ export function registerArcRoutes(app) {
         to: query.to || null,
         limit: query.limit,
       }),
-      canCare: hasPermission(request, PERMISSIONS.ARC_CARE),
+      canCare: hasPermission(request, PERMISSIONS.ARC_CARE_WRITE),
       canSensitive: hasPermission(request, PERMISSIONS.ARC_SENSITIVE),
       canApprove: hasPermission(request, PERMISSIONS.ARC_APPROVE),
       viewerName: currentEmployee(request)?.name ?? "",
@@ -950,7 +970,7 @@ export function registerArcRoutes(app) {
 
     return {
       ...(await getArcCareStatus(request.params?.incidentId)),
-      canCare: hasPermission(request, PERMISSIONS.ARC_CARE),
+      canCare: hasPermission(request, PERMISSIONS.ARC_CARE_WRITE),
       canSensitive: hasPermission(request, PERMISSIONS.ARC_SENSITIVE),
       canApprove: director,
       // 상세 건강기록 작성·수정은 ARC 총괄만 가능합니다.
@@ -1218,10 +1238,10 @@ export function registerArcRoutes(app) {
       prices: await listArcItemPrices(),
       pendingUsage: await previewUsageMonth(period),
       summary: await arcUsageSummary(),
-      canCreate: hasPermission(request, PERMISSIONS.ARC_STOCK),
-      canExpense: hasPermission(request, PERMISSIONS.ARC_EXPENSE),
-      canApprove: hasPermission(request, PERMISSIONS.ARC_APPROVE),
-      canManagePrices: arcAdminOnly(request),
+      canCreate: hasPermission(request, PERMISSIONS.ARC_USAGE_WRITE),
+      canExpense: hasPermission(request, PERMISSIONS.ARC_EXPENSE_WRITE),
+      canApprove: hasPermission(request, PERMISSIONS.ARC_EXPENSE_SETTLE),
+      canManagePrices: hasPermission(request, PERMISSIONS.ARC_USAGE_PRICE),
       viewerName: employee?.name ?? "",
     };
   });
@@ -1231,7 +1251,7 @@ export function registerArcRoutes(app) {
     { preHandler: requireView },
     async (request) => ({
       ...(await getArcUsage(request.params?.usageId)),
-      canCreate: hasPermission(request, PERMISSIONS.ARC_STOCK),
+      canCreate: hasPermission(request, PERMISSIONS.ARC_USAGE_WRITE),
     })
   );
 
@@ -1300,8 +1320,8 @@ export function registerArcRoutes(app) {
       }),
       summary: await arcExpenseSummary(),
       pendingUsage: await previewUsageMonth(period),
-      canCreate: hasPermission(request, PERMISSIONS.ARC_EXPENSE),
-      canApprove: hasPermission(request, PERMISSIONS.ARC_APPROVE),
+      canCreate: hasPermission(request, PERMISSIONS.ARC_EXPENSE_WRITE),
+      canApprove: hasPermission(request, PERMISSIONS.ARC_EXPENSE_SETTLE),
       viewerName: employee?.name ?? "",
     };
   });
@@ -1311,8 +1331,8 @@ export function registerArcRoutes(app) {
     { preHandler: requireView },
     async (request) => ({
       ...(await getArcExpense(request.params?.expenseId)),
-      canCreate: hasPermission(request, PERMISSIONS.ARC_EXPENSE),
-      canApprove: hasPermission(request, PERMISSIONS.ARC_APPROVE),
+      canCreate: hasPermission(request, PERMISSIONS.ARC_EXPENSE_WRITE),
+      canApprove: hasPermission(request, PERMISSIONS.ARC_EXPENSE_SETTLE),
     })
   );
 
@@ -1998,7 +2018,8 @@ export function registerArcRoutes(app) {
     return {
       ...list,
       summary: await arcQualitySummary(),
-      canWrite: hasPermission(request, PERMISSIONS.ARC_CARE),
+      canWrite: hasPermission(request, PERMISSIONS.ARC_QUALITY_WRITE),
+      canClose: hasPermission(request, PERMISSIONS.ARC_QUALITY_CLOSE),
     };
   });
 
@@ -2108,7 +2129,7 @@ export function registerArcRoutes(app) {
     return {
       ...list,
       summary: await arcEventSummary(),
-      canWrite: hasPermission(request, PERMISSIONS.ARC_CARE),
+      canWrite: hasPermission(request, PERMISSIONS.ARC_EVENT_WRITE),
     };
   });
 

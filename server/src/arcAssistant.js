@@ -5,11 +5,21 @@
 //   * 새 테이블을 만들지 않습니다. 기존 요약 함수의 결과만 재사용합니다.
 //   * 카드마다 원본 화면 링크(link)를 달아 클릭 한 번으로 처리하게 합니다.
 //   * 사장 보고용 3줄 요약을 함께 만듭니다.
+//
+// P14S — 보는 사람마다 브리핑이 다릅니다.
+//   * ARC 대표(RN)  : 전체 카드 + 사장 보고용 3줄 요약
+//   * 사장(OWNER)   : 자기 권한으로 할 수 있는 일 + 자기 요청 상태
+//   * 직원(STAFF)   : 자기 권한 안에서 해야 할 일 + 자기 요청 처리 상태
+//   카드는 '필요한 권한'으로 걸러지므로, 응급안전 권한 관리에서 권한을 바꾸면
+//   다음 새로고침부터 그 사람 화면이 바로 바뀝니다.
+import { PERMISSIONS, arcPermissionsForEmployee, isArcDirector } from "./auth/permissions.js";
 import { pool } from "./db.js";
 import { arcDashboardSummary } from "./arc.js";
 import { arcEventSummary } from "./arcEvents.js";
 import { arcExpenseSummary } from "./arcExpense.js";
+import { arcPermissionSnapshot } from "./arcPermissions.js";
 import { arcQualitySummary } from "./arcQuality.js";
+import { arcRequestSummaryFor } from "./arcRequests.js";
 import { listArcRoutine } from "./arcRoutine.js";
 import { arcStockSummary } from "./arcStock.js";
 import { arcTrainingSummary } from "./arcTraining.js";
@@ -77,13 +87,106 @@ function card({ key, priority, title, detail, count = 0, unit = "건", link, act
 }
 
 /**
+ * 카드 → 이 카드를 보려면 필요한 ARC 권한.
+ * 여기에 없는 카드는 최소 권한(arc.view)으로 취급합니다.
+ */
+const CARD_PERMISSIONS = {
+  "routine-overdue": PERMISSIONS.ARC_ROUTINE,
+  "routine-active": PERMISSIONS.ARC_ROUTINE,
+  "access-pending": PERMISSIONS.ARC_SENSITIVE_APPROVE,
+  "stock-overdue": PERMISSIONS.ARC_STOCK,
+  "stock-expiring7": PERMISSIONS.ARC_STOCK,
+  "stock-low": PERMISSIONS.ARC_STOCK,
+  "stocktake-missing": PERMISSIONS.ARC_STOCKTAKE,
+  "stocktake-draft": PERMISSIONS.ARC_STOCKTAKE,
+  "otc-due": PERMISSIONS.ARC_OTC,
+  "billing-open": PERMISSIONS.ARC_EXPENSE,
+  "training-missing": PERMISSIONS.ARC_TRAINING,
+  "training-planned": PERMISSIONS.ARC_TRAINING,
+  "training-followup": PERMISSIONS.ARC_TRAINING,
+  "consent-pending": PERMISSIONS.ARC_CONSENT,
+  "consent-expiring": PERMISSIONS.ARC_CONSENT,
+  "incident-review": PERMISSIONS.ARC_QUALITY,
+  "quality-action": PERMISSIONS.ARC_QUALITY,
+  "event-briefing": PERMISSIONS.ARC_EVENT,
+  "notifications": PERMISSIONS.ARC_VIEW,
+  "settings-alert-channel": PERMISSIONS.ARC_ADMIN,
+  "requests-pending": PERMISSIONS.ARC_VIEW,
+  "requests-mine": PERMISSIONS.ARC_VIEW,
+};
+
+/** 화면이 인사말·안내 문구를 바꿀 수 있도록 보는 사람 정보를 정리합니다. */
+function buildViewer(employee, granted) {
+  if (!employee) {
+    return {
+      kind: "GUEST",
+      isDirector: false,
+      name: "",
+      title: "",
+      roleLabel: "",
+      grantedCount: granted.size,
+      headline: "ARC 비서",
+      hint: "로그인 정보를 확인할 수 없어 기본 안내만 보여드려요.",
+    };
+  }
+
+  const isDirector = isArcDirector(employee.loginId);
+  const roleLabel = employee.title || employee.titleLabel || employee.role || "";
+
+  if (isDirector) {
+    return {
+      kind: "DIRECTOR",
+      isDirector: true,
+      name: employee.name || "",
+      title: employee.title || "",
+      roleLabel,
+      grantedCount: granted.size,
+      headline: `${employee.name || "ARC 대표"}님, 오늘 챙길 일을 정리했어요.`,
+      hint: "ARC 대표(RN)에게는 모든 메뉴와 동작 권한이 항상 열려 있어요.",
+    };
+  }
+
+  if (employee.role === "OWNER") {
+    return {
+      kind: "OWNER",
+      isDirector: false,
+      name: employee.name || "",
+      title: employee.title || "",
+      roleLabel,
+      grantedCount: granted.size,
+      headline: `${employee.name || "사장"}님, 지금 권한으로 할 수 있는 일만 모았어요.`,
+      hint: "권한이 바뀌면 이 화면도 다음 새로고침부터 바로 바뀌어요. 필요한 권한은 요청 게시판으로 ARC 대표(RN)에게 요청해 주세요.",
+    };
+  }
+
+  return {
+    kind: "STAFF",
+    isDirector: false,
+    name: employee.name || "",
+    title: employee.title || "",
+    roleLabel,
+    grantedCount: granted.size,
+    headline: `${employee.name || "직원"}님, 맡은 일부터 확인해 주세요.`,
+    hint: "내 권한은 응급안전 권한 관리에서 ARC 대표(RN)만 바꿀 수 있어요. 권한이 바뀌면 이 화면도 바로 바뀝니다.",
+  };
+}
+
+/**
  * ARC 비서 브리핑.
  * @param {{ employee?: object|null }} options
  */
 export async function arcAssistantBriefing({ employee = null } = {}) {
   const { today, period } = todayKst();
+  const isDirector = isArcDirector(employee?.loginId);
+  // 로그인 세션의 permissions 배열이 가장 정확합니다(권한 관리 변경이 즉시 반영됨).
+  const granted = new Set(
+    Array.isArray(employee?.permissions)
+      ? employee.permissions
+      : arcPermissionsForEmployee(employee)
+  );
+  const can = (permission) => isDirector || granted.has(permission);
 
-  const [routine, stock, usage, expense, quality, events, training, dashboard, counts] =
+  const [routine, stock, usage, expense, quality, events, training, dashboard, counts, requests] =
     await Promise.all([
       listArcRoutine({ period }),
       arcStockSummary({ employee }),
@@ -94,6 +197,7 @@ export async function arcAssistantBriefing({ employee = null } = {}) {
       arcTrainingSummary({ period }),
       arcDashboardSummary(employee?.id ?? null),
       loadComplianceCounts(period),
+      arcRequestSummaryFor({ isDirector, employeeId: employee?.id ?? "" }),
     ]);
 
   const cards = [];
@@ -421,53 +525,67 @@ export async function arcAssistantBriefing({ employee = null } = {}) {
     );
   }
 
+  // ── 15) 요청 게시판(직원·사장 → ARC 대표) ────────────────────────────
+  if (isDirector) {
+    if (requests.PENDING > 0) {
+      cards.push(
+        card({
+          key: "requests-pending",
+          priority: "P1",
+          title: "요청 게시판 미확인 글",
+          detail:
+            "직원·사장이 올린 요청을 아직 읽지 않았어요. 읽음 표시 후 답글이나 완료 처리를 해 주세요.",
+          count: requests.PENDING,
+          link: "/admin/arc/requests",
+          action: "요청 확인",
+        })
+      );
+    }
+  } else if (requests.total > 0) {
+    cards.push(
+      card({
+        key: "requests-mine",
+        priority: requests.DONE > 0 && requests.PENDING === 0 ? "P2" : "P1",
+        title: "내가 올린 요청 처리 상태",
+        detail: `확인 대기 ${requests.PENDING}건 · 읽음 ${requests.READ}건 · 완료 ${requests.DONE}건. 완료된 글에는 ARC 대표의 처리 사유가 달려 있어요.`,
+        count: requests.PENDING,
+        link: "/admin/arc/requests",
+        action: "내 요청 보기",
+      })
+    );
+  }
+
+  // 카드마다 "이 카드를 보려면 필요한 권한"을 붙이고, 내 권한으로 볼 수 있는 것만 남깁니다.
+  const visible = cards
+    .map((item) => ({
+      ...item,
+      permission: CARD_PERMISSIONS[item.key] || PERMISSIONS.ARC_VIEW,
+    }))
+    .filter((item) => can(item.permission));
+
   const priorityRank = { P0: 0, P1: 1, P2: 2 };
-  const sorted = cards.sort(
+  const sorted = visible.sort(
     (a, b) => priorityRank[a.priority] - priorityRank[b.priority] || a.title.localeCompare(b.title)
   );
 
   const p0 = sorted.filter((item) => item.priority === "P0");
   const p1 = sorted.filter((item) => item.priority === "P1");
 
-  return {
-    today,
-    period,
-    employee: employee ? { name: employee.name, title: employee.title ?? "" } : null,
-    cards: sorted,
-    counts: {
-      p0: p0.length,
-      p1: p1.length,
-      p2: sorted.length - p0.length - p1.length,
-      total: sorted.length,
-    },
-    routine: {
-      period: routine.period,
-      todayDay: routine.today.day,
-      done: routine.progress.done,
-      total: routine.progress.total,
-      percent: routine.progress.percent,
-      overdue: overdueSteps.length,
-      active: activeSteps.map((step) => ({
-        key: step.key,
-        title: step.title,
-        windowLabel: step.windowLabel,
-        link: step.link,
-        checkedCount: step.checkedCount,
-        itemCount: step.items.length,
-        requiresSignature: step.requiresSignature,
-      })),
-      next: routine.steps
-        .filter((step) => step.state === "UPCOMING")
-        .slice(0, 3)
-        .map((step) => ({
-          key: step.key,
-          title: step.title,
-          windowLabel: step.windowLabel,
-          link: step.link,
-        })),
-    },
-    // 사장 보고용 3줄 요약 — 그대로 복사해서 보고에 쓸 수 있게 만듭니다.
-    briefing: [
+  // 사장 보고용 3줄 요약 — 총괄·사장 화면에서만 씁니다.
+  const briefingLines = () => {
+    if (!can(PERMISSIONS.ARC_ROUTINE)) {
+      return [
+        `[${period} ARC] 내가 볼 수 있는 할 일 ${sorted.length}건`,
+        `즉시 확인 ${p0.length}건${
+          p0.length ? ` — ${p0.map((item) => item.title).join(", ")}` : " 없음"
+        }`,
+        `이번 주 확인 ${p1.length}건${
+          p1.length ? ` — ${p1.map((item) => item.title).join(", ")}` : " 없음"
+        }`,
+      ];
+    }
+
+    return [
       `[${period} ARC] 월간 루틴 ${routine.progress.done}/${routine.progress.total}건 완료(${routine.progress.percent}%)${
         overdueSteps.length ? `, 기한 초과 ${overdueSteps.length}건` : ""
       }`,
@@ -477,6 +595,51 @@ export async function arcAssistantBriefing({ employee = null } = {}) {
       `이번 주 확인 ${p1.length}건${
         p1.length ? ` — ${p1.map((item) => item.title).join(", ")}` : " 없음"
       }`,
-    ],
+    ];
+  };
+
+  return {
+    today,
+    period,
+    employee: employee ? { name: employee.name, title: employee.title ?? "" } : null,
+    viewer: buildViewer(employee, granted),
+    cards: sorted,
+    myPermissions: arcPermissionSnapshot(employee),
+    counts: {
+      p0: p0.length,
+      p1: p1.length,
+      p2: sorted.length - p0.length - p1.length,
+      total: sorted.length,
+    },
+    routine: can(PERMISSIONS.ARC_ROUTINE)
+      ? {
+          period: routine.period,
+          todayDay: routine.today.day,
+          done: routine.progress.done,
+          total: routine.progress.total,
+          percent: routine.progress.percent,
+          overdue: overdueSteps.length,
+          active: activeSteps.map((step) => ({
+            key: step.key,
+            title: step.title,
+            windowLabel: step.windowLabel,
+            link: step.link,
+            checkedCount: step.checkedCount,
+            itemCount: step.items.length,
+            requiresSignature: step.requiresSignature,
+          })),
+          next: routine.steps
+            .filter((step) => step.state === "UPCOMING")
+            .slice(0, 3)
+            .map((step) => ({
+              key: step.key,
+              title: step.title,
+              windowLabel: step.windowLabel,
+              link: step.link,
+            })),
+        }
+      : null,
+    // 사장 보고용 3줄 요약 — 그대로 복사해서 보고에 쓸 수 있게 만듭니다.
+    briefing: briefingLines(),
   };
 }

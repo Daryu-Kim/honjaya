@@ -2450,6 +2450,61 @@ so dense tables and long forms drift apart and read badly; (2) every ARC sensiti
 ARC `.vue` files found a matching hook in every view; `node --check` clean on the 7 edited server files;
 grep confirms zero remaining `arcCrypto` / `ARC_FIELD_KEY` / `fieldKey` / `encryptionReady` references.
 
+### P14S — ARC role-aware 비서, per-action 권한, 시험지·족보 출력, 선택형 인사카드 (2026-11-29)
+
+**Why:** the director asked for six things at once — the 비서 must speak differently to 최윤희 / 사장 /
+직원 and re-render when a permission changes; everybody must be able to *see* their own permissions;
+ARC must be open to everyone by default (director can revoke); 인사카드 must capture far more detail
+without forcing every field; 시험지 출력 must be the first thing inside 월간 교육·OT; and 권한 관리 must
+drop to per-menu **and per-action** granularity, director-only.
+
+**Permission engine (server):**
+- `auth/permissions.js`: 26 action keys (`arc.routine:check` … `arc.admin:write`) + `arc.exam`;
+  `ARC_ACTIONS_BY_MENU`, `ARC_PERMISSION_LIST` (49 total), `ARC_DIRECTOR_ONLY_PERMISSIONS = [arc.exam]`,
+  `ARC_ACTION_PERMISSIONS`, `normalizeArcPermissions()` (strips director-only),
+  `ARC_STAFF_BASELINE` (view/assistant/training/otc+write/usage+write),
+  `roleDefaultArcPermissions()` (OWNER & MANAGER = full minus director-only),
+  `arcPermissionsForEmployee()` (director → full; null override → role default; else normalized).
+  Migrations `arc_permissions_v2` / `arc_permissions_v3` are idempotent (`ensureSchema()` on boot).
+- `arcPermissions.js`: `ARC_PERMISSION_NOTES` (plain-Korean one-liner per permission),
+  `arcPermissionCatalog()` (menu cards with nested `actions[]`), `ARC_ACTION_RULES` (17 method+regex
+  rules) → `arcActionForRequest()`, `arcPermissionSnapshot()` (groups/items/actions + granted flags,
+  used by both the 비서 and 권한 관리), `saveArcEmployeePermissions()` auto-adds the parent menu +
+  `arc.view` whenever any action is granted.
+- `routes/api/arc.js`: `assertArcMenuAccess()` now enforces the action rule too (Korean 403);
+  `GET /api/arc/verbal/study-pack` added (director only).
+
+**비서 (`arcAssistant.js` + `AdminArcAssistantView.vue` rewrite):**
+- `buildViewer()` → `{kind: DIRECTOR|OWNER|STAFF|GUEST, headline, hint, grantedCount}`; cards filtered by
+  `CARD_PERMISSIONS` so the same briefing renders differently per role, and the routine panel disappears
+  for anyone without `arc.routine`. Payload added `viewer` + `myPermissions` (full snapshot) so the view
+  can print "내 응급안전 권한" chips (menu + action, granted/not) for every user.
+- View: summary strip (오늘 / 즉시 / 이번 주 / 참고 / 내 권한 n/49), 권한 panel with per-group counts,
+  routine progress, priority cards, then 사장용 "보고 3줄 요약 + 복사" vs 직원용 "권한 요청 게시판" CTA.
+
+**월간 교육·OT — 시험지 출력 first tab (`ArcExamPrintPanel.vue`, new ~32 KB):**
+- New `papers` tab, `directorOnly`, and it is the default tab for the director (`board.canWrite`).
+- Three outputs: 시험지 / 교육자용(답안·평가표) / 족보 교육자료; kind 불시 vs 정규; seed + "AI가 문제를
+  바꿔서 출제" toggle (`aiVaried`) + free-text 의견 field so the director still steers the questions.
+- 족보 pack (`server/src/arcStudyPack.js`, new) reuses `buildArcVerbalPaper({mode:"TEACHER"})` so the seed
+  matches the printed paper: 이번 시험 문항 (수행/부분수행/미수행 criteria + 이론 근거 + 꼬리질문 + 위험한 답)
+  → 8개 영역 전체 지식 (★이번 시험 badge) → 질문 은행 → 어려운 말 풀이 → 합격 기준 → 인쇄 전 체크리스트.
+- Print follows the established pattern: scoped styles + a second non-scoped `@media print` block keyed on
+  `body.arc-study-open`; `arc-theme.css` print guard now excludes that class too.
+
+**인사카드 (`arcPeople.js` + `AdminArcPeopleView.vue`):**
+- 13 health fields + 12 profile fields, every one optional (`선택` chip, textarea for long keys), stored in
+  one `health_enc` JSON blob and split back out by `pickFields()` into `card.health` / `card.profile`.
+
+**ARC access default:** `canAccessArc()` is permission-based (`arc.view`), router + `AdminLayout` follow it,
+only `/admin/arc/requests` stays open so anyone can ask the director for more permissions.
+
+**Verification (static only, no build run):** `node --check` clean on the 6 server files and on the script
+blocks of the 5 edited `.vue` files; `sass.compileString` clean on every `<style lang="scss">` block;
+`arcPermissionSnapshot()` smoke-tested for director (49/49), owner (48/49) and staff baseline (7/49);
+`buildArcStudyPack({kind:"SURPRISE"})` returns 6 exam items / 40 pts / 5 critical / 34 knowledge / 27 glossary.
+No lint/typecheck/build executed yet — awaiting the operator's go-ahead per rule 15.
+
 ---
 
 ## 4. Open questions

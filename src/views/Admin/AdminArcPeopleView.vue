@@ -237,16 +237,62 @@
           </label>
         </div>
 
-        <h3 class="section-title">현장 참고 건강정보</h3>
+        <h3 class="section-title">
+          기본 인사정보
+          <small>— 아는 것만 적으면 됩니다. 빈 항목은 그대로 저장돼요.</small>
+        </h3>
+        <div class="field-grid">
+          <label
+            v-for="field in profileFields"
+            :key="field.key"
+            class="field"
+            :class="{ wide: isLongField(field) }"
+          >
+            <span>
+              {{ field.label }}
+              <em class="optional">선택</em>
+            </span>
+            <textarea
+              v-if="isLongField(field)"
+              v-model="form.profile[field.key]"
+              rows="2"
+              maxlength="600"
+              :placeholder="field.hint"
+            ></textarea>
+            <input
+              v-else
+              v-model="form.profile[field.key]"
+              type="text"
+              maxlength="600"
+              :placeholder="field.hint"
+            />
+          </label>
+        </div>
+
+        <h3 class="section-title">
+          현장 참고 건강정보
+          <small>— 모르거나 해당 없으면 비워 두세요.</small>
+        </h3>
         <div class="field-grid">
           <label
             v-for="field in healthFields"
             :key="field.key"
             class="field"
-            :class="{ wide: field.key === 'note' }"
+            :class="{ wide: isLongField(field) }"
           >
-            <span>{{ field.label }}</span>
+            <span>
+              {{ field.label }}
+              <em class="optional">선택</em>
+            </span>
+            <textarea
+              v-if="isLongField(field)"
+              v-model="form.health[field.key]"
+              rows="2"
+              maxlength="600"
+              :placeholder="field.hint"
+            ></textarea>
             <input
+              v-else
               v-model="form.health[field.key]"
               type="text"
               maxlength="600"
@@ -307,6 +353,21 @@ import {
   saveArcPerson,
 } from "@/lib/arc";
 
+// 인사카드 항목은 전부 선택 입력입니다(작성 안 한 항목은 그대로 저장).
+// 여러 줄이 필요한 항목만 textarea 로 보여 줍니다.
+const LONG_FIELD_KEYS = [
+  "conditions",
+  "medications",
+  "surgeries",
+  "vaccinations",
+  "doctor",
+  "note",
+  "career",
+  "certificates",
+  "family",
+  "memo",
+];
+
 function emptyForm() {
   return {
     editId: "",
@@ -322,13 +383,8 @@ function emptyForm() {
     address: "",
     joinedOn: "",
     note: "",
-    health: {
-      bloodType: "",
-      allergies: "",
-      conditions: "",
-      medications: "",
-      note: "",
-    },
+    health: {},
+    profile: {},
   };
 }
 
@@ -349,6 +405,7 @@ export default {
     const stats = computed(() => board.value.stats ?? {});
     const catalog = computed(() => board.value.catalog ?? {});
     const healthFields = computed(() => catalog.value.healthFields ?? []);
+    const profileFields = computed(() => catalog.value.profileFields ?? []);
     const employmentKinds = computed(() => catalog.value.employmentKinds ?? []);
     const tips = computed(() => catalog.value.tips ?? []);
     const joinedMissing = computed(
@@ -385,13 +442,8 @@ export default {
         address: card.address ?? "",
         joinedOn: card.joinedOn ?? "",
         note: card.note ?? "",
-        health: {
-          bloodType: card.health?.bloodType ?? "",
-          allergies: card.health?.allergies ?? "",
-          conditions: card.health?.conditions ?? "",
-          medications: card.health?.medications ?? "",
-          note: card.health?.note ?? "",
-        },
+        health: { ...(card.health ?? {}) },
+        profile: { ...(card.profile ?? {}) },
       });
       currentMask.value = card.residentMask || "";
     }
@@ -401,6 +453,10 @@ export default {
       currentMask.value = "";
       errorMessage.value = "";
       okMessage.value = "";
+    }
+
+    function isLongField(field) {
+      return LONG_FIELD_KEYS.includes(field?.key);
     }
 
     function startFromAccount(account) {
@@ -477,6 +533,7 @@ export default {
           joinedOn: form.joinedOn,
           note: form.note,
           health: form.health,
+          profile: form.profile,
         });
 
         const cardName = form.name;
@@ -530,6 +587,8 @@ export default {
       stats,
       missingAccounts,
       healthFields,
+      profileFields,
+      isLongField,
       employmentKinds,
       tips,
       joinedMissing,
@@ -904,6 +963,25 @@ export default {
   font-size: 13px;
   font-weight: 800;
   color: #0f172a;
+
+  small {
+    margin-left: 6px;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: #64748b;
+  }
+}
+
+.optional {
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  color: #64748b;
 }
 
 .form-actions {

@@ -5,10 +5,10 @@
         <p class="eyebrow">ARC SAFETY · 비서</p>
         <h1>ARC 비서</h1>
         <p class="description">
-          오늘 챙겨야 할 일만 모았어요. 급한 것부터 위에 있고, 카드를 누르면
-          바로 그 화면으로 이동합니다. 사장 보고용 3줄 요약은 복사해서 그대로
-          쓰시면 돼요.
+          {{ viewer.headline || "오늘 챙겨야 할 일만 모았어요." }}
+          급한 것부터 위에 있고, 카드를 누르면 바로 그 화면으로 이동합니다.
         </p>
+        <p class="helper-text">{{ viewer.hint }}</p>
       </div>
       <div class="header-actions">
         <button
@@ -29,27 +29,105 @@
     <p v-if="isLoading && !briefing" class="empty-box">불러오는 중이에요.</p>
 
     <template v-if="briefing">
-      <section class="summary-strip">
-        <div class="summary-cell">
-          <span class="summary-label">오늘</span>
-          <strong class="summary-value">{{ briefing.today }}</strong>
-        </div>
-        <div class="summary-cell">
-          <span class="summary-label">즉시 조치</span>
+      <section class="summary-grid">
+        <article class="summary-card">
+          <p class="summary-label">오늘</p>
+          <strong class="summary-value">{{
+            formatKoreanDate(briefing.today)
+          }}</strong>
+          <p class="summary-note">{{ viewer.kindLabel }}</p>
+        </article>
+        <article class="summary-card">
+          <p class="summary-label">즉시 조치</p>
           <strong class="summary-value danger">{{ briefing.counts.p0 }}</strong>
-        </div>
-        <div class="summary-cell">
-          <span class="summary-label">이번 주 확인</span>
+          <p class="summary-note">오늘 안에 처리</p>
+        </article>
+        <article class="summary-card">
+          <p class="summary-label">이번 주 확인</p>
           <strong class="summary-value warn">{{ briefing.counts.p1 }}</strong>
-        </div>
-        <div class="summary-cell">
-          <span class="summary-label">참고</span>
+          <p class="summary-note">이번 주 안에 처리</p>
+        </article>
+        <article class="summary-card">
+          <p class="summary-label">참고</p>
           <strong class="summary-value">{{ briefing.counts.p2 }}</strong>
+          <p class="summary-note">여유 있을 때</p>
+        </article>
+        <article class="summary-card">
+          <p class="summary-label">내 권한</p>
+          <strong class="summary-value">
+            {{ myPermissions.grantedCount
+            }}<small>/{{ myPermissions.total }}</small>
+          </strong>
+          <p class="summary-note">
+            {{
+              myPermissions.isDirector ? "전체 권한 고정" : "권한 관리에서 조정"
+            }}
+          </p>
+        </article>
+      </section>
+
+      <section class="panel">
+        <header class="panel-head">
+          <div>
+            <h2>내 응급안전 권한</h2>
+            <p class="helper-text">
+              {{ permissionIntro }}
+            </p>
+          </div>
+          <router-link
+            v-if="myPermissions.isDirector"
+            to="/admin/arc/permissions"
+            class="inline-link"
+          >
+            권한 관리로 이동 →
+          </router-link>
+        </header>
+
+        <div class="perm-groups">
+          <article
+            v-for="group in myPermissions.groups"
+            :key="group.name"
+            class="perm-group"
+          >
+            <h3 class="perm-group-title">
+              {{ group.name }}
+              <span class="perm-count">
+                {{ groupGranted(group) }}/{{ groupTotal(group) }}
+              </span>
+            </h3>
+
+            <ul class="perm-list">
+              <li
+                v-for="item in group.items"
+                :key="item.permission"
+                class="perm-row"
+              >
+                <span class="perm-chip" :class="item.granted ? 'on' : 'off'">
+                  {{ item.label }}
+                </span>
+
+                <template v-if="item.actions?.length">
+                  <span
+                    v-for="action in item.actions"
+                    :key="action.permission"
+                    class="perm-action-chip"
+                    :class="{
+                      on: action.granted,
+                      off: !action.granted,
+                      locked: action.directorOnly,
+                    }"
+                  >
+                    {{ action.label }}
+                  </span>
+                </template>
+              </li>
+            </ul>
+          </article>
         </div>
       </section>
 
-      <section class="panel routine-panel">
-        <div class="routine-head">
+      <section v-if="briefing.routine" class="panel routine-panel">
+        <header class="panel-head">
           <div>
             <h2>{{ briefing.routine.period }} 월간 운영 루틴</h2>
             <p class="helper-text">
@@ -61,7 +139,7 @@
             </p>
           </div>
           <span class="routine-percent">{{ briefing.routine.percent }}%</span>
-        </div>
+        </header>
 
         <div class="progress-track">
           <div
@@ -106,7 +184,16 @@
       </section>
 
       <section class="panel">
-        <h2>오늘 챙길 일</h2>
+        <header class="panel-head">
+          <div>
+            <h2>오늘 챙길 일</h2>
+            <p class="helper-text">
+              내 권한으로 처리할 수 있는 일만 모았어요. 권한이 바뀌면 이 목록도
+              다음 새로고침부터 바로 바뀝니다.
+            </p>
+          </div>
+        </header>
+
         <p v-if="!briefing.cards.length" class="empty-box ok">
           지금 급한 일은 없어요. 기록 정리나 다음 달 준비를 해 보세요.
         </p>
@@ -123,9 +210,9 @@
                 priorityLabel(item.priority)
               }}</span>
               <strong class="task-title">{{ item.title }}</strong>
-              <span v-if="item.count" class="task-count"
-                >{{ item.count }}{{ item.unit }}</span
-              >
+              <span v-if="item.count" class="task-count">
+                {{ item.count }}{{ item.unit }}
+              </span>
               <p class="task-detail">{{ item.detail }}</p>
             </div>
             <router-link :to="item.link" class="task-action">
@@ -135,34 +222,61 @@
         </ul>
       </section>
 
-      <section class="panel">
-        <div class="routine-head">
-          <h2>사장 보고용 3줄 요약</h2>
+      <section v-if="canSeeReport" class="panel">
+        <header class="panel-head">
+          <div>
+            <h2>사장 보고용 3줄 요약</h2>
+            <p class="helper-text">
+              정산·재고 금액이 걸린 항목은 '금액'까지 함께 보고하면 확인이
+              빨라요.
+            </p>
+          </div>
           <button type="button" class="ghost-button" @click="copyBriefing">
             복사하기
           </button>
-        </div>
+        </header>
         <ol class="briefing-list">
           <li v-for="(line, index) in briefing.briefing" :key="index">
             {{ line }}
           </li>
         </ol>
-        <p class="helper-text">
-          정산·재고 금액이 걸린 항목은 '금액'까지 함께 보고하면 확인이 빨라요.
-        </p>
+      </section>
+
+      <section v-else class="panel">
+        <header class="panel-head">
+          <div>
+            <h2>필요한 권한이 있으면 요청해 주세요</h2>
+            <p class="helper-text">
+              응급안전 권한은 ARC 대표(RN)만 바꿀 수 있어요. 업무에 필요한
+              메뉴나 동작이 잠겨 있으면 요청 게시판에 남겨 주세요. 확인·처리
+              상태도 여기서 볼 수 있습니다.
+            </p>
+          </div>
+          <router-link to="/admin/arc/requests" class="link-button">
+            요청 게시판
+          </router-link>
+        </header>
       </section>
     </template>
   </div>
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 
-import { fetchArcAssistant } from "@/lib/arc";
+import { fetchArcAssistant, formatArcDate } from "@/lib/arc";
 
 const briefing = ref(null);
 const isLoading = ref(false);
 const errorMessage = ref("");
+
+const EMPTY_SNAPSHOT = {
+  groups: [],
+  total: 0,
+  grantedCount: 0,
+  granted: [],
+  isDirector: false,
+};
 
 const PRIORITY_LABELS = {
   P0: "즉시",
@@ -170,8 +284,62 @@ const PRIORITY_LABELS = {
   P2: "참고",
 };
 
+const VIEWER_KIND_LABELS = {
+  DIRECTOR: "ARC 대표(RN) 시점",
+  OWNER: "사장 시점",
+  STAFF: "직원 시점",
+  GUEST: "권한 안내",
+};
+
+const viewer = computed(() => {
+  const raw = briefing.value?.viewer ?? {};
+
+  return {
+    kind: raw.kind || "STAFF",
+    kindLabel: VIEWER_KIND_LABELS[raw.kind] || "내 시점",
+    headline: raw.headline || "",
+    hint: raw.hint || "",
+  };
+});
+
+const myPermissions = computed(() => ({
+  ...EMPTY_SNAPSHOT,
+  ...(briefing.value?.myPermissions ?? {}),
+}));
+
+const canSeeReport = computed(() => Boolean(briefing.value?.briefing?.length));
+
+const permissionIntro = computed(() => {
+  if (myPermissions.value.isDirector) {
+    return "ARC 대표(RN)는 메뉴와 동작 권한이 항상 전부 열려 있어요. 다른 사람의 권한은 '권한 관리'에서 조정합니다.";
+  }
+
+  return "지금 내가 가진 권한이에요. 회색 칩은 아직 없는 권한이고, 필요한 권한은 요청 게시판으로 ARC 대표(RN)에게 요청하면 됩니다.";
+});
+
 function priorityLabel(priority) {
   return PRIORITY_LABELS[priority] || priority;
+}
+
+function formatKoreanDate(value) {
+  return value ? formatArcDate(value) || value : "";
+}
+
+function groupTotal(group) {
+  return group.items.reduce(
+    (sum, item) => sum + 1 + (item.actions?.length ?? 0),
+    0
+  );
+}
+
+function groupGranted(group) {
+  return group.items.reduce(
+    (sum, item) =>
+      sum +
+      (item.granted ? 1 : 0) +
+      (item.actions ?? []).filter((action) => action.granted).length,
+    0
+  );
 }
 
 async function load() {
@@ -210,7 +378,6 @@ onMounted(load);
   gap: 18px;
   padding: 24px;
   min-height: 100%;
-  color: #ffffff;
 }
 
 .page-header {
@@ -221,14 +388,6 @@ onMounted(load);
   flex-wrap: wrap;
 }
 
-.page-header .eyebrow {
-  margin: 0 0 6px;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  color: rgba(255, 255, 255, 0.55);
-}
-
 .page-header h1 {
   margin: 0 0 6px;
   font-size: 26px;
@@ -236,11 +395,10 @@ onMounted(load);
 }
 
 .description {
-  margin: 0;
-  max-width: 720px;
+  margin: 0 0 4px;
+  max-width: 760px;
   font-size: 14px;
-  line-height: 1.6;
-  color: rgba(255, 255, 255, 0.72);
+  line-height: 1.65;
 }
 
 .header-actions {
@@ -249,75 +407,11 @@ onMounted(load);
   flex-shrink: 0;
 }
 
-.link-button {
-  padding: 10px 16px;
-  border-radius: 12px;
-  border: 1px solid rgba(99, 102, 241, 0.4);
-  background: rgba(99, 102, 241, 0.16);
-  color: #c7d2fe;
-  font-size: 13px;
-  font-weight: 700;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.ghost-button {
-  padding: 10px 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.88);
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-}
-
-.summary-strip {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 10px;
-}
-
-.summary-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 14px 16px;
-  border-radius: 16px;
-  background: rgba(15, 23, 42, 0.55);
-}
-
-.summary-label {
-  font-size: 12px;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.6);
-}
-
-.summary-value {
-  font-size: 22px;
-  font-weight: 800;
-
-  &.danger {
-    color: #fca5a5;
-  }
-
-  &.warn {
-    color: #fcd34d;
-  }
-}
-
 .panel {
   display: flex;
   flex-direction: column;
   gap: 14px;
   padding: 18px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.08);
 
   h2 {
     margin: 0;
@@ -327,43 +421,141 @@ onMounted(load);
 
   h3 {
     margin: 0 0 8px;
-    font-size: 14px;
+    font-size: 13.5px;
     font-weight: 800;
-    color: rgba(255, 255, 255, 0.8);
   }
 }
 
-.routine-head {
+.panel-head {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
+  flex-wrap: wrap;
+}
+
+.summary-value small {
+  margin-left: 2px;
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0.6;
+}
+
+.summary-value.danger {
+  color: var(--arc-danger, #b91c1c);
+}
+
+.summary-value.warn {
+  color: var(--arc-warn, #b45309);
+}
+
+.perm-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 14px;
+}
+
+.perm-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--arc-line, #e2e8f0);
+  border-radius: var(--arc-radius, 14px);
+  background: var(--arc-surface-2, #f8fafc);
+}
+
+.perm-group-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--arc-line, #e2e8f0);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.perm-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.perm-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.perm-chip,
+.perm-action-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.perm-chip {
+  font-size: 12px;
+
+  &.on {
+    color: #7c2d12;
+    background: var(--arc-brand-soft, #fff7ed);
+    border: 1px solid var(--arc-brand-line, #fed7aa);
+  }
+
+  &.off {
+    color: var(--arc-ink-3, #5a6780);
+    background: #eef2f7;
+    border: 1px dashed var(--arc-line-2, #cbd5e1);
+    text-decoration: line-through;
+  }
+}
+
+.perm-action-chip {
+  &.on {
+    color: var(--arc-ok, #047857);
+    background: var(--arc-ok-bg, #ecfdf5);
+    border: 1px solid var(--arc-ok-line, #a7f3d0);
+  }
+
+  &.off {
+    color: var(--arc-ink-3, #5a6780);
+    background: #fff;
+    border: 1px dashed var(--arc-line-2, #cbd5e1);
+  }
+
+  &.locked {
+    opacity: 0.75;
+  }
 }
 
 .routine-percent {
   font-size: 24px;
   font-weight: 800;
-  color: #6ee7b7;
-}
-
-.helper-text {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.6;
-  color: rgba(255, 255, 255, 0.66);
+  color: var(--arc-ok, #047857);
 }
 
 .progress-track {
   height: 10px;
   border-radius: 999px;
-  background: rgba(15, 23, 42, 0.6);
+  background: #e2e8f0;
   overflow: hidden;
 }
 
 .progress-bar {
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, #34d399, #22d3ee);
+  background: linear-gradient(90deg, #10b981, #0ea5e9);
   transition: width 0.3s ease;
 }
 
@@ -385,9 +577,10 @@ onMounted(load);
     flex-wrap: wrap;
     align-items: baseline;
     gap: 8px;
-    padding: 12px 14px;
-    border-radius: 14px;
-    background: rgba(15, 23, 42, 0.5);
+    padding: 11px 13px;
+    border: 1px solid var(--arc-line, #e2e8f0);
+    border-radius: 12px;
+    background: var(--arc-surface-2, #f8fafc);
     color: inherit;
     text-decoration: none;
   }
@@ -397,26 +590,26 @@ onMounted(load);
   }
 
   &.muted a {
-    opacity: 0.72;
+    opacity: 0.75;
   }
 }
 
 .routine-window {
   font-size: 12px;
   font-weight: 700;
-  color: #a5b4fc;
+  color: var(--arc-info, #1d4ed8);
 }
 
 .routine-check {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.62);
+  color: var(--arc-ink-3, #5a6780);
 }
 
 .inline-link {
   align-self: flex-start;
   font-size: 13px;
   font-weight: 700;
-  color: #7dd3fc;
+  color: var(--arc-info, #1d4ed8);
   text-decoration: none;
 }
 
@@ -435,20 +628,23 @@ onMounted(load);
   align-items: flex-start;
   gap: 14px;
   padding: 14px 16px;
-  border-radius: 16px;
-  background: rgba(15, 23, 42, 0.55);
-  border-left: 4px solid rgba(148, 163, 184, 0.5);
+  border: 1px solid var(--arc-line, #e2e8f0);
+  border-left: 4px solid var(--arc-line-2, #cbd5e1);
+  border-radius: 14px;
+  background: var(--arc-surface-2, #f8fafc);
 
   &.p0 {
-    border-left-color: #f87171;
+    border-left-color: var(--arc-danger, #b91c1c);
+    background: var(--arc-danger-bg, #fef2f2);
   }
 
   &.p1 {
-    border-left-color: #fbbf24;
+    border-left-color: var(--arc-warn, #b45309);
+    background: var(--arc-warn-bg, #fffbeb);
   }
 
   &.p2 {
-    border-left-color: #38bdf8;
+    border-left-color: var(--arc-info, #1d4ed8);
   }
 }
 
@@ -462,9 +658,11 @@ onMounted(load);
 .priority-badge {
   padding: 2px 8px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--arc-line-2, #cbd5e1);
+  background: #fff;
   font-size: 11px;
   font-weight: 800;
+  color: var(--arc-ink-2, #41506a);
 }
 
 .task-title {
@@ -474,7 +672,7 @@ onMounted(load);
 .task-count {
   font-size: 12px;
   font-weight: 800;
-  color: #fcd34d;
+  color: var(--arc-warn, #b45309);
 }
 
 .task-detail {
@@ -482,16 +680,16 @@ onMounted(load);
   margin: 4px 0 0;
   font-size: 13px;
   line-height: 1.6;
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--arc-ink-2, #41506a);
 }
 
 .task-action {
   flex-shrink: 0;
   padding: 8px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(56, 189, 248, 0.4);
-  background: rgba(56, 189, 248, 0.14);
-  color: #bae6fd;
+  border-radius: 10px;
+  border: 1px solid var(--arc-info-line, #bfdbfe);
+  background: var(--arc-info-bg, #eff6ff);
+  color: #1e40af;
   font-size: 12px;
   font-weight: 700;
   text-decoration: none;
@@ -506,31 +704,5 @@ onMounted(load);
   padding-left: 20px;
   font-size: 14px;
   line-height: 1.7;
-  color: rgba(255, 255, 255, 0.85);
-}
-
-.error-box {
-  margin: 0;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: rgba(248, 113, 113, 0.16);
-  color: #fecaca;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.empty-box {
-  margin: 0;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 13px;
-
-  &.ok {
-    background: rgba(52, 211, 153, 0.14);
-    color: #a7f3d0;
-    font-weight: 700;
-  }
 }
 </style>

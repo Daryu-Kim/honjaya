@@ -3,18 +3,32 @@
 // 화면 공통 라벨과 API 호출만 모읍니다. 권한 판단은 항상 서버가 다시 합니다.
 import { apiBlob, apiGet, apiPatch, apiPost, apiRequest } from "@/lib/api";
 
-// 응급안전관리센터는 사장(대표)·매니저만 씁니다.
-// 메뉴·라우터에서 먼저 숨기고, 최종 차단은 서버(/api/arc/*)가 다시 합니다.
-export const ARC_ALLOWED_ROLES = ["OWNER", "MANAGER"];
+// 응급안전관리센터는 기본적으로 모든 직원·사장이 볼 수 있습니다.
+// (P14S — 2026-11-29 지시: "모든 사람들은 ARC는 볼 수 있게 기본 세팅")
+// 실제 접근 여부는 응급안전 권한 관리에서 주는 arc.view 권한으로 정해지고,
+// 최종 차단은 서버(/api/arc/*)가 다시 합니다.
+export const ARC_ALLOWED_ROLES = ["OWNER", "MANAGER", "STAFF"];
 
 export function canUseArc(role) {
   return ARC_ALLOWED_ROLES.includes(String(role || ""));
 }
 
-// 화면·라우터는 역할이 아니라 "직원 정보"로 판단합니다.
-// ARC 총괄 계정(yoonhee1021)은 역할과 상관없이 통과시킵니다.
+// 화면·라우터는 역할이 아니라 "권한"으로 판단합니다.
+//   * ARC 총괄(yoonhee1021)은 항상 통과
+//   * 그 외에는 arc.view 권한이 있어야 통과(권한 관리에서 끄면 메뉴가 사라집니다)
 export function canAccessArc(employee) {
-  return Boolean(employee?.isArcDirector) || canUseArc(employee?.role);
+  if (!employee) return false;
+
+  if (employee.isArcDirector) return true;
+
+  const permissions = Array.isArray(employee.permissions)
+    ? employee.permissions
+    : [];
+
+  if (permissions.includes("arc.view")) return true;
+
+  // 아직 권한 배열을 못 받은 화면(초기 렌더)에서는 역할로만 느슨하게 봅니다.
+  return permissions.length === 0 && canUseArc(employee.role);
 }
 
 // 응급안전관리센터 총괄(yoonhee1021) 계정의 첫 화면입니다.
@@ -1735,4 +1749,9 @@ export async function fetchArcVerbalPaper(params = {}) {
 
 export async function fetchArcVerbalPaperCatalog() {
   return apiGet(`${PAPER_PATH}/catalog`);
+}
+
+// 족보 교육자료 — 이번 시험 문제 + 주변 지식(총괄 전용).
+export async function fetchArcStudyPack(params = {}) {
+  return apiGet(`/api/arc/verbal/study-pack${queryString(params)}`);
 }

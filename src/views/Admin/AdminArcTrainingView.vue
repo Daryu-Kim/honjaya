@@ -1,6 +1,6 @@
 <template>
   <div class="admin-arc-training-view">
-    <header class="page-header">
+    <header class="page-header no-print">
       <div class="header-left">
         <p class="eyebrow">ARC SAFETY</p>
         <h1>월간 교육·OT</h1>
@@ -26,7 +26,7 @@
     <p v-if="errorMessage" class="error-box">{{ errorMessage }}</p>
     <p v-if="savedMessage" class="ok-box">{{ savedMessage }}</p>
 
-    <section class="period-bar">
+    <section class="period-bar no-print">
       <button type="button" class="ghost-button" @click="shiftPeriod(-1)">
         ← 이전 달
       </button>
@@ -48,7 +48,7 @@
       </button>
     </section>
 
-    <section class="stat-grid">
+    <section class="stat-grid no-print">
       <article class="stat-card">
         <p class="stat-label">이번 달 일정</p>
         <strong class="stat-value">{{ summary.total }}건</strong>
@@ -73,7 +73,7 @@
       </article>
     </section>
 
-    <section v-if="followups.length" class="followup-panel">
+    <section v-if="followups.length" class="followup-panel no-print">
       <h2>보충·재교육 확인</h2>
       <ul>
         <li
@@ -90,7 +90,7 @@
       </ul>
     </section>
 
-    <nav class="tab-bar">
+    <nav class="tab-bar no-print">
       <button
         v-for="item in visibleTabs"
         :key="item.key"
@@ -810,13 +810,14 @@
         </ol>
       </div>
     </section>
+    <!-- 시험지 출력 — ARC 대표(RN) 전용, 탭 맨 앞 -->
+    <ArcExamPrintPanel v-else-if="tab === 'papers'" />
     <!-- 구두시험 (ARC 대표 전용) -->
     <ArcVerbalPanel v-else-if="tab === 'verbal'" :period="board.period" />
     <!-- 근무 번표 — 최윤희 대표가 언제 매장에 올 수 있는지 알려 주는 달력 -->
     <ArcShiftPanel v-else-if="tab === 'shift'" />
   </div>
 </template>
-
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
 
@@ -835,12 +836,15 @@ import {
   updateArcTrainingSession,
 } from "@/lib/arc";
 import ArcTrainingEditor from "@/components/arc/ArcTrainingEditor.vue";
+import ArcExamPrintPanel from "@/components/arc/ArcExamPrintPanel.vue";
 import ArcVerbalPanel from "@/components/arc/ArcVerbalPanel.vue";
 import ArcShiftPanel from "@/components/arc/ArcShiftPanel.vue";
 import { hasPermission } from "@/lib/staffAuth.js";
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 const TABS = [
+  // 시험지·교육자용·족보 출력은 탭 맨 앞에 두고 ARC 대표(RN)만 봅니다.
+  { key: "papers", label: "시험지 출력", directorOnly: true },
   { key: "calendar", label: "달력" },
   { key: "sessions", label: "일정·출석" },
   { key: "library", label: "교육자료" },
@@ -889,6 +893,7 @@ const board = ref({
 });
 const routineSteps = ref([]);
 const tab = ref("calendar");
+let tabDefaulted = false;
 const libraryTab = ref("modules");
 const editorOpen = ref(false);
 const selectedIso = ref("");
@@ -1141,6 +1146,12 @@ async function load(period = board.value.period) {
     selectedIso.value = "";
     rebuildDrafts();
     await loadRoutine(board.value.period);
+
+    // ARC 대표(RN)는 이 화면에 들어오면 시험지 출력 탭부터 보게 합니다.
+    if (!tabDefaulted) {
+      tabDefaulted = true;
+      if (board.value.canWrite) tab.value = "papers";
+    }
   } catch (error) {
     errorMessage.value = error?.message ?? "교육 자료를 불러오지 못했어요.";
   } finally {
