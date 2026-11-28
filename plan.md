@@ -2639,6 +2639,58 @@ User request: "족보응시자전용은 이번시험에 뭐 나올지 알려주�
 
 ---
 
+## 3-19. P14W — 시험지 출제 각도(angle) 엔진: 매번 다른 표현으로 묻기 (2026-11-29)
+
+User request: "전체적으로 시험지 자체가 너무 매번 단조로워. 항상 ai 가 다양한 문제를 낼 수 있게
+해줘. 물론 족보도 그만큼 퀄리티가 좋게".
+
+### Root cause found
+`pickStem()` chose the phrasing template by **`templates[index % templates.length]`** — i.e. the
+1st item of every section always got the same sentence, the 2nd always the next one. With only 3
+templates per kind and 1 fixed `ask` per item, a paper only had ~4 possible wordings per item, and
+the same wordings appeared at the same positions on every single paper. `TAIL_QUESTIONS` (4) were
+also index-deterministic for bank/custom rows, and bank questions were printed verbatim.
+
+### Decisions
+- New `STEM_ANGLES` — 11 question angles, each with a label, an `answerFocus` and 4 templates:
+  `procedure` 절차 · `reason` 이유·근거 · `judgment` 판단 기준 · `forbidden` 금지 행동 ·
+  `mistake` 흔한 실수 · `scene` 상황 적용 · `priority` 우선순위 · `handover` 보고·인계 ·
+  `record` 기록 · `equipment` 물품·장비 · `scope` 권한·책임.
+- `SECTION_ANGLES` restricts each of the 8 areas to the 5–6 angles that actually fit it, so a
+  물품 question is never asked as a 119-인계 question.
+- `pickStem()` now picks the angle **and** the template with the seed-driven RNG, prefers an angle
+  not yet used inside that section, and uses the item's own scenario `ask` 30% of the time (it was
+  a 1/(n+1) coin flip before). The second rendering becomes `altQuestion` (다른 표현).
+- `TAIL_QUESTIONS` 4 → 12, always seed-randomised.
+- Bank rows: new `QUESTION_WRAPS` (5 frames: verbatim, "이유까지 붙여 답하세요", "후배가
+  물어봤습니다", "답만 말하지 말고…", "교육 시간입니다…") plus a random tail.
+- Teacher-facing output gains `angle`, `angleLabel`, `answerFocus` per row and a paper-level
+  `angleSummary` (`[{label,count}]`) so 최윤희 sees "이번 시험은 절차 6 · 이유 5 · 판단 4" at a glance.
+- `aiVaried=false` still produces an index-deterministic, reproducible paper.
+
+### Files
+- `server/src/arcVerbalPaper.js`: `STEM_ANGLES`, `ANGLE_MAP`, `SECTION_ANGLES`,
+  `QUESTION_WRAPS`, expanded `TAIL_QUESTIONS`, `renderStem()`, rewritten `pickStem()`/`pickTail()`,
+  row builders now emit `angleLabel`/`answerFocus`, new `angleSummary` in the result.
+- `server/src/arcStudyPack.js`: `rowToStudy` carries `angle`/`angleLabel`/`answerFocus`;
+  result exposes `angleSummary` (TEACHER only).
+- `src/components/arc/ArcExamPrintPanel.vue`: `.angle-tag` chip per question, `.teacher-focus`
+  block ("답에 꼭 들어가야 할 것"), `.angle-summary` chip row in both the teacher paper and the
+  teacher study pack, other-phrasing line on study-pack exam rows, tail questions on bank rows.
+
+### Verification
+- `node --check` on both server modules; SFC parse + compileScript + compileTemplate + `sass`: OK.
+- Same seed → byte-identical paper; EXAM and TEACHER papers of the same seed have identical
+  question text; EXAM rows contain no `answer`/`answerFocus`/`altQuestion`.
+- 6 different seeds → 6 different papers; all 11 angles appear across seeds.
+- SURPRISE across 40 seeds: angle spread 판단 32 / 상황 27 / 이유 27 / 절차 26 / 물품 25 / 금지 18
+  / 기록 15 / 실수 13 / 우선순위 12 / 권한 4 / 인계 1, 136 distinct question sentences.
+- `aiVaried=false` with the same seed → identical output.
+- Study pack: all 19 exam rows carry `angleLabel` + `answerFocus`; `angleSummary` populated for
+  TEACHER and empty for CANDIDATE.
+
+---
+
 ## 4. Open questions
 
 1. ~~**₩30,000 point-redemption threshold**: before or after discount?~~ → **resolved in P5**: after discount, before point deduction.

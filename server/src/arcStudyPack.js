@@ -50,6 +50,9 @@ function rowToStudy(row, { includeCriteria = true } = {}) {
     basis: row.basis ?? "",
     wrong: row.wrong ?? "",
     tail: row.tail ?? "",
+    angle: row.angle ?? "",
+    angleLabel: row.angleLabel ?? "",
+    answerFocus: row.answerFocus ?? "",
     detail: deep.detail,
     scene: deep.scene,
     remember: deep.remember,
@@ -247,6 +250,8 @@ export function buildArcStudyPack({
         },
     totals,
     exam: examRows,
+    // 이번 시험지가 어떤 각도(절차·이유·판단…)로 몇 문항씩 물었는지.
+    angleSummary: isTeacherPack ? paper.angleSummary ?? [] : [],
     sections: knowledgeSections,
     bank,
     glossary,

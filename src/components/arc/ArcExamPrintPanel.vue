@@ -178,6 +178,19 @@
         출제 방향: {{ paper.header.emphasis }}
       </p>
 
+      <p
+        v-if="paper.teacher && paper.angleSummary && paper.angleSummary.length"
+        class="angle-summary"
+      >
+        <b>출제 각도</b>
+        <span
+          v-for="item in paper.angleSummary"
+          :key="item.label"
+          class="angle-chip"
+          >{{ item.label }} {{ item.count }}</span
+        >
+      </p>
+
       <section
         v-for="section in paper.sections"
         :key="section.key"
@@ -194,6 +207,11 @@
               <span class="question-text">
                 {{ row.question }}
                 <span v-if="row.critical" class="critical-tag">핵심술기</span>
+                <span
+                  v-if="paper.teacher && row.angleLabel"
+                  class="angle-tag"
+                  >{{ row.angleLabel }}</span
+                >
               </span>
               <span class="question-points">{{ row.points }}점</span>
             </div>
@@ -207,6 +225,9 @@
             </div>
 
             <template v-else>
+              <p v-if="row.answerFocus" class="teacher-focus">
+                <b>답에 꼭 들어가야 할 것</b> {{ row.answerFocus }}
+              </p>
               <p class="teacher-answer">
                 <b>모범답안</b> {{ row.answer || "—" }}
               </p>
@@ -267,6 +288,9 @@
             <template v-else>
               <p class="teacher-answer">
                 <b>모범답안</b> {{ row.answer || "—" }}
+              </p>
+              <p v-if="row.tail" class="teacher-tail">
+                <b>꼬리질문</b> {{ row.tail }}
               </p>
               <p v-if="row.wrong" class="teacher-wrong">
                 <b>위험한 답</b> {{ row.wrong }}
@@ -354,6 +378,19 @@
         </div>
       </header>
 
+      <p
+        v-if="pack.angleSummary && pack.angleSummary.length"
+        class="angle-summary"
+      >
+        <b>출제 각도</b>
+        <span
+          v-for="item in pack.angleSummary"
+          :key="item.label"
+          class="angle-chip"
+          >{{ item.label }} {{ item.count }}</span
+        >
+      </p>
+
       <section v-if="pack.exam.length" class="study-block">
         <h3 class="section-head">
           {{ pack.examSectionTitle }}
@@ -368,10 +405,19 @@
               <span class="question-text">
                 {{ row.question }}
                 <span v-if="row.critical" class="critical-tag">핵심술기</span>
+                <span v-if="row.angleLabel" class="angle-tag">{{
+                  row.angleLabel
+                }}</span>
                 <span class="section-tag">{{ row.sectionLabel }}</span>
               </span>
               <span class="question-points">{{ row.points }}점</span>
             </div>
+            <p v-if="row.altQuestion" class="question-alt">
+              다른 표현: {{ row.altQuestion }}
+            </p>
+            <p v-if="row.answerFocus" class="teacher-focus">
+              <b>답에 꼭 들어가야 할 것</b> {{ row.answerFocus }}
+            </p>
             <p class="teacher-answer">
               <b>모범답안</b> {{ row.answer || "—" }}
             </p>
@@ -1113,6 +1159,7 @@ textarea {
 .critical-tag,
 .bank-tag,
 .section-tag,
+.angle-tag,
 .on-exam-tag {
   display: inline-flex;
   align-items: center;
@@ -1133,10 +1180,58 @@ textarea {
   color: #b91c1c;
 }
 
+.angle-tag {
+  border-color: #c7d2fe;
+  background: #eef2ff;
+  color: #3730a3;
+}
+
+.angle-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 10px;
+  font-size: 11px;
+  color: #334155;
+
+  b {
+    font-weight: 800;
+  }
+}
+
+.angle-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid #c7d2fe;
+  background: #eef2ff;
+  font-size: 10px;
+  font-weight: 800;
+  color: #3730a3;
+  white-space: nowrap;
+}
+
 .on-exam-tag {
   border-color: #86efac;
   background: #f0fdf4;
   color: #15803d;
+}
+
+.teacher-focus {
+  margin: 6px 0 0;
+  padding: 6px 9px;
+  border-left: 3px solid #6366f1;
+  border-radius: 0 6px 6px 0;
+  background: #eef2ff;
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: #312e81;
+
+  b {
+    font-weight: 800;
+  }
 }
 
 .answer-lines {
