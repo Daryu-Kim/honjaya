@@ -410,7 +410,26 @@
           <div v-if="item.items?.length" class="bullet-box plain">
             <p class="bullet-title">교육 내용 체크</p>
             <ul>
-              <li v-for="line in item.items" :key="line">{{ line }}</li>
+              <li v-for="(line, index) in item.items" :key="line">
+                {{ line }}
+                <small
+                  v-for="note in item.itemTerms?.[index] ?? []"
+                  :key="note.term"
+                  class="term-note"
+                >
+                  {{ note.term }} = {{ note.plain }}
+                </small>
+              </li>
+            </ul>
+          </div>
+
+          <div v-if="item.terms?.length" class="term-box">
+            <p class="bullet-title">어려운 말, 이렇게 이해하세요</p>
+            <ul class="term-list">
+              <li v-for="note in item.terms" :key="note.term">
+                <strong>{{ note.term }}</strong>
+                <span>{{ note.plain }}</span>
+              </li>
             </ul>
           </div>
 
@@ -497,6 +516,15 @@
               <span></span>
             </div>
           </div>
+          <div v-if="item.terms?.length" class="term-box">
+            <p class="bullet-title">어려운 말, 이렇게 이해하세요</p>
+            <ul class="term-list">
+              <li v-for="note in item.terms" :key="note.term">
+                <strong>{{ note.term }}</strong>
+                <span>{{ note.plain }}</span>
+              </li>
+            </ul>
+          </div>
           <div v-if="item.guide?.oral" class="oral-box">
             <p class="oral-q">구술 문항 · {{ item.guide.oral.q }}</p>
             <p v-if="isTeacher" class="oral-a">
@@ -545,6 +573,14 @@
                 <span></span>
                 <span></span>
               </div>
+            </div>
+            <div v-if="item.terms?.length" class="term-box">
+              <ul class="term-list">
+                <li v-for="note in item.terms" :key="note.term">
+                  <strong>{{ note.term }}</strong>
+                  <span>{{ note.plain }}</span>
+                </li>
+              </ul>
             </div>
           </li>
         </ol>
@@ -1345,6 +1381,49 @@ onUnmounted(() => {
   color: #b45309;
 }
 
+.term-note {
+  display: block;
+  margin-top: 2px;
+  padding-left: 2px;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.55;
+  color: #475569;
+}
+
+.term-box {
+  margin-top: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: #f1f5f9;
+  border-left: 3px solid #0ea5e9;
+  break-inside: avoid;
+
+  .bullet-title {
+    color: #0c4a6e;
+  }
+}
+
+.term-list {
+  margin-top: 4px;
+  display: grid;
+  gap: 3px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: #1f2937;
+
+  li {
+    display: grid;
+    grid-template-columns: 92px 1fr;
+    gap: 6px;
+  }
+
+  strong {
+    font-weight: 800;
+    color: #0c4a6e;
+  }
+}
+
 .forbidden-list {
   margin-top: 10px;
   display: grid;
@@ -1971,7 +2050,8 @@ onUnmounted(() => {
   body.arc-guide-open .kit-table tr,
   body.arc-guide-open .sign-table tr,
   body.arc-guide-open .oral-table tr,
-  body.arc-guide-open .write-block {
+  body.arc-guide-open .write-block,
+  body.arc-guide-open .term-box {
     break-inside: avoid;
     page-break-inside: avoid;
   }

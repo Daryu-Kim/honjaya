@@ -135,7 +135,18 @@ const ROLE_LABELS = {
 };
 
 const currentRoleLabel = computed(() => {
-  const role = currentEmployee.value?.role || "";
+  const employee = currentEmployee.value;
+
+  // 직위(예: ARC 대표(RN))가 있으면 그걸 먼저 보여 줍니다.
+  if (employee?.titleLabel) {
+    return employee.titleLabel;
+  }
+
+  if (employee?.title) {
+    return employee.title;
+  }
+
+  const role = employee?.role || "";
 
   return ROLE_LABELS[role] || role;
 });
@@ -279,6 +290,14 @@ const arcMenuList = [
     color: "#f59e0b",
   },
   {
+    to: "/admin/arc/assistant",
+    label: "ARC 비서",
+    description: "오늘 할 일·사장 보고 요약",
+    matchStartsWith: "/admin/arc/assistant",
+    permission: "arc.view",
+    color: "#fbbf24",
+  },
+  {
     to: "/admin/arc/routine",
     label: "월간 운영 루틴",
     description: "1년 업무달력·점검 순서",
@@ -391,6 +410,15 @@ const arcMenuList = [
     color: "#f59e0b",
   },
   {
+    to: "/admin/arc/permissions",
+    label: "응급안전 권한 관리",
+    description: "9종 권한 부여·회수(총괄 전용)",
+    matchStartsWith: "/admin/arc/permissions",
+    permission: "arc.view",
+    directorOnly: true,
+    color: "#e879f9",
+  },
+  {
     to: "/admin/arc/settings",
     label: "응급안전 설정",
     description: "알림·보존기간",
@@ -421,6 +449,9 @@ const visibleArcMenuList = computed(() => {
   }
 
   return arcMenuList.filter((menu) => {
+    if (menu.directorOnly && !currentEmployee.value?.isArcDirector) {
+      return false;
+    }
     return !menu.permission || hasPermission(menu.permission);
   });
 });

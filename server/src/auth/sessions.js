@@ -8,7 +8,12 @@ import { config } from "../config.js";
 import { pool } from "../db.js";
 import { HttpError } from "../http/errors.js";
 import { parseCookies, serializeCookie } from "./cookies.js";
-import { isArcDirector, permissionsForEmployee } from "./permissions.js";
+import {
+  ROLE_LABELS,
+  arcPermissionsForEmployee,
+  isArcDirector,
+  permissionsForEmployee,
+} from "./permissions.js";
 
 const HOUR_MS = 60 * 60 * 1000;
 const USER_AGENT_MAX = 300;
@@ -77,12 +82,20 @@ export function toPublicEmployee(row) {
     loginId: row.login_id,
     name: row.name || "",
     role: row.role,
+    // 표시용 직위(예: 'ARC 대표(RN)'). 비어 있으면 화면에서 역할명으로 대체합니다.
+    title: row.title || "",
+    titleLabel: row.title || ROLE_LABELS[row.role] || row.role,
     permissions: permissionsForEmployee(row),
     // 응급안전관리센터 총괄 계정이면 프런트가 ARC 를 첫 화면으로 엽니다.
     isArcDirector: isArcDirector(row.login_id),
     // null = 역할 기본값 사용, 배열 = 직원별 직접 설정값
     permissionOverrides: Array.isArray(row.permissions)
       ? [...row.permissions]
+      : null,
+    // 응급안전 9종 오버라이드 (null = 역할 기본값)
+    arcPermissions: arcPermissionsForEmployee(row),
+    arcPermissionOverrides: Array.isArray(row.arc_permissions)
+      ? [...row.arc_permissions]
       : null,
     isActive: row.is_active !== false,
     lastLoginAt: row.last_login_at || null,

@@ -47,6 +47,8 @@ import AdminArcUsageView from "@/views/Admin/AdminArcUsageView.vue";
 import AdminArcExpenseView from "@/views/Admin/AdminArcExpenseView.vue";
 import AdminArcQualityView from "@/views/Admin/AdminArcQualityView.vue";
 import AdminArcEventsView from "@/views/Admin/AdminArcEventsView.vue";
+import AdminArcAssistantView from "@/views/Admin/AdminArcAssistantView.vue";
+import AdminArcPermissionsView from "@/views/Admin/AdminArcPermissionsView.vue";
 import StaffLoginView from "@/views/Staff/StaffLoginView.vue";
 import AdminLayout from "@/layouts/AdminLayout.vue";
 import { startGlobalBusy } from "@/lib/globalBusy";
@@ -317,6 +319,20 @@ const routes = [
         meta: { permission: "arc.view" },
       },
       {
+        // ARC 비서(P14N). 최윤희가 하루 일과를 한 화면에서 시작하는 브리핑입니다.
+        path: "arc/assistant",
+        name: "admin-arc-assistant",
+        component: AdminArcAssistantView,
+        meta: { permission: "arc.view" },
+      },
+      {
+        // 응급안전 9종 권한 관리. 부여·회수는 서버가 총괄 계정만 허용합니다.
+        path: "arc/permissions",
+        name: "admin-arc-permissions",
+        component: AdminArcPermissionsView,
+        meta: { permission: "arc.view", arcDirectorOnly: true },
+      },
+      {
         path: "customers",
         name: "admin-customers",
         component: AdminCustomerView,
@@ -411,6 +427,14 @@ router.beforeEach(async (to) => {
 
     if (requiredPermission && !hasPermission(requiredPermission)) {
       return { path: "/admin/dashboard" };
+    }
+
+    // 응급안전 권한 관리는 총괄 계정(최윤희)만 열 수 있습니다. (서버도 같은 기준으로 403)
+    if (
+      to.matched.some((record) => record.meta?.arcDirectorOnly) &&
+      !employee.isArcDirector
+    ) {
+      return { path: "/admin/arc" };
     }
 
     // 응급안전관리센터 총괄 계정(yoonhee1021)은 관리자 화면 첫 진입을 ARC 로 보냅니다.

@@ -13,6 +13,7 @@ import {
   ARC_TRAINING_MODULES,
   ARC_TRAINING_SCENARIOS,
 } from "./arcTraining.js";
+import { ARC_GLOSSARY, collectArcTerms } from "./arcGlossary.js";
 
 const MODULE_GUIDE = {
   ROLE: {
@@ -1490,35 +1491,8 @@ const FORBIDDEN_EXTRA = {
   F30: { example: "깊은 상처에 과산화수소를 부어 거품이 올라왔습니다." },
 };
 
-// 용어 사전: 교육생이 처음 듣는 말을 일상어로 풀어 쓴 것
-const GLOSSARY = [
-  { term: "정상호흡", plain: "가슴이 규칙적으로 오르내리고, 숨소리가 들리거나 숨이 느껴지는 상태. 10초를 세어 2~3번 이상 오르내리면 정상 범위입니다." },
-  { term: "헐떡임(agonal)", plain: "심정지 직후에 나타나는 '숨을 쉬는 듯한' 부정기적이고 힘없는 숨. 숨이 아님으로 보고 즉시 압박을 시작합니다." },
-  { term: "반응 확인", plain: "어깨를 두드리고 큰 소리로 불러 대답·움직임이 있는지 보는 것. 10초를 넘기지 않습니다." },
-  { term: "기도폐쇄", plain: "숨길이 막힌 상태. 말을 할 수 있으면 '부분', 말을 못 하면 '완전'으로 판단합니다." },
-  { term: "가슴압박(직접압박)", plain: "가슴뼈 아래쪽 중앙을 손바닥으로 5cm 깊이, 분당 100~120회로 누르는 것." },
-  { term: "AED", plain: "자동심장충격기. 패드를 붙이면 기계가 판단하고, 음성 안내에 따라 버튼만 누르면 됩니다." },
-  { term: "회복자세", plain: "옆으로 눕혀 기도를 열어 두는 자세. 숨은 있지만 의식이 없는 사람에게 씁니다." },
-  { term: "부분절단", plain: "손가락 등이 완전히 떨어지지 않고 일부만 붙어 있는 상태. 떼어내지 않고 고정합니다." },
-  { term: "냉각", plain: "화상 부위를 흐르는 서늘한 물에 20분 담가 열을 빼는 처치. 얼음은 쓰지 않습니다." },
-  { term: "저혈당", plain: "혈당이 너무 낮아 식은땀·떨림·혼동이 오는 상태. 술 마신 사람에게서도 흔합니다." },
-  { term: "뇌졸중 의심 3징후", plain: "얼굴 한쪽 처짐 · 한쪽 팔 힘 빠짐 · 말이 어눌함. 하나라도 있으면 119입니다." },
-  { term: "아나필락시스", plain: "심한 알레르기 반응. 입술·목 부종, 숨참, 전신 두드러기가 빠르게 진행됩니다." },
-  { term: "과호흡", plain: "숨이 지나치게 빨라지는 상태. 다만 '숨이 편안하다'는 보장이 없으므로 산소 부족과 구분이 필요합니다." },
-  { term: "이물", plain: "몸에 들어가거나 박힌 물질. 박힌 것은 빼지 않고 고정하는 것이 원칙입니다." },
-  { term: "감염노출", plain: "혈액·체액이 눈·입·상처·점막에 닿은 사고. 세척 후 반드시 기록합니다." },
-  { term: "Level C", plain: "현장 응급처치 약품 분류 중 일반직원이 임의로 쓰면 안 되는 단계. RN(간호사) 판단이 필요합니다." },
-  { term: "일반의약품(OTC)", plain: "처방 없이 살 수 있는 약. 직원 개인 상비약은 이 범위에서 본인이 선택합니다." },
-  { term: "성분명", plain: "약의 실제 성분 이름(예: 이부프로펜, 아세트아미노펜). 제품명이 달라도 성분이 같으면 같은 약입니다." },
-  { term: "AS-CARE", plain: "사건 접수·응급처치 기록 서식. 누가·언제·어디서·무엇을·어떻게 했는지를 남기는 공식 문서입니다." },
-  { term: "Near Miss", plain: "다칠 뻔했지만 실제 부상은 없었던 사건. 기록해 두면 같은 사고를 예방할 수 있습니다." },
-  { term: "CAPA", plain: "시정·예방 조치. 원인을 고치고(Corrective) 재발을 막는(Preventive) 후속 조치입니다." },
-  { term: "월 1회 실사", plain: "구급상자 품목·수량·유효기간을 월 1회 실사자와 참관자가 함께 확인하고 확정하는 절차." },
-  { term: "par(최소 보유선)", plain: "이 수량 이하로 내려가면 안 되는 기준선. 실사 때 부족 판단이 빨라집니다." },
-  { term: "월말 Gate", plain: "월말에 기록·실사·교육·열람로그를 한 번에 점검하고 서명으로 마감하는 절차." },
-  { term: "인계", plain: "119·의료진에게 환자 상태와 우리가 한 처치를 전달하는 것. 5하(누가·언제·어디서·무엇을·어떻게)로 말합니다." },
-  { term: "민감정보", plain: "건강·진료·투약 등 노출 시 피해가 큰 정보. 열람 사유와 승인이 필요한 정보입니다." },
-];
+// 용어 사전: 교육생이 처음 듣는 말을 일상어로 풀어 쓴 것 (arcGlossary.js 와 같은 목록)
+const GLOSSARY = ARC_GLOSSARY;
 
 // 교육자(총괄)용 진행 키트: 준비 → 진행 → 마무리까지 그대로 따라 할 수 있는 순서
 const TEACHER_KIT = {
@@ -1642,36 +1616,74 @@ export function arcTrainingGuide() {
       moduleMinutes: totalMinutes,
       sessionMinutes: coreMinutes,
     },
-    modules: ARC_TRAINING_MODULES.map((item) => ({
-      key: item.key,
-      phase: item.phase,
-      title: item.title,
-      minutes: item.minutes,
-      goal: item.goal,
-      items: (item.items ?? []).map(([, text]) => text),
-      materials: item.materials ?? [],
-      evaluation: item.evaluation ?? [],
-      guide: MODULE_GUIDE[item.key]
+    modules: ARC_TRAINING_MODULES.map((item) => {
+      const guide = MODULE_GUIDE[item.key]
         ? { ...MODULE_GUIDE[item.key], ...(MODULE_EXTRA[item.key] ?? {}) }
-        : (MODULE_EXTRA[item.key] ?? null),
-    })),
-    scenarios: ARC_TRAINING_SCENARIOS.map((item) => ({
-      key: item.key,
-      no: item.no,
-      category: item.category,
-      scene: item.scene,
-      answer: item.answer,
-      guide: SCENARIO_GUIDE[item.key]
+        : (MODULE_EXTRA[item.key] ?? null);
+      const lines = (item.items ?? []).map(([, text]) => text);
+
+      return {
+        key: item.key,
+        phase: item.phase,
+        title: item.title,
+        minutes: item.minutes,
+        goal: item.goal,
+        items: lines,
+        // 항목별로 그 자리에서 읽을 수 있는 쉬운 말 풀이(일반인용)
+        itemTerms: lines.map((line) => collectArcTerms(line)),
+        terms: collectArcTerms([
+          item.goal,
+          guide?.easy,
+          guide?.why,
+          ...(guide?.steps ?? []),
+          ...(guide?.tips ?? []),
+          ...(guide?.mistakes ?? []),
+        ]),
+        materials: item.materials ?? [],
+        evaluation: item.evaluation ?? [],
+        guide,
+      };
+    }),
+    scenarios: ARC_TRAINING_SCENARIOS.map((item) => {
+      const guide = SCENARIO_GUIDE[item.key]
         ? { ...SCENARIO_GUIDE[item.key], ...(SCENARIO_EXTRA[item.key] ?? {}) }
-        : (SCENARIO_EXTRA[item.key] ?? null),
-    })),
-    forbidden: ARC_TRAINING_FORBIDDEN.map((item) => ({
-      key: item.key,
-      text: item.text,
-      guide: FORBIDDEN_GUIDE[item.key]
+        : (SCENARIO_EXTRA[item.key] ?? null);
+
+      return {
+        key: item.key,
+        no: item.no,
+        category: item.category,
+        scene: item.scene,
+        answer: item.answer,
+        terms: collectArcTerms([
+          item.scene,
+          item.answer,
+          guide?.easy,
+          guide?.why,
+          guide?.trap,
+          ...(guide?.steps ?? []),
+          ...(guide?.never ?? []),
+        ]),
+        guide,
+      };
+    }),
+    forbidden: ARC_TRAINING_FORBIDDEN.map((item) => {
+      const guide = FORBIDDEN_GUIDE[item.key]
         ? { ...FORBIDDEN_GUIDE[item.key], ...(FORBIDDEN_EXTRA[item.key] ?? {}) }
-        : (FORBIDDEN_EXTRA[item.key] ?? null),
-    })),
+        : (FORBIDDEN_EXTRA[item.key] ?? null);
+
+      return {
+        key: item.key,
+        text: item.text,
+        terms: collectArcTerms([
+          item.text,
+          guide?.why,
+          guide?.instead,
+          guide?.example,
+        ]),
+        guide,
+      };
+    }),
   };
 }
 

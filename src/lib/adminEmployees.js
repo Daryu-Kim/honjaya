@@ -32,10 +32,18 @@ export async function fetchEmployees() {
   return Array.isArray(data?.employees) ? data.employees : [];
 }
 
-export function createEmployee({ loginId, name, password, role, permissions }) {
+export function createEmployee({
+  loginId,
+  name,
+  title,
+  password,
+  role,
+  permissions,
+}) {
   return apiPost("/api/admin/employees", {
     loginId,
     name,
+    title,
     password,
     role,
     permissions,

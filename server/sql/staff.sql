@@ -26,6 +26,24 @@ create unique index if not exists employees_login_id_lower_idx
 alter table public.employees
   add column if not exists permissions text[];
 
+-- 직위(표시용). 역할(role)은 권한 계산에 쓰고, 화면에는 이 직위를 보여 줍니다.
+-- 예) 최윤희 = 'ARC 대표(RN)'
+alter table public.employees
+  add column if not exists title text not null default '';
+
+-- 응급안전 9종 권한 전용 오버라이드.
+-- null  = 역할 기본값(매니저는 9종 전부, 그 외는 없음)
+-- 배열  = 그 직원이 가질 응급안전 권한 목록 (빈 배열 = 응급안전 접근 불가)
+-- 관리자 권한 화면에서는 건드리지 않고, 응급안전관리센터 총괄만 조정합니다.
+alter table public.employees
+  add column if not exists arc_permissions text[];
+
+-- ARC 총괄 계정의 직위를 한 번만 채웁니다(이미 값이 있으면 건드리지 않음).
+update public.employees
+   set title = 'ARC 대표(RN)'
+ where lower(login_id) = 'yoonhee1021'
+   and coalesce(title, '') = '';
+
 do $$
 begin
   if not exists (

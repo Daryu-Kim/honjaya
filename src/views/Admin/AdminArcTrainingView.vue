@@ -106,15 +106,37 @@
 
     <!-- 달력 -->
     <section v-if="tab === 'calendar'" class="calendar-panel">
-      <div class="calendar-legend">
-        <span
-          v-for="kind in catalog.kinds"
-          :key="kind.key"
-          :class="['legend-chip', kind.key.toLowerCase()]"
-        >
-          {{ kind.label }}
-        </span>
-        <span class="legend-chip routine">월간 운영 루틴</span>
+      <div class="calendar-filters">
+        <p class="filter-title">
+          분류 7종 — 칩을 눌러 보고 싶은 일정만 켜고 끌 수 있어요.
+        </p>
+        <div class="filter-row">
+          <button
+            v-for="kind in kindFilters"
+            :key="kind.key"
+            type="button"
+            :class="[
+              'filter-chip',
+              kind.key.toLowerCase(),
+              { off: hiddenKinds.includes(kind.key) },
+            ]"
+            @click="toggleKindFilter(kind.key)"
+          >
+            {{ kind.label }}
+            <span class="filter-count">{{ kindCount(kind.key) }}</span>
+          </button>
+          <button
+            type="button"
+            :class="['filter-chip', 'personal-toggle', { on: personalOnly }]"
+            @click="personalOnly = !personalOnly"
+          >
+            {{ personalOnly ? "전체 일정 보기" : "개인 일정만 보기" }}
+          </button>
+        </div>
+        <p v-if="canWrite" class="helper-text">
+          분류·일정은 최윤희가 그 자리에서 등록·수정할 수 있어요. 개인 일정은
+          최윤희 계정에만 보입니다.
+        </p>
       </div>
 
       <div class="calendar-weekhead">
@@ -154,7 +176,7 @@
             <li
               v-for="chip in cell.routines"
               :key="chip.key"
-              class="chip routine"
+              class="chip routine-step"
               :title="chip.windowLabel"
             >
               {{ chip.label }}
@@ -202,9 +224,12 @@
     <section v-else-if="tab === 'sessions'" class="session-panel">
       <article v-if="canWrite" class="form-panel">
         <header class="form-head">
-          <h2>새 교육·OT 일정 등록</h2>
+          <h2>
+            {{ form.editId ? "교육·OT 일정 수정" : "새 교육·OT 일정 등록" }}
+          </h2>
           <span class="helper-text">
-            등록은 ARC 총괄만 할 수 있어요. 자료는 교육 3일 전까지 준비해요.
+            등록·수정은 ARC 대표(RN) 최윤희만 할 수 있어요. 자료는 교육 3일
+            전까지 준비해요.
           </span>
         </header>
 
@@ -282,6 +307,9 @@
             <span class="helper-text">
               선택한 모듈 합계 {{ selectedModulesMinutes }}분
             </span>
+            <span v-if="modulesOptional" class="helper-text">
+              이 분류는 모듈을 고르지 않아도 저장돼요.
+            </span>
           </div>
           <div
             v-for="group in moduleGroups"
@@ -339,7 +367,15 @@
             :disabled="isSaving"
             @click="submitForm"
           >
-            일정 등록
+            {{ form.editId ? "일정 저장" : "일정 등록" }}
+          </button>
+          <button
+            v-if="form.editId"
+            type="button"
+            class="ghost-button"
+            @click="resetForm"
+          >
+            수정 취소
           </button>
           <button type="button" class="ghost-button" @click="resetForm">
             초기화
@@ -393,6 +429,14 @@
               @click="toggleOpen(session.id)"
             >
               {{ openIds.includes(session.id) ? "접기" : "출석·평가" }}
+            </button>
+            <button
+              v-if="canWrite"
+              type="button"
+              class="mini-button"
+              @click="startEdit(session)"
+            >
+              일정 수정
             </button>
           </div>
         </header>
@@ -592,8 +636,22 @@
           <ul>
             <li v-for="item in module.checklist" :key="item.key">
               {{ item.label }}
+              <small
+                v-for="note in item.terms"
+                :key="note.term"
+                class="term-note"
+              >
+                {{ note.term }} = {{ note.plain }}
+              </small>
             </li>
           </ul>
+          <div v-if="module.terms.length" class="term-box">
+            <p class="term-title">어려운 말, 이렇게 이해하세요</p>
+            <p v-for="note in module.terms" :key="note.term" class="term-row">
+              <strong>{{ note.term }}</strong>
+              <span>{{ note.plain }}</span>
+            </p>
+          </div>
           <p class="library-meta">준비물: {{ module.materials.join(" · ") }}</p>
           <p class="library-meta">평가: {{ module.evaluation.join(" / ") }}</p>
         </article>
@@ -607,6 +665,13 @@
         >
           <p class="scenario-scene">{{ scenario.no }}. {{ scenario.scene }}</p>
           <p class="scenario-answer">정답: {{ scenario.answer }}</p>
+          <div v-if="scenario.terms?.length" class="term-box">
+            <p class="term-title">어려운 말, 이렇게 이해하세요</p>
+            <p v-for="note in scenario.terms" :key="note.term" class="term-row">
+              <strong>{{ note.term }}</strong>
+              <span>{{ note.plain }}</span>
+            </p>
+          </div>
         </article>
       </div>
 
@@ -614,6 +679,13 @@
         <ol class="forbidden-list">
           <li v-for="row in catalog.forbidden" :key="row.key">
             {{ row.text }}
+            <span v-if="row.terms?.length" class="term-inline">
+              {{
+                row.terms
+                  .map((note) => `${note.term} = ${note.plain}`)
+                  .join(" / ")
+              }}
+            </span>
           </li>
         </ol>
       </div>
@@ -626,6 +698,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 
 import {
   ARC_TRAINING_KIND_LABELS,
+  ARC_TRAINING_KIND_ORDER,
   ARC_TRAINING_RESULT_LABELS,
   ARC_TRAINING_STATUS_LABELS,
   createArcTrainingSession,
@@ -692,6 +765,7 @@ const savedMessage = ref("");
 const drafts = reactive({});
 
 const form = reactive({
+  editId: "",
   kind: "REGULAR",
   scheduledOn: "",
   startTime: "15:00",
@@ -704,6 +778,8 @@ const form = reactive({
   moduleKeys: [],
   scenarioKeys: [],
 });
+const hiddenKinds = ref([]);
+const personalOnly = ref(false);
 
 const catalog = computed(() => board.value.catalog ?? {});
 const staff = computed(() => board.value.staff ?? []);
@@ -726,13 +802,50 @@ const isCurrentPeriod = computed(
   () => board.value.period === (stats.value.today ?? "").slice(0, 7)
 );
 
+// 개인 일정(PERSONAL)은 ARC 대표(RN) 본인 계정에서만 만들고 볼 수 있습니다.
+const kindFilters = computed(() =>
+  ARC_TRAINING_KIND_ORDER.filter(
+    (key) => key !== "PERSONAL" || canWrite.value
+  ).map((key) => ({
+    key,
+    label:
+      catalog.value.kinds?.find((kind) => kind.key === key)?.label ??
+      ARC_TRAINING_KIND_LABELS[key] ??
+      key,
+  }))
+);
+
+const modulesOptional = computed(
+  () =>
+    catalog.value.kinds?.find((kind) => kind.key === form.kind)
+      ?.modulesOptional === true
+);
+
+function kindCount(key) {
+  return sessions.value.filter((item) => item.kind === key).length;
+}
+
+function isKindVisible(session) {
+  if (personalOnly.value && session.kind !== "PERSONAL") return false;
+
+  return !hiddenKinds.value.includes(session.kind);
+}
+
+function toggleKindFilter(key) {
+  hiddenKinds.value = hiddenKinds.value.includes(key)
+    ? hiddenKinds.value.filter((item) => item !== key)
+    : [...hiddenKinds.value, key];
+}
+
 const libraryModules = computed(() =>
   (catalog.value.modules ?? []).map((module) => ({
     ...module,
-    checklist: (module.items ?? []).map((item) => ({
+    checklist: (module.items ?? []).map((item, index) => ({
       key: Array.isArray(item) ? item[0] : item.key,
       label: Array.isArray(item) ? item[1] : item.label,
+      terms: module.itemTerms?.[index] ?? [],
     })),
+    terms: module.terms ?? [],
   }))
 );
 
@@ -795,8 +908,10 @@ const calendarCells = computed(() => {
       day,
       iso,
       isToday: iso === todayIso,
-      sessions: sessions.value.filter((item) => item.scheduledOn === iso),
-      routines: routineChipsFor(day, month),
+      sessions: sessions.value.filter(
+        (item) => item.scheduledOn === iso && isKindVisible(item)
+      ),
+      routines: personalOnly.value ? [] : routineChipsFor(day, month),
     });
   }
 
@@ -827,9 +942,13 @@ function kindLabel(key) {
 }
 
 function kindShort(key) {
+  if (key === "OT") return "OT";
+  if (key === "REGULAR") return "정기";
   if (key === "NEWBIE") return "신규";
-  if (key === "REGULAR") return "교육";
+  if (key === "DRILL") return "연습";
   if (key === "REFRESH") return "보수";
+  if (key === "ROUTINE") return "루틴";
+  if (key === "PERSONAL") return "개인";
 
   return kindLabel(key);
 }
@@ -938,6 +1057,7 @@ function toggleScenario(key) {
 }
 
 function resetForm() {
+  form.editId = "";
   form.kind = "REGULAR";
   form.scheduledOn = selectedIso.value || todayIso();
   form.startTime = "15:00";
@@ -952,8 +1072,29 @@ function resetForm() {
 
 function startCreate(iso) {
   selectedIso.value = iso;
+  form.editId = "";
   form.scheduledOn = iso;
   tab.value = "sessions";
+}
+
+function startEdit(session) {
+  form.editId = session.id;
+  form.kind = session.kind;
+  form.scheduledOn = session.scheduledOn;
+  form.startTime = session.startTime ?? "15:00";
+  form.durationMin = session.durationMin ?? 30;
+  form.place = session.place ?? "";
+  form.instructor = session.instructor ?? "";
+  form.title = session.title ?? "";
+  form.evidenceId = session.evidenceId ?? "";
+  form.note = session.note ?? "";
+  form.moduleKeys = (session.modules ?? []).map((module) => module.key);
+  form.scenarioKeys = (session.scenarios ?? []).map((item) => item.key);
+  tab.value = "sessions";
+
+  if (typeof window !== "undefined") {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 }
 
 function autoMaterials() {
@@ -972,7 +1113,7 @@ async function submitForm() {
     return;
   }
 
-  if (form.moduleKeys.length === 0) {
+  if (form.moduleKeys.length === 0 && !modulesOptional.value) {
     errorMessage.value = "교육 모듈을 1개 이상 선택해 주세요.";
     return;
   }
@@ -981,7 +1122,7 @@ async function submitForm() {
   errorMessage.value = "";
 
   try {
-    await createArcTrainingSession({
+    const payload = {
       kind: form.kind,
       scheduledOn: form.scheduledOn,
       startTime: form.startTime,
@@ -994,9 +1135,16 @@ async function submitForm() {
       moduleKeys: form.moduleKeys,
       scenarioKeys: form.scenarioKeys,
       materials: autoMaterials(),
-    });
+    };
+    const editing = Boolean(form.editId);
 
-    flash("교육 일정을 등록했어요.");
+    if (editing) {
+      await updateArcTrainingSession(form.editId, payload);
+    } else {
+      await createArcTrainingSession(payload);
+    }
+
+    flash(editing ? "교육 일정을 수정했어요." : "교육 일정을 등록했어요.");
     resetForm();
     await load(board.value.period);
   } catch (error) {
@@ -1043,11 +1191,12 @@ function ensureDraft(session) {
       employeeId: member.id,
       employeeName: member.name,
       roleLabel:
-        member.role === "OWNER"
+        member.title ||
+        (member.role === "OWNER"
           ? "대표"
           : member.role === "MANAGER"
           ? "매니저"
-          : "",
+          : ""),
       attended: Boolean(existing?.attended),
       result: existing?.result ?? "PENDING",
       score: existing?.score ?? "",
@@ -1385,43 +1534,105 @@ onMounted(() => {
   gap: 8px;
 }
 
-.legend-chip {
-  padding: 3px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  background: #f3f4f6;
-  color: #374151;
+.calendar-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.legend-chip.ot {
+.filter-title {
+  margin: 0;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.filter-chip {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  padding: 4px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  background: #f3f4f6;
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+  cursor: pointer;
+}
+
+.filter-chip.off {
+  opacity: 0.35;
+  text-decoration: line-through;
+}
+
+.filter-count {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 70%);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.filter-chip.ot {
+  border-color: #c7d2fe;
   background: #e0e7ff;
   color: #3730a3;
 }
 
-.legend-chip.regular {
+.filter-chip.regular {
+  border-color: #bbf7d0;
   background: #dcfce7;
   color: #166534;
 }
 
-.legend-chip.newbie {
+.filter-chip.newbie {
+  border-color: #fde68a;
   background: #fef3c7;
   color: #92400e;
 }
 
-.legend-chip.drill {
+.filter-chip.drill {
+  border-color: #fecaca;
   background: #fee2e2;
   color: #991b1b;
 }
 
-.legend-chip.refresh {
+.filter-chip.refresh {
+  border-color: #bae6fd;
   background: #e0f2fe;
   color: #075985;
 }
 
-.legend-chip.routine {
-  border: 1px dashed #cbd5e1;
+.filter-chip.routine {
+  border-color: #cbd5e1;
+  border-style: dashed;
   background: #fff;
-  color: #64748b;
+  color: #475569;
+}
+
+.filter-chip.personal {
+  border-color: #e9d5ff;
+  background: #f3e8ff;
+  color: #6b21a8;
+}
+
+.filter-chip.personal-toggle {
+  margin-left: auto;
+  border-color: #cbd5e1;
+  background: #fff;
+  color: #475569;
+}
+
+.filter-chip.personal-toggle.on {
+  border-color: #a855f7;
+  background: #f3e8ff;
+  color: #6b21a8;
 }
 
 .calendar-weekhead,
@@ -1510,13 +1721,24 @@ onMounted(() => {
   color: #075985;
 }
 
+.chip.session.routine {
+  border: 1px dashed #cbd5e1;
+  background: #fff;
+  color: #475569;
+}
+
+.chip.session.personal {
+  background: #f3e8ff;
+  color: #6b21a8;
+}
+
 .chip.session.canceled {
   background: #f3f4f6;
   color: #9ca3af;
   text-decoration: line-through;
 }
 
-.chip.routine {
+.chip.routine-step {
   border: 1px dashed #cbd5e1;
   color: #64748b;
 }
@@ -1744,6 +1966,17 @@ onMounted(() => {
   color: #075985;
 }
 
+.kind-chip.routine {
+  background: #f8fafc;
+  color: #475569;
+  box-shadow: inset 0 0 0 1px #cbd5e1;
+}
+
+.kind-chip.personal {
+  background: #f3e8ff;
+  color: #6b21a8;
+}
+
 .status-chip.planned {
   background: #f3f4f6;
   color: #4b5563;
@@ -1932,6 +2165,53 @@ onMounted(() => {
   margin: 8px 0 0;
   font-size: 12px;
   color: #6b7280;
+}
+
+.term-note {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.55;
+  color: #475569;
+}
+
+.term-box {
+  margin-top: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: #f1f5f9;
+  border-left: 3px solid #0ea5e9;
+}
+
+.term-title {
+  margin: 0 0 4px;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #0c4a6e;
+}
+
+.term-row {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 6px;
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: #1f2937;
+
+  strong {
+    font-weight: 800;
+    color: #0c4a6e;
+  }
+}
+
+.term-inline {
+  display: block;
+  margin-top: 3px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: #475569;
 }
 
 .scenario-scene {

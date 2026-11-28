@@ -2228,6 +2228,59 @@ a real-data defect or a domain-accuracy gap, so all nine were fixed rather than 
 
 ---
 
+### R. P14N — ARC 권한 분리 + 비서 + 평이한 용어 + 7종 달력 (2026-11-28)
+
+User asked for 5 things after the P14M batch shipped; all landed in one pass.
+
+1. **Title change.** `employees.title` (text, default '') + idempotent seed
+   `update employees set title='ARC 대표(RN)' where lower(login_id)='yoonhee1021' and coalesce(title,'')=''`.
+   `toPublicEmployee()` exposes `title`/`titleLabel`; the sidebar role label and the training
+   attendance list prefer the title over the role label (`매니저` -> `ARC 대표(RN)`).
+   `PATCH /api/admin/employees/:id` refuses to change the director's title (server-side).
+2. **ARC permission owner.** New `server/src/arcPermissions.js` + `AdminArcPermissionsView.vue` at
+   `/admin/arc/permissions`: 9-permission matrix (`arc.view/stock/expense/approve/check/edu/care/sensitive/admin`)
+   with a plain-language catalogue. `GET /api/arc/permissions` and `PATCH /api/arc/permissions/:employeeId`
+   are `requireArcDirector` — the owner account gets 403. The director's own 9 permissions are immutable
+   (403) so she cannot lock herself out. Saves revoke that employee's sessions (`admin_audit_logs`
+   action `ARC_PERMISSION_UPDATE`). `arc_permissions text[]` on `employees` stores explicit overrides;
+   `NULL` = role default (OWNER/MANAGER -> all 9, STAFF -> none). The generic employee screen can no
+   longer grant ARC permissions (`readPermissionsInput()` strips the `arc` group, `editableGroups` hides it,
+   and a locked block links to `/admin/arc/permissions`). Client route + menu entry are
+   `arcDirectorOnly`, so the owner cannot even navigate there.
+3. **ARC 비서 (secretary).** New `server/src/arcAssistant.js` + `AdminArcAssistantView.vue` at
+   `/admin/arc/assistant`: aggregates routine + stock + usage + expense + quality + event + training
+   summaries into P0/P1/P2 cards (each deep-links into the owning screen), a monthly-routine progress
+   block (지금 할 일 / 곧 시작), and a 3-line copy-paste brief for the owner.
+4. **Layperson glossary.** New `server/src/arcGlossary.js` (~70 medical/legal terms + aliases) and
+   `collectArcTerms()`. `arcTrainingGuide()` and `arcTrainingCatalog()` now return `terms`/`itemTerms`
+   per module/scenario/forbidden item; both client screens render them as small "어려운 말, 이렇게
+   이해하세요" notes (students see scenarios' notes too, not only teachers). Print CSS keeps a term box
+   from splitting across pages.
+5. **7 calendar categories.** `arc_training_sessions.kind` CHECK now also allows `ROUTINE` (월간 운영 루틴)
+   and `PERSONAL` (최윤희 개인 달력). `owner_login_id` + partial index; `listArcTrainingSessions()` hides
+   other people's PERSONAL rows and `arcTrainingSummary()` excludes them. ROUTINE/PERSONAL accept an
+   empty module list (`modulesOptional`). The calendar shows 7 filter chips with counts + a
+   `개인 일정만 보기` toggle, and every session (all 7 kinds) can be edited in place (`editId` +
+   `startEdit()` -> `PATCH /api/arc/training/:sessionId`).
+
+**Verification (all before asking for lint/build):** dev DB schema applied idempotently; `node --check` on
+every touched server file; a 35-assertion temp script against the embedded Postgres (director 9 perms,
+staff 0, explicit array wins, camel+snake both honored, legacy `permissions` cannot grant ARC, the
+director's own save blocked, non-array rejected, PERSONAL hidden from others, ROUTINE+PERSONAL saved
+without modules, briefing cards all link under `/admin/arc`); `vue/compiler-sfc` parse+compile clean on
+all 6 touched SFCs; ESM syntax check on the 3 touched `src` modules.
+
+**Gotchas learned.**
+- `arcPermissionsForEmployee()` must accept **both** `arc_permissions` and `arcPermissions`; the row comes
+  from snake_case SQL in some call sites and camelCase mappers in others.
+- `normalizeArcPermissions()` returns `null` for a non-array, so the save route validates the raw body
+  explicitly — otherwise a malformed payload would silently reset the employee to the role default.
+- Assistant card links are hand-written strings: `/admin/arc/sensitive` does not exist (the screen is
+  `/admin/arc/access`). Any new card must be checked against `src/router/index.js`.
+- This is a Vue CLI SPA, not Nuxt: `process.client` is undefined — use `typeof window !== "undefined"`.
+
+---
+
 ## 4. Open questions
 
 1. ~~**₩30,000 point-redemption threshold**: before or after discount?~~ → **resolved in P5**: after discount, before point deduction.

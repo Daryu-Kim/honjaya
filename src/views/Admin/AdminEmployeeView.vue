@@ -58,6 +58,22 @@
             </div>
 
             <div class="form-group">
+              <label for="newTitle">직위(선택)</label>
+              <input
+                id="newTitle"
+                v-model="createForm.title"
+                type="text"
+                maxlength="40"
+                autocomplete="off"
+                placeholder="예: 바 매니저 · ARC 대표(RN)"
+              />
+              <small class="hint">
+                직위는 화면에 표시되는 이름표예요. 응급안전 권한과는
+                관계없습니다.
+              </small>
+            </div>
+
+            <div class="form-group">
               <label for="newPassword">비밀번호</label>
               <input
                 id="newPassword"
@@ -96,7 +112,7 @@
 
             <div v-else class="permission-groups">
               <div
-                v-for="group in catalog.groups"
+                v-for="group in editableGroups"
                 :key="group.key"
                 class="permission-group"
               >
@@ -114,6 +130,17 @@
                   <span>{{ item.label }}</span>
                 </label>
               </div>
+            </div>
+
+            <div class="permission-group arc-locked">
+              <h3>응급안전 (ARC 대표(RN) 전용)</h3>
+              <p class="hint">
+                응급안전관리센터 9종 권한은 사장도 줄 수 없어요. ARC 대표(RN)가
+                <router-link to="/admin/arc/permissions">
+                  응급안전 권한 관리
+                </router-link>
+                화면에서 부여합니다.
+              </p>
             </div>
           </div>
 
@@ -159,7 +186,12 @@
             <tbody>
               <tr v-for="employee in employees" :key="employee.id">
                 <td class="mono">{{ employee.loginId }}</td>
-                <td>{{ employee.name || "-" }}</td>
+                <td>
+                  {{ employee.name || "-" }}
+                  <span v-if="employee.title" class="title-chip">
+                    {{ employee.titleLabel || employee.title }}
+                  </span>
+                </td>
                 <td>{{ roleLabel(employee.role) }}</td>
                 <td class="permission-cell">
                   {{ permissionSummary(employee) }}
@@ -231,6 +263,21 @@
             </div>
 
             <div class="form-group">
+              <label for="editTitle">직위(선택)</label>
+              <input
+                id="editTitle"
+                v-model="editForm.title"
+                type="text"
+                maxlength="40"
+                :disabled="editTarget.isArcDirector"
+              />
+              <small v-if="editTarget.isArcDirector" class="hint">
+                ARC 대표(RN) 직위는 응급안전 권한 관리 화면에서만 바꿀 수
+                있어요.
+              </small>
+            </div>
+
+            <div class="form-group">
               <label for="editActive">계정 상태</label>
               <select id="editActive" v-model="editForm.isActive">
                 <option :value="true">사용</option>
@@ -261,7 +308,7 @@
 
               <div v-else class="permission-groups">
                 <div
-                  v-for="group in catalog.groups"
+                  v-for="group in editableGroups"
                   :key="group.key"
                   class="permission-group"
                 >
@@ -279,6 +326,20 @@
                     <span>{{ item.label }}</span>
                   </label>
                 </div>
+              </div>
+
+              <div class="permission-group arc-locked">
+                <h3>응급안전 (ARC 대표(RN) 전용)</h3>
+                <p class="hint">
+                  응급안전 9종 권한은 이 화면에서 바꿀 수 없어요. ARC 대표(RN)가
+                  <router-link to="/admin/arc/permissions">
+                    응급안전 권한 관리
+                  </router-link>
+                  화면에서 부여·회수합니다.
+                </p>
+                <p v-if="arcPermissionText(editTarget)" class="arc-current">
+                  현재 {{ arcPermissionText(editTarget) }}
+                </p>
               </div>
             </template>
           </div>
@@ -352,6 +413,37 @@ const roleOptions = ROLE_OPTIONS;
 const canManage = computed(() => hasPermission(EMPLOYEE_MANAGE_PERMISSION));
 
 const catalog = reactive({ roles: [], groups: [] });
+
+// 응급안전 9종은 이 화면에서 다루지 않습니다(ARC 대표(RN) 전용 화면에서만 부여).
+const editableGroups = computed(() =>
+  (catalog.groups || []).filter((group) => group.key !== "arc")
+);
+
+const ARC_PERMISSION_LABELS = {
+  "arc.view": "조회",
+  "arc.stock": "재고·사용",
+  "arc.expense": "비용·정산",
+  "arc.approve": "승인",
+  "arc.check": "점검·실사",
+  "arc.edu": "교육",
+  "arc.care": "사건·AS-CARE",
+  "arc.sensitive": "민감정보",
+  "arc.admin": "설정",
+};
+
+function arcPermissionText(employee) {
+  const list = Array.isArray(employee?.arcPermissions)
+    ? employee.arcPermissions
+    : [];
+
+  if (list.length === 0) {
+    return "응급안전 접근 없음";
+  }
+
+  return list
+    .map((permission) => ARC_PERMISSION_LABELS[permission] || permission)
+    .join(" · ");
+}
 const employees = ref([]);
 const isLoading = ref(false);
 const isCreating = ref(false);
@@ -363,6 +455,7 @@ const noticeMessage = ref("");
 const createForm = reactive({
   loginId: "",
   name: "",
+  title: "",
   password: "",
   role: "STAFF",
   useCustom: false,
@@ -372,6 +465,7 @@ const createForm = reactive({
 const editTarget = ref(null);
 const editForm = reactive({
   name: "",
+  title: "",
   role: "STAFF",
   isActive: true,
   useCustom: false,
@@ -449,6 +543,7 @@ async function loadEmployees() {
 function resetCreateForm() {
   createForm.loginId = "";
   createForm.name = "";
+  createForm.title = "";
   createForm.password = "";
   createForm.role = "STAFF";
   createForm.useCustom = false;
@@ -487,6 +582,7 @@ async function submitCreate() {
     await createEmployee({
       loginId,
       name,
+      title: createForm.title.trim(),
       password: createForm.password,
       role: createForm.role,
       permissions:
@@ -510,6 +606,7 @@ function startEdit(employee) {
   passwordTarget.value = null;
   editTarget.value = employee;
   editForm.name = employee.name || "";
+  editForm.title = employee.title || "";
   editForm.role = employee.role;
   editForm.isActive = employee.isActive !== false;
   editForm.useCustom = Boolean(employee.permissionOverrides);
@@ -557,6 +654,7 @@ async function submitEdit() {
 
   const payload = {
     name,
+    title: editTarget.value.isArcDirector ? undefined : editForm.title.trim(),
     role: editForm.role,
     isActive: editForm.isActive,
   };
@@ -791,6 +889,43 @@ onMounted(async () => {
   font-size: 13px;
   color: rgba(255, 255, 255, 0.82);
   cursor: pointer;
+}
+
+.arc-locked {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.25);
+
+  .hint {
+    margin: 0;
+    color: rgba(253, 230, 138, 0.9);
+
+    a {
+      color: #fcd34d;
+      font-weight: 700;
+    }
+  }
+}
+
+.arc-current {
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fcd34d;
+}
+
+.title-chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.18);
+  color: #7dd3fc;
+  font-size: 11px;
+  font-weight: 700;
+  vertical-align: middle;
 }
 
 .form-actions {

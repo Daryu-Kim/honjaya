@@ -267,8 +267,9 @@ export const PERMISSION_GROUPS = [
   },
   {
     key: "arc",
-    // 직원 계정에 체크해도 서버가 사장·매니저가 아니면 막습니다.
-    label: "응급안전 (사장·매니저 전용)",
+    // 이 그룹은 화면에서 잠깁니다. 응급안전 9종은 사장도 줄 수 없고,
+    // ARC 대표(RN)가 /admin/arc/permissions 에서만 부여·회수합니다.
+    label: "응급안전 (ARC 대표(RN) 전용)",
     permissions: [
       PERMISSIONS.ARC_VIEW,
       PERMISSIONS.ARC_STOCK,
@@ -316,9 +317,10 @@ export function normalizePermissions(value) {
   return ALL_PERMISSIONS.filter((permission) => unique.has(permission));
 }
 
-// 응급안전관리센터 9종. 매니저는 개별 권한 설정과 무관하게 항상 가집니다.
-// (2026-11-28 대표 지시: 등록·조회 모두 사장·매니저만. 직원은 역할 자체가 아니므로 제외)
-const ARC_PERMISSION_SET = new Set([
+// 응급안전관리센터 9종. 역할 기본값은 사장·매니저가 전부 가지고, 직원은 없습니다.
+// 총괄(yoonhee1021)은 언제든 arc_permissions 로 다른 직원의 9종을 조정할 수 있습니다.
+// (2026-11-28 대표 지시: ARC 권한 부여·회수는 오직 총괄만)
+export const ARC_PERMISSION_LIST = [
   PERMISSIONS.ARC_VIEW,
   PERMISSIONS.ARC_STOCK,
   PERMISSIONS.ARC_EXPENSE,
@@ -328,47 +330,86 @@ const ARC_PERMISSION_SET = new Set([
   PERMISSIONS.ARC_CARE,
   PERMISSIONS.ARC_SENSITIVE,
   PERMISSIONS.ARC_ADMIN,
-]);
+];
+
+const ARC_PERMISSION_SET = new Set(ARC_PERMISSION_LIST);
+
+// 일반 권한 목록에서 응급안전 9종을 걷어냅니다.
+// 응급안전 권한은 오직 총괄의 arc_permissions 로만 정해지므로, 직원 관리 화면에서
+// 들어온 응급안전 체크는 저장 자체를 막습니다.
+export function stripArcPermissions(list) {
+  if (!Array.isArray(list)) {
+    return null;
+  }
+
+  return list.filter((permission) => !ARC_PERMISSION_SET.has(permission));
+}
+
+// 응급안전 권한만 따로 정규화합니다(다른 영역 권한은 버립니다).
+export function normalizeArcPermissions(value) {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const unique = new Set();
+
+  for (const item of value) {
+    const permission = String(item ?? "").trim();
+
+    if (ARC_PERMISSION_SET.has(permission)) {
+      unique.add(permission);
+    }
+  }
+
+  return ARC_PERMISSION_LIST.filter((permission) => unique.has(permission));
+}
+
+function roleDefaultArcPermissions(role) {
+  return role === "OWNER" || role === "MANAGER" ? [...ARC_PERMISSION_LIST] : [];
+}
+
+// 응급안전 9종의 최종 권한.
+//   * 총괄 계정 → 항상 9종 전부
+//   * arc_permissions 배열 → 그 목록만 (빈 배열 = 응급안전 접근 불가)
+//   * arc_permissions null → 역할 기본값(사장·매니저 9종, 직원 없음)
+export function arcPermissionsForEmployee(row) {
+  if (!row) {
+    return [];
+  }
+
+  if (isArcDirector(row.login_id ?? row.loginId)) {
+    return [...ARC_PERMISSION_LIST];
+  }
+
+  // DB 행(arc_permissions)과 공개 직원 객체(arcPermissions)를 모두 받습니다.
+  const overrides = normalizeArcPermissions(
+    row.arc_permissions === undefined ? row.arcPermissions : row.arc_permissions
+  );
+
+  return overrides || roleDefaultArcPermissions(row.role);
+}
 
 // 직원별 권한은 두 가지 상태를 가집니다.
 //   * permissions === null/undefined → 역할 기본값을 그대로 사용
 //   * permissions 배열 → 그 직원만의 명시적 권한 목록 (빈 배열 = 권한 없음)
 // 사장(OWNER)은 잠금 사고를 막기 위해 항상 역할 기본값을 씁니다.
+// 응급안전 9종은 permissions 가 아니라 arc_permissions 로만 결정됩니다.
 export function permissionsForEmployee(row) {
   if (!row) {
     return [];
   }
 
-  if (row.role === "OWNER") {
-    return permissionsForRole("OWNER");
-  }
+  const base =
+    row.role === "OWNER"
+      ? permissionsForRole("OWNER")
+      : normalizePermissions(row.permissions) || permissionsForRole(row.role);
+  const arc = arcPermissionsForEmployee(row);
 
-  const overrides = normalizePermissions(row.permissions);
-  // ARC 총괄 계정(yoonhee1021)은 역할·개별 권한 설정과 무관하게 응급안전 9종을 항상 가집니다.
-  const isDirector = isArcDirector(row.login_id);
-
-  if (overrides || isDirector) {
-    const base = overrides || permissionsForRole(row.role);
-    const roleDefaults = permissionsForRole(row.role);
-
-    return ALL_PERMISSIONS.filter((permission) => {
-      if (base.includes(permission)) {
-        return true;
-      }
-
-      if (!ARC_PERMISSION_SET.has(permission)) {
-        return false;
-      }
-
-      if (isDirector) {
-        return true;
-      }
-
-      return row.role === "MANAGER" && roleDefaults.includes(permission);
-    });
-  }
-
-  return permissionsForRole(row.role);
+  return ALL_PERMISSIONS.filter((permission) =>
+    ARC_PERMISSION_SET.has(permission)
+      ? arc.includes(permission)
+      : base.includes(permission)
+  );
 }
 
 export function permissionCatalog() {

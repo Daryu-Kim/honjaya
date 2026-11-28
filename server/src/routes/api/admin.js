@@ -5,10 +5,13 @@ import { hashPassword, validatePasswordStrength } from "../../auth/password.js";
 import {
   PERMISSIONS,
   ROLE_LABELS,
+  arcPermissionsForEmployee,
+  isArcDirector,
   isValidRole,
   normalizePermissions,
   permissionCatalog,
   permissionsForEmployee,
+  stripArcPermissions,
 } from "../../auth/permissions.js";
 import { createStaffGuard, revokeSessionsForEmployee } from "../../auth/sessions.js";
 import { pool } from "../../db.js";
@@ -29,6 +32,9 @@ function mapEmployeeRow(row) {
     name: row.name || "",
     role: row.role,
     roleLabel: ROLE_LABELS[row.role] || row.role,
+    // 표시용 직위 (예: 'ARC 대표(RN)')
+    title: row.title || "",
+    titleLabel: row.title || ROLE_LABELS[row.role] || row.role,
     isActive: row.is_active !== false,
     lastLoginAt: row.last_login_at,
     createdAt: row.created_at,
@@ -37,6 +43,11 @@ function mapEmployeeRow(row) {
     permissionOverrides: Array.isArray(row.permissions)
       ? [...row.permissions]
       : null,
+    arcPermissions: arcPermissionsForEmployee(row),
+    arcPermissionOverrides: Array.isArray(row.arc_permissions)
+      ? [...row.arc_permissions]
+      : null,
+    isArcDirector: isArcDirector(row.login_id),
   };
 }
 
@@ -57,7 +68,11 @@ function readPermissionsInput(body) {
     throw new HttpError(400, "HJ400", "권한 목록 형식이 올바르지 않아요.");
   }
 
-  return { provided: true, value: normalizePermissions(body.permissions) };
+  return {
+    provided: true,
+    // 응급안전 9종은 총괄만 정할 수 있으므로 일반 권한에서 제거합니다.
+    value: stripArcPermissions(normalizePermissions(body.permissions)) || [],
+  };
 }
 
 function mapTableRow(row) {
@@ -98,8 +113,9 @@ export function registerAdminRoutes(app) {
 
   app.get("/api/admin/employees", { preHandler: requireEmployeeManage }, async () => {
     const result = await pool.query(
-      `select id, login_id, name, role, permissions, is_active, last_login_at, created_at, updated_at
-         from public.employees
+      `select id, login_id, name, role, permissions, is_active, last_login_at, created_at, updated_at,
+              title, arc_permissions
+          from public.employees
         order by
           case role when 'OWNER' then 0 when 'MANAGER' then 1 else 2 end,
           lower(login_id)`
@@ -161,10 +177,19 @@ export function registerAdminRoutes(app) {
     const passwordHash = await hashPassword(password);
 
     const inserted = await pool.query(
-      `insert into public.employees (id, login_id, password_hash, name, role, permissions)
-       values ($1, $2, $3, $4, $5, $6)
-       returning id, login_id, name, role, permissions, is_active, last_login_at, created_at, updated_at`,
-      [id, loginId, passwordHash, name, role, storedPermissions]
+      `insert into public.employees (id, login_id, password_hash, name, role, permissions, title)
+       values ($1, $2, $3, $4, $5, $6, $7)
+       returning id, login_id, name, role, permissions, is_active, last_login_at, created_at, updated_at,
+                 title, arc_permissions`,
+      [
+        id,
+        loginId,
+        passwordHash,
+        name,
+        role,
+        storedPermissions,
+        String(body.title ?? "").trim().slice(0, 40),
+      ]
     );
 
     await writeAuditLog({
@@ -187,7 +212,7 @@ export function registerAdminRoutes(app) {
     const values = [];
 
     const current = await pool.query(
-      `select id, login_id, name, role, permissions, is_active
+      `select id, login_id, name, role, permissions, is_active, title, arc_permissions
          from public.employees
         where id = $1
         limit 1`,
@@ -235,6 +260,16 @@ export function registerAdminRoutes(app) {
       updates.push(`role = $${values.length}`);
     }
 
+    if (body.title !== undefined) {
+      // 응급안전 총괄의 직위는 총괄 권한 화면에서만 다룹니다(사장이 임의로 바꾸지 못하게).
+      if (!isArcDirector(employee.login_id)) {
+        const title = String(body.title ?? "").trim().slice(0, 40);
+
+        values.push(title);
+        updates.push(`title = $${values.length}`);
+      }
+    }
+
     const permissionsInput = readPermissionsInput(body);
     const nextRole =
       body.role !== undefined ? String(body.role).trim().toUpperCase() : employee.role;
@@ -273,7 +308,8 @@ export function registerAdminRoutes(app) {
       `update public.employees
           set ${updates.join(", ")}, updated_at = now()
         where id = $${values.length}
-        returning id, login_id, name, role, permissions, is_active, last_login_at, created_at, updated_at`,
+        returning id, login_id, name, role, permissions, is_active, last_login_at, created_at, updated_at,
+                  title, arc_permissions`,
       values
     );
 
@@ -318,7 +354,8 @@ export function registerAdminRoutes(app) {
         `update public.employees
             set password_hash = $2, updated_at = now()
           where id = $1
-          returning id, login_id, name, role, permissions, is_active, last_login_at, created_at, updated_at`,
+          returning id, login_id, name, role, permissions, is_active, last_login_at, created_at, updated_at,
+                    title, arc_permissions`,
         [id, passwordHash]
       );
 

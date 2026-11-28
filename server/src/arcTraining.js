@@ -9,6 +9,7 @@
 // "잡아 둔 세션(계획)"과 "참석 결과"만 남기고, 화면은 그 둘을 합쳐 보여줍니다.
 import { randomUUID } from "node:crypto";
 
+import { collectArcTerms } from "./arcGlossary.js";
 import { pool } from "./db.js";
 import { badRequest, HttpError } from "./http/errors.js";
 
@@ -53,6 +54,28 @@ export const ARC_TRAINING_KINDS = [
     desc: "불참자 14일 이내 보충 또는 오답·실수 항목 재교육.",
     minutes: 30,
     modules: ["ROLE"],
+  },
+  {
+    key: "ROUTINE",
+    label: "월간 운영 루틴",
+    desc:
+      "AS-CAL-001 월간 운영 루틴. 월초 오픈부터 월말 마감까지 그 달에 해야 할 일을 " +
+      "달력에 미리 깔아 두고 진행 상황을 함께 봅니다.",
+    minutes: 30,
+    modules: [],
+    // 루틴은 체크리스트가 본체라 교육 모듈을 고르지 않아도 됩니다.
+    modulesOptional: true,
+  },
+  {
+    key: "PERSONAL",
+    label: "개인 일정",
+    desc:
+      "ARC 대표(RN) 개인 일정. 총괄 계정에만 보이고 다른 계정에는 나타나지 않습니다.",
+    minutes: 30,
+    modules: [],
+    modulesOptional: true,
+    // 본인만 볼 수 있는 달력 (서버에서도 본인 것만 돌려줍니다)
+    personal: true,
   },
 ];
 
@@ -617,14 +640,33 @@ export function arcTrainingCatalog() {
     kinds: ARC_TRAINING_KINDS,
     statuses: ARC_TRAINING_STATUSES,
     results: ARC_TRAINING_RESULTS,
-    modules: ARC_TRAINING_MODULES,
-    scenarios: ARC_TRAINING_SCENARIOS,
-    forbidden: ARC_TRAINING_FORBIDDEN,
+    // 교육자료는 일반인(사장·직원)이 그대로 읽습니다.
+    // 어려운 말이 나오면 항목마다 쉬운 풀이(terms)를 함께 내려 줍니다.
+    modules: ARC_TRAINING_MODULES.map((item) => ({
+      ...item,
+      itemTerms: (item.items ?? []).map(([, line]) => collectArcTerms(line)),
+      terms: collectArcTerms([item.goal, ...(item.items ?? []).map(([, line]) => line)]),
+    })),
+    scenarios: ARC_TRAINING_SCENARIOS.map((item) => ({
+      ...item,
+      terms: collectArcTerms([item.scene, item.answer]),
+    })),
+    forbidden: ARC_TRAINING_FORBIDDEN.map((item) => ({
+      ...item,
+      terms: collectArcTerms(item.text),
+    })),
     makeupDays: MAKEUP_DAYS,
   };
 }
 
 const KIND_KEYS = new Set(ARC_TRAINING_KINDS.map((item) => item.key));
+// 교육 모듈을 고르지 않아도 되는 구분(루틴·개인 일정).
+const OPTIONAL_MODULE_KINDS = new Set(
+  ARC_TRAINING_KINDS.filter((item) => item.modulesOptional).map((item) => item.key)
+);
+const PERSONAL_KINDS = new Set(
+  ARC_TRAINING_KINDS.filter((item) => item.personal).map((item) => item.key)
+);
 const STATUS_KEYS = new Set(ARC_TRAINING_STATUSES.map((item) => item.key));
 const RESULT_KEYS = new Set(ARC_TRAINING_RESULTS.map((item) => item.key));
 const MODULE_KEYS = new Set(ARC_TRAINING_MODULES.map((item) => item.key));
@@ -700,6 +742,8 @@ function mapSession(row, attendees = []) {
     sessionNo: row.session_no,
     period: row.period,
     kind: row.kind,
+    isPersonal: PERSONAL_KINDS.has(row.kind),
+    ownerLoginId: row.owner_login_id || "",
     title: row.title,
     scheduledOn,
     startTime: row.start_time,
@@ -762,7 +806,7 @@ function normalizeSessionInput(input = {}, current = null) {
     MODULE_KEYS
   );
 
-  if (moduleKeys.length === 0) {
+  if (moduleKeys.length === 0 && !OPTIONAL_MODULE_KINDS.has(kind)) {
     throw badRequest("교육 모듈을 1개 이상 선택해 주세요.");
   }
 
@@ -818,7 +862,7 @@ async function loadAttendees(sessionIds = []) {
 /** 출석 대상이 될 수 있는 재직 직원 목록(최윤희 총괄 포함). */
 export async function listArcTrainingStaff() {
   const { rows } = await pool.query(
-    `select id, login_id, name, role
+    `select id, login_id, name, role, title
        from public.employees
       where is_active
       order by
@@ -832,12 +876,18 @@ export async function listArcTrainingStaff() {
     loginId: row.login_id,
     name: row.name || row.login_id,
     role: row.role,
+    title: row.title || "",
   }));
 }
 
-export async function listArcTrainingSessions({ period = null, limit = 60 } = {}) {
+export async function listArcTrainingSessions({
+  period = null,
+  limit = 60,
+  viewerLoginId = "",
+} = {}) {
   const safePeriod = text(period, 7);
   const safeLimit = Math.min(Math.max(Number(limit) || 60, 1), MAX_LIMIT);
+  const viewer = text(viewerLoginId, 40).toLowerCase();
 
   if (safePeriod && !PERIOD_PATTERN.test(safePeriod)) {
     throw badRequest("조회 월은 YYYY-MM 형식으로 입력해 주세요.");
@@ -847,9 +897,10 @@ export async function listArcTrainingSessions({ period = null, limit = 60 } = {}
     `select *
        from public.arc_training_sessions
       where ($1::text is null or period = $1)
+        and (kind <> 'PERSONAL' or (owner_login_id <> '' and owner_login_id = $3))
       order by scheduled_on desc, start_time desc, created_at desc
       limit $2`,
-    [safePeriod || null, safeLimit]
+    [safePeriod || null, safeLimit, viewer]
   );
 
   const attendees = await loadAttendees(rows.map((row) => row.id));
@@ -917,6 +968,10 @@ export async function createArcTrainingSession(input = {}, employee = null) {
 
   const title = defaultTitle({ ...session, title: session.title || "" });
   const createdBy = text(employee?.name, 60) || text(employee?.loginId, 60);
+  // 개인 일정은 만든 사람(총괄)에게만 귀속됩니다.
+  const ownerLoginId = PERSONAL_KINDS.has(session.kind)
+    ? text(employee?.loginId, 40).toLowerCase()
+    : "";
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const sessionNo = await nextSessionNo(session.scheduledOn);
@@ -925,9 +980,10 @@ export async function createArcTrainingSession(input = {}, employee = null) {
       const { rows } = await pool.query(
         `insert into public.arc_training_sessions
            (id, session_no, period, kind, title, scheduled_on, start_time, duration_min, place,
-            instructor, module_keys, scenario_keys, materials, status, evidence_id, note, created_by)
+            instructor, module_keys, scenario_keys, materials, status, evidence_id, note, created_by,
+            owner_login_id)
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb,
-                 $14, $15, $16, $17)
+                 $14, $15, $16, $17, $18)
          returning id`,
         [
           randomUUID(),
@@ -947,6 +1003,7 @@ export async function createArcTrainingSession(input = {}, employee = null) {
           session.evidenceId,
           session.note,
           createdBy,
+          ownerLoginId,
         ]
       );
 
@@ -984,6 +1041,7 @@ export async function updateArcTrainingSession(sessionId, patch = {}, employee =
             status = $13,
             evidence_id = $14,
             note = $15,
+            owner_login_id = $16,
             updated_at = now()
       where id = $1`,
     [
@@ -1002,6 +1060,9 @@ export async function updateArcTrainingSession(sessionId, patch = {}, employee =
       session.status,
       session.evidenceId,
       session.note,
+      PERSONAL_KINDS.has(session.kind)
+        ? current.ownerLoginId || text(employee?.loginId, 40).toLowerCase()
+        : "",
     ]
   );
 
@@ -1126,7 +1187,8 @@ export async function arcTrainingSummary({ period = null } = {}) {
         count(*) filter (where s.status = 'PLANNED')::int as planned,
         count(*)::int as total
        from public.arc_training_sessions s
-      where s.period = $1`,
+      where s.period = $1
+        and s.kind <> 'PERSONAL'`,
     [safePeriod]
   );
   const { rows: followupRows } = await pool.query(

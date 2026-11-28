@@ -286,6 +286,25 @@ export async function fetchArcDashboard() {
   };
 }
 
+// ── ARC 비서(오늘 할 일 브리핑) ────────────────────────────────────────────
+
+export async function fetchArcAssistant() {
+  return apiGet("/api/arc/assistant");
+}
+
+// ── 응급안전 권한 관리(ARC 대표·RN 전용) ───────────────────────────────────
+// 사장·매니저도 이 화면에서는 아무것도 바꿀 수 없습니다. 서버가 다시 막습니다.
+
+export async function fetchArcPermissions() {
+  return apiGet("/api/arc/permissions");
+}
+
+export async function saveArcEmployeePermissions(employeeId, permissions = []) {
+  return apiPatch(`/api/arc/permissions/${encodeURIComponent(employeeId)}`, {
+    permissions,
+  });
+}
+
 export async function fetchArcSettings() {
   const data = await apiGet("/api/arc/settings");
 
@@ -1143,7 +1162,20 @@ export const ARC_TRAINING_KIND_LABELS = {
   NEWBIE: "신규직원 기본교육",
   DRILL: "상황연습",
   REFRESH: "보수·재교육",
+  ROUTINE: "월간 운영 루틴",
+  PERSONAL: "개인 일정",
 };
+
+/** 달력·필터에 쓰는 7종 분류 순서(개인 일정은 총괄 본인만 조회). */
+export const ARC_TRAINING_KIND_ORDER = [
+  "OT",
+  "REGULAR",
+  "NEWBIE",
+  "DRILL",
+  "REFRESH",
+  "ROUTINE",
+  "PERSONAL",
+];
 
 export const ARC_TRAINING_STATUS_LABELS = {
   PLANNED: "예정",

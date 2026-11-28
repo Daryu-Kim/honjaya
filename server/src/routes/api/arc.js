@@ -106,6 +106,11 @@ import { writeAuditLog } from "../../auth/audit.js";
 import { isArcDirector, PERMISSIONS } from "../../auth/permissions.js";
 import { createStaffGuard } from "../../auth/sessions.js";
 import {
+  listArcPermissionBoard,
+  saveArcEmployeePermissions,
+} from "../../arcPermissions.js";
+import { arcAssistantBriefing } from "../../arcAssistant.js";
+import {
   arcTrainingCatalog,
   arcTrainingSummary,
   createArcTrainingSession,
@@ -210,6 +215,51 @@ export function registerArcRoutes(app) {
       events: await arcEventSummary(),
     };
   });
+
+  // ── 응급안전 권한 관리 (ARC 대표·RN 전용) ──────────────────────────
+  // 사장·매니저도 이 화면에서는 아무것도 바꿀 수 없습니다.
+  // 응급안전 9종 부여·회수는 오직 총괄 계정만 가능합니다.
+  const requireArcDirector = async (request) => {
+    const employee = currentEmployee(request);
+
+    if (!isArcDirector(employee?.loginId)) {
+      throw new HttpError(
+        403,
+        "HJ403",
+        "응급안전 권한은 ARC 대표(RN)만 관리할 수 있어요."
+      );
+    }
+  };
+
+  app.get(
+    "/api/arc/permissions",
+    { preHandler: [requireView, requireArcDirector] },
+    async () => listArcPermissionBoard()
+  );
+
+  app.patch(
+    "/api/arc/permissions/:employeeId",
+    { preHandler: [requireView, requireArcDirector] },
+    async (request) => {
+      const body = readBody(request);
+
+      return saveArcEmployeePermissions(
+        {
+          employeeId: request.params.employeeId,
+          permissions: body.permissions,
+          ip: clientIp(request),
+          log: request.log,
+        },
+        currentEmployee(request)
+      );
+    }
+  );
+
+  // ── ARC 비서 브리핑 ─────────────────────────────────────────────────
+  // 최윤희가 하루 일과를 한 화면에서 시작하도록, 지금 챙겨야 할 일만 모아 줍니다.
+  app.get("/api/arc/assistant", { preHandler: requireView }, async (request) =>
+    arcAssistantBriefing({ employee: currentEmployee(request) })
+  );
 
   // ── 월간 운영 루틴(AS-CAL-001) ──────────────────────────────────────
 
@@ -1135,6 +1185,8 @@ export function registerArcRoutes(app) {
     const list = await listArcTrainingSessions({
       period: request.query?.period || null,
       limit: request.query?.limit,
+      // 개인 달력(PERSONAL)은 본인 것만 보입니다.
+      viewerLoginId: employee?.loginId || "",
     });
 
     return {
@@ -1143,6 +1195,7 @@ export function registerArcRoutes(app) {
       staff: await listArcTrainingStaff(),
       stats: await arcTrainingSummary({ period: list.period }),
       canWrite: isArcDirector(employee?.loginId),
+      viewerLoginId: employee?.loginId || "",
     };
   });
 

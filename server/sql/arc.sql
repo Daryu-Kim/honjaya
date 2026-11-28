@@ -957,6 +957,21 @@ create table if not exists public.arc_training_sessions (
 create index if not exists arc_training_sessions_period_idx
   on public.arc_training_sessions (period, scheduled_on);
 
+-- P14N — 달력 분류 확장: 월간 운영 루틴(ROUTINE) + 개인 일정(PERSONAL).
+-- PERSONAL 은 owner_login_id 본인에게만 보입니다(총괄 개인 달력).
+alter table public.arc_training_sessions
+  add column if not exists owner_login_id text not null default '';
+
+alter table public.arc_training_sessions
+  drop constraint if exists arc_training_sessions_kind_check;
+
+alter table public.arc_training_sessions
+  add constraint arc_training_sessions_kind_check
+  check (kind in ('OT', 'REGULAR', 'NEWBIE', 'DRILL', 'REFRESH', 'ROUTINE', 'PERSONAL'));
+
+create index if not exists arc_training_sessions_owner_idx
+  on public.arc_training_sessions (owner_login_id, scheduled_on);
+
 create table if not exists public.arc_training_attendees (
   session_id    uuid not null
                 references public.arc_training_sessions (id) on delete cascade,
