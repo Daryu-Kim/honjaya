@@ -2186,6 +2186,46 @@ two output modes (교육자용 / 교육생용) plus 8 independent section toggle
 **Open follow-ups.** Print pagination depends on the browser (Chrome/Edge recommended); a 1-page "바 카운터
 요약 카드" (cut-out quick reference) was considered but left out of scope.
 
+### Q. P14M — ARC 메뉴 마찰 제거 + 운영 깊이 보강 (2026-11-28)
+
+**Why.** The user ran through all ARC menus as 최윤희(총괄) and reported 9 concrete problems: unreadable
+교육 화면, a 실사 flow that could not be completed, 개인상비약 offering the director herself, 사용대장
+returning 「요청을 처리하지 못했어요」 with no way to see 소모금액, 사건 접수 requiring an extra click,
+thin consent/sensitive-access guidance, and forms that felt too shallow for a cocktail bar. Each item is
+a real-data defect or a domain-accuracy gap, so all nine were fixed rather than re-planned.
+
+| # | symptom | root cause | fix |
+| --- | --- | --- | --- |
+| ① | 월간교육 OT text unreadable (white on white) | text nodes inherited the light card palette inside the dark shell | contrast layer in `AdminArcTrainingView.vue` (explicit dark `color`/`background` on module, scenario, forbidden blocks) |
+| ② | 「선택한 달 실사 시작」 → 「실사를 찾을 수 없어요」 | `getArcStocktake()` used the global `pool` inside `withTransaction`, so the row was invisible to the open transaction | `getArcStocktake(id, db = pool)` + `createArcStocktake` passes `client`; start bar simplified (`fillMatched`/`clearCounted`/`onlyPending`) |
+| ③ | 개인상비약 listed 최윤희 (she has no 상비약) | OTC owner list was every active employee | director excluded from the owner list on the server; `createArcOtcItem` rejects the director with a Korean message; `employeeNameOf()` resolves the owner name when the director registers on someone's behalf |
+| ④ | 사용대장 → 「요청을 처리하지 못했어요」, no 소모금액 | `consumeLots` reused `$2` as both `numeric` and in `case when $2 <= 0` (42P08), and unit prices only existed as a derived map | `$2::numeric`; new `arc_item_prices` table + `GET/POST/DELETE /api/arc/unit-prices` (총괄 only) so 단가 is registered up front; `arc_usages` gained `target_name`/`how_used`/`witness_name` for a 육하원칙 record; usages GET returns `prices`, `pendingUsage`, `canManagePrices`; 화면에 기준단가 panel + 육하원칙 form + 소모금액/실비정산 합본 panel |
+| ⑤ | 사건 접수 needed a click before typing | create panel rendered after the list | `create-panel`/`list-panel` flex `order` + auto-open on mount for `canCare` users |
+| ⑥ | 동의서 관리 gave no clue which form to collect | only a free-text purpose | 3 `guide-card`s for F25/F26/F27 (대상·받는 법·설명 멘트·거절하면) + 6-step 서명 후 처리 순서 + `동의서 서식` preset select that fills 목적/항목; `arc_consents.form_code` persisted so the collected form is traceable |
+| ⑦ | 민감정보 열람: staff could raise requests | POST allowed any ARC role | request creation is **OWNER-only** (route + domain guard, Korean 403); GET returns `canRequest`; the view explains the 4-step flow, shows the 사유 to 최윤희 in a confirm dialog, and grants **1 record only** |
+| ⑧ | 품질관리·사후검토 felt unstructured | one flat form | 5-step flow panel + 「이런 상황엔 이 서식」 picker (F11/F12/F13/F14) + KPI panel retitled 「올해 성과기준 달성 현황」 |
+| ⑨ | 행사·의료지원 too thin for a cocktail bar | form only covered generic event data | 6 new `arc_events` columns — `drink_profile`, `peak_guests`, `last_order_time`, `station_note`, `briefing_note`, `review_note` — rendered as 「칵테일바 현장 안전」 + 「사전 브리핑 · 종료 후 리뷰」 |
+
+**Schema (idempotent, `server/sql/arc.sql`).** `arc_item_prices` (+ index), `arc_usages` 3 columns,
+`arc_consents.form_code`, `arc_events` 6 columns. Applied twice against the local embedded Postgres
+(`121개 적용` → `122개 적용`) to prove re-runnability.
+
+**Verified (local embedded Postgres + SFC compile).**
+- ③ `OWNERS: 김사장/OWNER, 박직원/STAFF`; `CREATE for other OK: OTC-014 박직원`; director claim/create → Korean 403.
+- ④ `PRICE OK: 에탄올 350`; `PRICE MAP prefers registered: 350`; `USAGE OK: USE-20261128-02 350 3번 테이블 손님 … 박직원`.
+- ⑥ `CREATE OK: AS-REC-F27 PENDING` (form_code round-trip); list shows the chip.
+- ⑦ `STAFF REQUEST BLOCKED: 403`, `DIRECTOR REQUEST BLOCKED: 403`, `OWNER REQUEST OK: PENDING | AS-CARE 2026-11-28`.
+- ⑨ `CREATE: EVT-20270115-01`, all 6 cocktail-bar fields round-trip, partial update preserves the rest.
+- All 9 edited SFCs: `parse` + `compileScript` + `compileTemplate` clean. `routes/api/arc.js` registers 89 routes
+  and imports cleanly.
+
+**Gotchas learned.**
+- `arc_care_records` has **no** `summary` column and every sensitive field is `_enc`; `legal_basis` is constrained to
+  `CONSENT_F25` / `CONSENT_F27` / `OTHER_LEGAL` (not `EMERGENCY`).
+- `date` columns arrive as JS `Date`; format KST with `Intl.DateTimeFormat("en-CA", {timeZone:"Asia/Seoul"})` —
+  `String(date).slice(0,10)` yields `Sat Nov 28`.
+- `@vue/compiler-sfc` is **not** hoisted in this pnpm repo; import `vue/compiler-sfc` instead.
+
 ---
 
 ## 4. Open questions
@@ -2293,6 +2333,16 @@ done     p14j-events         DONE: arc_events/tasks/staff + arcEvents.js(행사 
 done     p14k-schema-heal     스키마 해시 지문(schema_state) + expectedTables 대조로 기동 시 자기치유 → 「테이블을 찾을 수 없어요」 근본 해결
 done     p14k-stocktake-reuse 월 1회 실사: 같은 달 재등록 시 기존 실사를 열어주고 안내 (예외 대신 재사용)
 done     p14k-training-guide  AS-GDE-001 기반 인쇄용 교육자료(모듈 15·상황연습 21·절대금지 30·진행법) + /admin/arc/training/guide + 인쇄 CSS
+done     p14l-training-guide-v2  ARC 교육자료 v2(민간인 눈높이 + 용어사전 + 교육자 비서 키트 + 인쇄 레이아웃)
+done     p14m-stocktake-start   월 1회 실사 「실사 시작」 404(트랜잭션 풀 오사용) 수정 + 시작 바 간소화
+done     p14m-ot-contrast      월간교육·OT 다크 셸 대비(가독성) 수정
+done     p14m-otc-owner        개인상비약 소유자 목록에서 총괄(최윤희) 제외 + 대리 등록자 이름 해석
+done     p14m-unit-price      arc_item_prices(기준단가 선등록) + 사용대장 육하원칙 3필드 + 소모금액·실비정산 합본
+done     p14m-incident-open   사건 접수 화면 열자마자 새 사건 접수 폼 자동 오픈(폼을 목록 위로)
+done     p14m-consent-guide   동의서 관리: F25/F26/F27 안내 카드 + 처리 순서 + 서식 프리셋 + form_code 저장
+done     p14m-access-owner    민감정보 열람 요청은 사장만 생성(서버 가드) · 총괄은 사유 검토 후 1건만 허락
+done     p14m-quality-flow    품질관리·사후검토 5단계 플로우 + 서식 선택 가이드 + KPI 문구 정리
+done     p14m-event-bar      행사·의료지원: 칵테일바 현장 안전 6필드(drink_profile/peak_guests/last_order_time/station_note/briefing_note/review_note)
 ```
 
 ---

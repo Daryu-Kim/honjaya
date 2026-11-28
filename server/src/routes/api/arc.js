@@ -79,6 +79,7 @@ import {
   listArcItems,
   listArcOtcChecks,
   listArcOtcItems,
+  listArcOtcOwnerCandidates,
   listArcPurchases,
   listArcStockMoves,
   listArcStocktakes,
@@ -92,9 +93,12 @@ import {
 } from "../../arcStock.js";
 import {
   arcUsageSummary,
+  createArcItemPrice,
   createArcUsage,
+  deleteArcItemPrice,
   getArcUsage,
   latestArcUnitPriceMap,
+  listArcItemPrices,
   listArcUsages,
   voidArcUsage,
 } from "../../arcUsage.js";
@@ -167,6 +171,13 @@ function currentEmployee(request) {
 
 function hasPermission(request, permission) {
   return Boolean(request.staff?.employee?.permissions?.includes(permission));
+}
+
+/** ARC 총괄(또는 arc.admin 권한 보유자)만 가능한 동작. 기준단가 등록에 씁니다. */
+function arcAdminOnly(request) {
+  const employee = request.staff?.employee;
+
+  return isArcDirector(employee?.loginId) || hasPermission(request, PERMISSIONS.ARC_ADMIN);
 }
 
 export function registerArcRoutes(app) {
@@ -365,18 +376,20 @@ export function registerArcRoutes(app) {
         limit: query.limit,
       }),
       canApprove,
+      // 열람 요청은 사장만 낼 수 있습니다.
+      canRequest: employee?.role === "OWNER",
     };
   });
 
   app.post("/api/arc/sensitive-access", { preHandler: requireSensitive }, async (request) => {
     const employee = currentEmployee(request);
 
-    // 상세 건강기록은 총괄 전용이라 요청은 사장과 총괄만 낼 수 있습니다.
-    if (!isArcDirector(employee?.loginId) && employee?.role !== "OWNER") {
+    // 2026-11-28 대표 지시: 요청은 사장만, 승인은 ARC 총괄만 합니다.
+    if (employee?.role !== "OWNER") {
       throw new HttpError(
         403,
         "HJ403",
-        "상세 건강기록 열람 요청은 사장과 ARC 총괄만 낼 수 있어요."
+        "상세 건강기록 열람 요청은 사장만 낼 수 있어요. 직원은 ARC 총괄에게 직접 문의해 주세요."
       );
     }
 
@@ -600,7 +613,9 @@ export function registerArcRoutes(app) {
         period: request.query?.period || null,
         limit: request.query?.limit,
       }),
+      owners: await listArcOtcOwnerCandidates(),
       canManageAll,
+      viewerIsDirector: isArcDirector(employee?.loginId),
       viewerId: employee?.id ?? null,
       viewerName: employee?.name ?? "",
     };
@@ -872,23 +887,85 @@ export function registerArcRoutes(app) {
     return result;
   });
 
+  // ── 품목 기준단가 사전 등록(ARC 총괄 전용) ───────────────────────────
+  // 구매 기록이 없어도 사용대장 금액이 바로 계산되도록 기준단가를 미리 정해 둡니다.
+
+  app.get("/api/arc/unit-prices", { preHandler: requireView }, async () => ({
+    prices: await listArcItemPrices(),
+    priceMap: await latestArcUnitPriceMap(),
+    canManage: arcAdminOnly(request),
+  }));
+
+  app.post("/api/arc/unit-prices", { preHandler: requireView }, async (request) => {
+    if (!arcAdminOnly(request)) {
+      throw new HttpError(403, "HJ403", "기준단가는 ARC 총괄만 등록할 수 있어요.");
+    }
+
+    const employee = currentEmployee(request);
+    const price = await createArcItemPrice(readBody(request), employee);
+
+    await writeAuditLog({
+      employee,
+      action: "arc.itemPrice.create",
+      targetType: "arc_item_prices",
+      targetId: price.id,
+      detail: {
+        itemId: price.itemId,
+        itemName: price.itemName,
+        unitPrice: price.unitPrice,
+      },
+      ip: clientIp(request),
+      log: request.log,
+    });
+
+    return { price };
+  });
+
+  app.delete(
+    "/api/arc/unit-prices/:priceId",
+    { preHandler: requireView },
+    async (request) => {
+      if (!arcAdminOnly(request)) {
+        throw new HttpError(403, "HJ403", "기준단가는 ARC 총괄만 수정할 수 있어요.");
+      }
+
+      const employee = currentEmployee(request);
+      const result = await deleteArcItemPrice(request.params?.priceId);
+
+      await writeAuditLog({
+        employee,
+        action: "arc.itemPrice.delete",
+        targetType: "arc_item_prices",
+        targetId: result.deletedId,
+        ip: clientIp(request),
+        log: request.log,
+      });
+
+      return result;
+    }
+  );
+
   // ── 사용대장(USE) · 소모금액 ────────────────────────────────────────
 
   app.get("/api/arc/usages", { preHandler: requireView }, async (request) => {
     const employee = currentEmployee(request);
+    const period = request.query?.period || "";
 
     return {
       usages: await listArcUsages({
-        period: request.query?.period || "",
+        period,
         incidentNo: request.query?.incidentNo || "",
         status: request.query?.status || "",
         limit: request.query?.limit,
       }),
       priceMap: await latestArcUnitPriceMap(),
+      prices: await listArcItemPrices(),
+      pendingUsage: await previewUsageMonth(period),
       summary: await arcUsageSummary(),
       canCreate: hasPermission(request, PERMISSIONS.ARC_STOCK),
       canExpense: hasPermission(request, PERMISSIONS.ARC_EXPENSE),
       canApprove: hasPermission(request, PERMISSIONS.ARC_APPROVE),
+      canManagePrices: arcAdminOnly(request),
       viewerName: employee?.name ?? "",
     };
   });

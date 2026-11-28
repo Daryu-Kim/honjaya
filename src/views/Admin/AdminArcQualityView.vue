@@ -5,9 +5,10 @@
         <p class="eyebrow">ARC SAFETY</p>
         <h1>품질관리 · 사후검토</h1>
         <p class="description">
-          사건이 끝난 뒤에 하는 일을 기록해요. 사후검토(F11) · Near Miss(F12) ·
-          CAPA(F13) · 재고이상(F14) 네 서식과, AS-CAL-001의 연간 최소 성과기준을
-          한 화면에서 확인합니다.
+          사건이 끝난 뒤에 하는 정리 기록이에요. ① 사후검토(F11) · ② Near
+          Miss(F12) · ③ CAPA(F13) · ④ 재고이상(F14) 네 서식과, AS-CAL-001의 연간
+          최소 성과기준을 한 화면에서 확인해요. 위에서부터 순서대로 보면 밀린 일
+          → 작성 → 성과 확인 순으로 끝나요.
         </p>
       </div>
       <router-link to="/admin/arc" class="link-button">
@@ -18,10 +19,102 @@
     <p v-if="errorMessage" class="error-box">{{ errorMessage }}</p>
     <p v-if="okMessage" class="ok-box">{{ okMessage }}</p>
 
+    <section class="panel flow-panel">
+      <h2>이 화면 쓰는 순서</h2>
+      <ol class="flow-steps">
+        <li>
+          <strong>① 밀린 일부터 확인</strong>
+          <p>
+            아래 '사후검토가 필요한 사건'과 '기한이 지난 조치'를 먼저 봐요. 여기
+            뜬 건은 마감이 임박했다는 뜻이에요.
+          </p>
+        </li>
+        <li>
+          <strong>② 서식 고르기</strong>
+          <p>
+            무슨 일이었는지에 따라 F11~F14 중 하나를 골라요. 잘 모르겠으면 아래
+            '이런 상황엔 이 서식' 표를 봐요.
+          </p>
+        </li>
+        <li>
+          <strong>③ 사실대로 채우기</strong>
+          <p>
+            누가·언제·어디서·무엇을·어떻게 했는지 시간 순서로 적어요. 추측은
+            [의견]이라고 표시해 사실과 구분해요.
+          </p>
+        </li>
+        <li>
+          <strong>④ 조치에 담당·기한 넣기</strong>
+          <p>
+            개선 조치는 담당자와 기한이 있어야 닫혀요. 담당·기한이 없으면 다음
+            달에 확인할 수 없어요.
+          </p>
+        </li>
+        <li>
+          <strong>⑤ 끝난 조치 닫기</strong>
+          <p>
+            실제로 했는지 확인한 뒤 완료 처리해요. 효과가 없었으면 CAPA를 다시
+            열어 원인부터 다시 봐요.
+          </p>
+        </li>
+      </ol>
+      <p class="flow-note">
+        손님·직원의 상세 건강정보(약명·증상·복용 시각)는 여기 적지 않아요. 그
+        내용은 AS-CARE에만 남기고, 이 화면에는 사실과 개선 내용만 적어요.
+      </p>
+    </section>
+
+    <section class="panel picker-panel">
+      <h2>이런 상황엔 이 서식</h2>
+      <div class="picker-grid">
+        <article class="picker-card">
+          <p class="picker-code">F11 사후검토</p>
+          <p class="picker-when">
+            응급처치·119 이송처럼 <strong>실제 사건이 끝난 뒤</strong> 되짚을 때
+          </p>
+          <p class="picker-out">
+            남기는 것 · 시각별 진행, 잘 된 점, 개선점, 재발방지 대책
+          </p>
+        </article>
+        <article class="picker-card">
+          <p class="picker-code">F12 Near Miss</p>
+          <p class="picker-when">
+            넘어질 뻔함, 약을 잘못 줄 뻔함처럼 <strong>사고 없이 지나간</strong>
+            아슬아슬한 상황
+          </p>
+          <p class="picker-out">
+            남기는 것 · 어떤 상황이었는지, 왜 하마터면 사고가 될 뻔했는지
+          </p>
+        </article>
+        <article class="picker-card">
+          <p class="picker-code">F13 CAPA</p>
+          <p class="picker-when">
+            같은 문제가 <strong>두 번 이상 반복</strong>될 때 (원인 분석 + 조치
+            + 효과 확인)
+          </p>
+          <p class="picker-out">
+            남기는 것 · 원인, 시정 조치, 담당·기한, 효과 검증 결과
+          </p>
+        </article>
+        <article class="picker-card">
+          <p class="picker-code">F14 재고이상</p>
+          <p class="picker-when">
+            실사·월 점검에서 <strong>수량이 안 맞거나</strong> 파손·분실·기록
+            누락을 발견했을 때
+          </p>
+          <p class="picker-out">
+            남기는 것 · 어떤 물품이 얼마나 어긋났는지, 원인, 정리 결과
+          </p>
+        </article>
+      </div>
+    </section>
+
     <section class="panel">
       <div class="panel-head">
-        <h2>연간 최소 성과기준</h2>
-        <span class="helper-text">{{ summary.kpi.windowLabel }} 기준</span>
+        <h2>올해 성과기준 달성 현황</h2>
+        <span class="helper-text">
+          {{ summary.kpi.windowLabel }} 기준 · 기준을 넘으면 초록색으로 바뀌어요
+        </span>
       </div>
 
       <div class="kpi-grid">
@@ -167,6 +260,10 @@
           <span class="kind-cadence">{{ form.cadence }}</span>
         </button>
       </div>
+      <p v-if="!draftMode" class="helper-text">
+        서식을 고르면 아래에 입력 칸과 작성 안내가 열려요. 작성 중에 다른
+        서식으로 바꾸려면 '작성 취소'를 먼저 눌러 주세요.
+      </p>
 
       <template v-if="activeForm">
         <div class="form-guide">
@@ -1505,6 +1602,99 @@ onMounted(load);
   font-size: 12px;
   line-height: 1.6;
   color: rgba(255, 255, 255, 0.55);
+}
+
+.flow-panel {
+  gap: 12px;
+}
+
+.flow-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 14px;
+    border-radius: 14px;
+    background: rgba(15, 23, 42, 0.5);
+    border: 1px solid rgba(148, 163, 184, 0.24);
+  }
+
+  strong {
+    font-size: 13px;
+    font-weight: 800;
+    color: #f8fafc;
+  }
+
+  p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.7;
+    color: rgba(226, 232, 240, 0.78);
+  }
+}
+
+.flow-note {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(253, 230, 138, 0.1);
+  border: 1px solid rgba(253, 230, 138, 0.28);
+  font-size: 12px;
+  line-height: 1.7;
+  color: #fde68a;
+}
+
+.picker-panel {
+  gap: 12px;
+}
+
+.picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+.picker-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+}
+
+.picker-code {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 800;
+  color: #7dd3fc;
+}
+
+.picker-when {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: rgba(226, 232, 240, 0.86);
+
+  strong {
+    color: #fef3c7;
+    font-weight: 700;
+  }
+}
+
+.picker-out {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.7;
+  color: rgba(148, 163, 184, 0.9);
 }
 
 .error-box {

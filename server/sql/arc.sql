@@ -112,6 +112,10 @@ create table if not exists public.arc_consents (
 create index if not exists arc_consents_incident_idx
   on public.arc_consents (incident_no, status);
 
+-- 실제로 받은 동의서 서식 코드(AS-REC-F25 / F27 / F26 등).
+alter table public.arc_consents
+  add column if not exists form_code text not null default '';
+
 create index if not exists arc_consents_retention_idx
   on public.arc_consents (retention_until)
   where status = 'ACTIVE';
@@ -729,6 +733,39 @@ create table if not exists public.arc_usage_items (
 create index if not exists arc_usage_items_usage_idx
   on public.arc_usage_items (usage_id, sort_order);
 
+-- ── 육하원칙 보강(누구에게·어떻게·확인자) ────────────────────────────────────
+-- 원본 사용대장은 대상자 '구분'만 있어서, 실제로 누구에게 썼는지·어떻게 썼는지·
+-- 누가 옆에서 봤는지가 남지 않았습니다. 재고 차감의 업무 근거를 더 단단히
+-- 만들기 위해 세 항목을 추가합니다. (상세 건강정보는 여기에 쓰지 않습니다)
+alter table public.arc_usages
+  add column if not exists target_name text not null default '';
+
+alter table public.arc_usages
+  add column if not exists how_used text not null default '';
+
+alter table public.arc_usages
+  add column if not exists witness_name text not null default '';
+
+-- ── 품목 기준단가 사전 등록(ARC 총괄이 미리 정하는 단가) ────────────────────
+-- 구매 전에도 사용대장 금액이 바로 계산되도록, 품목별 기준단가를 미리 등록합니다.
+-- 사용 시점에 이 표의 최신 단가(적용일 <= 오늘)를 스냅샷으로 복사하고,
+-- 등록된 단가가 없으면 기존처럼 최근 구매 단가를 씁니다.
+create table if not exists public.arc_item_prices (
+  id             uuid primary key default gen_random_uuid(),
+  item_id        uuid not null references public.arc_items(id) on delete cascade,
+  item_code      text not null default '',
+  item_name      text not null default '',
+  unit_price     integer not null default 0 check (unit_price >= 0),
+  effective_from date not null default current_date,
+  note           text not null default '',
+  employee_id    text references public.employees(id) on delete set null,
+  employee_name  text not null default '',
+  created_at     timestamptz not null default now()
+);
+
+create index if not exists arc_item_prices_item_idx
+  on public.arc_item_prices (item_id, effective_from desc, created_at desc);
+
 -- ── 운영 루틴(AS-CAL-001 1년 업무달력) ────────────────────────────────────
 -- 루틴 항목 자체는 코드 템플릿(server/src/arcRoutine.js)이 원본이고,
 -- 이 표에는 "이번 달에 실제로 끝낸 기록"만 남깁니다. (행 없음 = 미완료)
@@ -1116,6 +1153,16 @@ create index if not exists arc_events_start_idx
 
 create index if not exists arc_events_status_idx
   on public.arc_events (status, starts_on);
+
+-- 칵테일바 특화 안전 정보(2026-11-28 추가).
+-- 주류 구성·혼잡도·라스트오더·응급처치 스테이션·사전 브리핑·종료 리뷰.
+alter table public.arc_events
+  add column if not exists drink_profile text not null default '',
+  add column if not exists peak_guests integer,
+  add column if not exists last_order_time time,
+  add column if not exists station_note text not null default '',
+  add column if not exists briefing_note text not null default '',
+  add column if not exists review_note text not null default '';
 
 -- 행사 체크리스트. phase = BEFORE(행사 전) / DURING(당일) / AFTER(종료 후)
 create table if not exists public.arc_event_tasks (

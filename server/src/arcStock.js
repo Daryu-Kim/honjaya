@@ -9,6 +9,7 @@
 import { randomUUID } from "node:crypto";
 
 import { createArcNotification, getArcSettings } from "./arc.js";
+import { ARC_DIRECTOR_LOGIN_IDS } from "./auth/permissions.js";
 import { pool } from "./db.js";
 import { badRequest, HttpError } from "./http/errors.js";
 
@@ -535,8 +536,9 @@ async function consumeLots(client, itemId, qty) {
 
     await client.query(
       `update public.arc_item_lots
-          set qty = $2,
-              disposed_at = case when $2 <= 0 then coalesce(disposed_at, now()) else disposed_at end,
+          set qty = $2::numeric,
+              disposed_at = case when $2::numeric <= 0 then coalesce(disposed_at, now())
+                                else disposed_at end,
               updated_at = now()
         where id = $1`,
       [row.id, nextQty]
@@ -1100,8 +1102,9 @@ export async function listArcStocktakes({ limit = 24 } = {}) {
   return rows.map(mapStocktake);
 }
 
-export async function getArcStocktake(stocktakeId) {
-  const { rows } = await pool.query(
+// 같은 트랜잭션에서 방금 만든 실사를 바로 읽을 수 있도록 db(=client)를 받습니다.
+export async function getArcStocktake(stocktakeId, db = pool) {
+  const { rows } = await db.query(
     `select s.*,
             (select count(*)::int from public.arc_stocktake_items t where t.stocktake_id = s.id)
               as total_items,
@@ -1119,7 +1122,7 @@ export async function getArcStocktake(stocktakeId) {
     throw new HttpError(404, "HJ404", "실사를 찾을 수 없어요.");
   }
 
-  const { rows: items } = await pool.query(
+  const { rows: items } = await db.query(
     `select t.*, i.code, i.name, i.unit, i.category, i.baseline_qty, i.access_level
        from public.arc_stocktake_items t
        join public.arc_items i on i.id = t.item_id
@@ -1177,7 +1180,7 @@ export async function createArcStocktake(
     if (existing.length > 0) {
       // 같은 달 실사가 이미 있으면 새로 만들지 않고 그 실사를 그대로 돌려줍니다.
       // (등록을 두 번 누르거나 지난 기록을 이어서 쓸 때 막히지 않도록)
-      return { ...(await getArcStocktake(existing[0].id)), reused: true };
+      return { ...(await getArcStocktake(existing[0].id, client)), reused: true };
     }
 
     const { rows } = await client.query(
@@ -1213,7 +1216,7 @@ export async function createArcStocktake(
       [stocktakeId]
     );
 
-    return { ...(await getArcStocktake(stocktakeId)), reused: false };
+    return { ...(await getArcStocktake(stocktakeId, client)), reused: false };
   });
 }
 
@@ -1600,7 +1603,11 @@ function mapOtcItem(row) {
 
 export async function listArcOtcItems({ employee = null, scopeAll = false, period = null } = {}) {
   const safePeriod = normalizePeriod(period);
-  const onlyMine = !scopeAll;
+  // ARC 총괄(최윤희)은 개인 상비약 관리 대상이 아니므로 자기 것을 갖지 않고
+  // 전 직원·사장 상비약을 관리하는 관리자 시점으로 봅니다(2026-11-28 대표 지시).
+  const directorIds = await arcDirectorEmployeeIds();
+  const isDirector = Boolean(employee?.id) && directorIds.includes(employee.id);
+  const onlyMine = !scopeAll && !isDirector;
 
   const { rows } = await pool.query(
     `select o.*,
@@ -1610,16 +1617,53 @@ export async function listArcOtcItems({ employee = null, scopeAll = false, perio
               where c.otc_item_id = o.id) as last_checked_on
        from public.arc_otc_items o
       where ($1::boolean is false or o.owner_employee_id = $3)
-      order by o.sort_order, o.code`,
-    [onlyMine, safePeriod, employee?.id ?? null]
+        and (o.owner_employee_id is null or not (o.owner_employee_id = any($4::text[])))
+      order by o.owner_name, o.sort_order, o.code`,
+    [onlyMine, safePeriod, employee?.id ?? null, directorIds]
   );
 
   return rows.map(mapOtcItem);
 }
 
+/** 개인 상비약을 갖지 않는 계정(ARC 총괄)의 employee id 목록. */
+async function arcDirectorEmployeeIds() {
+  const { rows } = await pool.query(
+    `select id from public.employees where lower(login_id) = any($1::text[])`,
+    [ARC_DIRECTOR_LOGIN_IDS]
+  );
+
+  return rows.map((row) => row.id);
+}
+
+/** 상비약 소유자로 지정할 수 있는 사람(ARC 총괄 제외). */
+export async function listArcOtcOwnerCandidates() {
+  const directorIds = await arcDirectorEmployeeIds();
+  const { rows } = await pool.query(
+    `select id, name, role, login_id
+       from public.employees
+      where is_active
+        and not (id = any($1::text[]))
+      order by case role when 'OWNER' then 0 when 'MANAGER' then 1 else 2 end, name`,
+    [directorIds]
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    role: row.role,
+    loginId: row.login_id,
+  }));
+}
+
 export async function claimArcOtcItems(employee = null) {
   if (!employee?.id) {
     throw badRequest("직원 정보를 확인할 수 없어요.");
+  }
+
+  if (await isArcDirectorEmployee(employee)) {
+    throw badRequest(
+      "ARC 총괄은 개인 상비약 관리 대상이 아니에요. 전 직원 상비약을 관리하는 화면을 이용해 주세요."
+    );
   }
 
   const { rows } = await pool.query(
@@ -1628,12 +1672,49 @@ export async function claimArcOtcItems(employee = null) {
             owner_name = $2,
             updated_at = now()
       where owner_employee_id is null
+        and not (owner_employee_id = any($3::text[]))
+        and $1 <> all($3::text[])
       returning *
       `,
-    [employee.id, text(employee.name, 60)]
+    [employee.id, text(employee.name, 60), await arcDirectorEmployeeIds()]
   );
 
   return { claimed: rows.length, items: rows.map(mapOtcItem) };
+}
+
+async function isArcDirectorEmployee(employee = null) {
+  const loginId = String(employee?.loginId ?? "").toLowerCase();
+
+  if (ARC_DIRECTOR_LOGIN_IDS.includes(loginId)) {
+    return true;
+  }
+
+  if (!employee?.id) {
+    return false;
+  }
+
+  return (await arcDirectorEmployeeIds()).includes(employee.id);
+}
+
+/** ARC 총괄은 개인 상비약 대상이 아니므로 소유자로 지정할 수 없습니다. */
+async function assertOtcOwnerAllowed(ownerId) {
+  if (!ownerId) {
+    return;
+  }
+
+  if ((await arcDirectorEmployeeIds()).includes(ownerId)) {
+    throw badRequest(
+      "ARC 총괄은 개인 상비약 관리 대상이 아니에요. 직원이나 사장을 소유자로 선택해 주세요."
+    );
+  }
+}
+
+async function employeeNameOf(employeeId) {
+  const { rows } = await pool.query(`select name from public.employees where id = $1`, [
+    employeeId,
+  ]);
+
+  return text(rows[0]?.name, 60);
 }
 
 export async function createArcOtcItem(input = {}, { employee = null, canManageAll = false } = {}) {
@@ -1651,10 +1732,12 @@ export async function createArcOtcItem(input = {}, { employee = null, canManageA
     throw badRequest("소유 직원을 확인할 수 없어요.");
   }
 
+  await assertOtcOwnerAllowed(ownerId);
+
   const ownerName =
     ownerId === employee?.id
       ? text(employee?.name, 60)
-      : text(input.ownerName, 60);
+      : text(input.ownerName, 60) || (await employeeNameOf(ownerId));
 
   let code = text(input.code, 40).toUpperCase();
 
@@ -1730,6 +1813,11 @@ export async function updateArcOtcItem(otcItemId, patch = {}, { employee = null,
     patch.ownerEmployeeId === undefined
       ? current.owner_employee_id
       : text(patch.ownerEmployeeId, 40) || null;
+
+  if (patch.ownerEmployeeId !== undefined) {
+    await assertOtcOwnerAllowed(ownerId);
+  }
+
   const ownerName =
     patch.ownerName === undefined
       ? current.owner_name

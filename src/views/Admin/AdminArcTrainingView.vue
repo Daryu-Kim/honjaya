@@ -1198,6 +1198,21 @@ onMounted(() => {
   padding: 24px;
 }
 
+/* 관리자 셸이 어두운 배경(#0b1220)이라 흰 카드 안 글자가 흰색으로 상속됩니다.
+   밝은 배경을 쓰는 박스는 글자색을 직접 지정해 가독성을 지킵니다. */
+.stat-card,
+.calendar-cell,
+.day-detail,
+.form-panel,
+.session-card,
+.library-card,
+.scenario-card,
+.attendance-panel,
+.module-picker,
+.followup-panel {
+  color: #111827;
+}
+
 .page-header {
   display: flex;
   flex-wrap: wrap;

@@ -26,22 +26,6 @@
       <div class="panel-head">
         <h2>실사 목록</h2>
         <div class="panel-actions">
-          <input v-model="newPeriod" class="inline-input" type="month" />
-          <input
-            v-model.trim="newWitness"
-            class="inline-input"
-            type="text"
-            placeholder="참관자"
-          />
-          <button
-            v-if="canCount"
-            type="button"
-            class="preset-button"
-            :disabled="isSaving"
-            @click="startStocktake"
-          >
-            선택한 달 실사 시작
-          </button>
           <button
             type="button"
             class="preset-button"
@@ -51,6 +35,27 @@
             새로고침
           </button>
         </div>
+      </div>
+
+      <div class="start-bar">
+        <label class="inline-field">
+          <span>실사 월</span>
+          <input v-model="newPeriod" class="inline-input" type="month" />
+        </label>
+        <button
+          v-if="canCount"
+          type="button"
+          class="primary-button"
+          :disabled="isSaving"
+          @click="startStocktake"
+        >
+          {{ startButtonLabel }}
+        </button>
+        <p class="helper-text">
+          실사를 시작하면 그 달의 사용 중 품목이 시스템 수량과 함께 자동으로
+          채워지고 바로 실사표가 열려요. 같은 달 실사가 이미 있으면 새로 만들지
+          않고 그 실사를 이어서 열어요. 참관자는 실사표에서 따로 적을 수 있어요.
+        </p>
       </div>
 
       <p v-if="isLoading" class="empty-box">불러오는 중이에요.</p>
@@ -129,8 +134,38 @@
 
       <p class="helper-text">
         실제 수량을 세어 입력하고 입력란에서 포커스를 옮기면 자동으로 저장돼요.
-        실사를 확정하면 이 화면은 더 이상 수정할 수 없어요.
+        개수가 시스템 수량과 같으면 「전체 일치」로 한 번에 채우고, 차이가 나는
+        품목만 사유를 남기면 돼요. 실사를 확정하면 이 화면은 더 이상 수정할 수
+        없어요.
       </p>
+
+      <div v-if="!isLocked && canCount" class="quick-bar">
+        <button
+          type="button"
+          class="preset-button"
+          :disabled="isSaving || bulkFilling"
+          @click="fillMatched"
+        >
+          {{ bulkFilling ? "채우는 중..." : "전체 시스템 수량과 일치" }}
+        </button>
+        <button
+          type="button"
+          class="preset-button"
+          :disabled="isSaving || bulkFilling"
+          @click="clearCounted"
+        >
+          실사 수량 비우기
+        </button>
+        <label class="inline-check">
+          <input v-model="onlyPending" type="checkbox" />
+          미입력·차이 품목만 보기
+        </label>
+        <span class="helper-text">
+          진행 {{ detail.stocktake.countedItems }} /
+          {{ detail.stocktake.totalItems }} · 차이
+          {{ detail.stocktake.diffItems }}건
+        </span>
+      </div>
 
       <div class="field-grid">
         <label class="field">
@@ -202,6 +237,9 @@
         실사 품목이 아직 없어요. 「재고」 화면에서 품목을 먼저 등록하면 실사를
         만들 때 시스템 수량과 함께 자동으로 채워져요.
       </p>
+      <p v-else-if="!visibleItems.length" class="empty-box">
+        미입력·차이 품목이 없어요. 모든 품목이 시스템 수량과 일치해요.
+      </p>
 
       <div class="table-wrap">
         <table class="data-table">
@@ -218,7 +256,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in detail.items" :key="row.itemId">
+            <tr v-for="row in visibleItems" :key="row.itemId">
               <td class="mono">{{ row.code }}</td>
               <td>
                 {{ row.name }}
@@ -306,10 +344,11 @@ const canCount = ref(false);
 const canApply = ref(false);
 const isLoading = ref(false);
 const isSaving = ref(false);
+const bulkFilling = ref(false);
+const onlyPending = ref(false);
 const errorMessage = ref("");
 const okMessage = ref("");
 const newPeriod = ref(currentMonth());
-const newWitness = ref("");
 
 const headerForm = reactive({
   countedOn: "",
@@ -321,6 +360,24 @@ const headerForm = reactive({
 
 const selectedId = computed(() => detail.value.stocktake?.id ?? "");
 const isLocked = computed(() => detail.value.stocktake?.status === "APPLIED");
+const startButtonLabel = computed(() =>
+  newPeriod.value === currentMonth()
+    ? "이번 달 실사 시작"
+    : "선택한 달 실사 시작"
+);
+const visibleItems = computed(() => {
+  const rows = detail.value.items ?? [];
+
+  if (!onlyPending.value) {
+    return rows;
+  }
+
+  return rows.filter(
+    (row) =>
+      row.countedQty === null ||
+      Number(row.countedQty) !== Number(row.systemQty)
+  );
+});
 
 function currentMonth() {
   const now = new Date();
@@ -352,11 +409,11 @@ async function loadList() {
 
 async function startStocktake() {
   isSaving.value = true;
+  errorMessage.value = "";
 
   try {
     const result = await createArcStocktake({
-      period: newPeriod.value,
-      witnessName: newWitness.value,
+      period: newPeriod.value || currentMonth(),
     });
 
     if (!result.stocktake) {
@@ -366,14 +423,82 @@ async function startStocktake() {
     flash(
       result.reused
         ? `${result.stocktake.period} 실사는 이미 있어서 그 실사를 열었어요.`
-        : `${result.stocktake.period} 실사를 만들었어요.`
+        : `${result.stocktake.period} 실사를 만들었어요. 품목이 자동으로 채워졌어요.`
     );
     await loadList();
     await openStocktake(result.stocktake);
+    onlyPending.value = false;
   } catch (error) {
     errorMessage.value = error?.message || "실사를 만들지 못했어요.";
   } finally {
     isSaving.value = false;
+  }
+}
+
+// 실사는 대부분 "시스템 수량과 같음"이라, 전체를 먼저 채우고 차이 나는 품목만 고칩니다.
+async function fillMatched() {
+  const stocktakeId = detail.value.stocktake?.id;
+
+  if (!stocktakeId || isLocked.value) return;
+
+  bulkFilling.value = true;
+  errorMessage.value = "";
+
+  try {
+    const targets = detail.value.items.filter(
+      (row) =>
+        row.countedQty === null ||
+        Number(row.countedQty) !== Number(row.systemQty)
+    );
+
+    for (const row of targets) {
+      row.countedQty = row.systemQty;
+      detail.value = await saveArcStocktakeItem(stocktakeId, row.itemId, {
+        countedQty: row.systemQty,
+        reason: row.reason,
+        state: row.state,
+        action: row.action,
+      });
+    }
+
+    flash(
+      targets.length
+        ? `${targets.length}개 품목을 시스템 수량과 일치하게 채웠어요.`
+        : "이미 모든 품목이 시스템 수량과 같아요."
+    );
+  } catch (error) {
+    errorMessage.value = error?.message || "전체 채우기에 실패했어요.";
+  } finally {
+    bulkFilling.value = false;
+  }
+}
+
+async function clearCounted() {
+  const stocktakeId = detail.value.stocktake?.id;
+
+  if (!stocktakeId || isLocked.value) return;
+
+  bulkFilling.value = true;
+  errorMessage.value = "";
+
+  try {
+    const targets = detail.value.items.filter((row) => row.countedQty !== null);
+
+    for (const row of targets) {
+      row.countedQty = null;
+      detail.value = await saveArcStocktakeItem(stocktakeId, row.itemId, {
+        countedQty: null,
+        reason: row.reason,
+        state: row.state,
+        action: row.action,
+      });
+    }
+
+    flash("실사 수량을 모두 비웠어요. 처음부터 다시 세면 돼요.");
+  } catch (error) {
+    errorMessage.value = error?.message || "실사 수량을 비우지 못했어요.";
+  } finally {
+    bulkFilling.value = false;
   }
 }
 
@@ -567,6 +692,47 @@ onMounted(loadList);
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.start-bar,
+.quick-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.quick-bar {
+  border-color: rgba(129, 140, 248, 0.36);
+  background: rgba(99, 102, 241, 0.12);
+}
+
+.start-bar .helper-text,
+.quick-bar .helper-text {
+  flex: 1 1 260px;
+  line-height: 1.5;
+}
+
+.inline-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.78);
+  cursor: pointer;
 }
 
 .field-grid {

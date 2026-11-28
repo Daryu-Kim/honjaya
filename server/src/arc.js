@@ -307,6 +307,7 @@ function mapConsent(row, { revealSensitive }) {
     subjectName: revealSensitive ? decryptField(config.arc.fieldKey, row.subject_name_enc) : null,
     subjectPhone: revealSensitive ? decryptField(config.arc.fieldKey, row.subject_phone_enc) : null,
     kind: row.kind,
+    formCode: row.form_code,
     purpose: row.purpose,
     scope: row.scope,
     confirmedByName: row.confirmed_by_name,
@@ -353,8 +354,8 @@ export async function createArcConsent(input = {}, employee = null) {
   const { rows } = await pool.query(
     `insert into public.arc_consents
        (id, incident_no, subject_label, subject_name_enc, subject_phone_enc,
-        kind, purpose, scope, retention_until, created_by, created_by_name)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        kind, purpose, scope, retention_until, created_by, created_by_name, form_code)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      returning *`,
     [
       randomUUID(),
@@ -368,6 +369,7 @@ export async function createArcConsent(input = {}, employee = null) {
       retentionUntil,
       employee?.id ?? null,
       employee?.name ?? "",
+      String(input.formCode ?? "").trim().slice(0, 40),
     ]
   );
 
@@ -376,7 +378,7 @@ export async function createArcConsent(input = {}, employee = null) {
     action: "arc.consent.create",
     targetType: "arc_consent",
     targetId: rows[0].id,
-    detail: { incidentNo: rows[0].incident_no, kind },
+    detail: { incidentNo: rows[0].incident_no, kind, formCode: rows[0].form_code },
   });
 
   return mapConsent(rows[0], { revealSensitive: false });
@@ -554,6 +556,15 @@ export async function requestArcSensitiveAccess(
 ) {
   const incident = requireText(incidentNo, "사건 번호", 60);
   const director = isArcDirector(employee?.loginId);
+
+  // 2026-11-28 대표 지시: 열람 요청은 사장만 낼 수 있고, 총괄(최윤희)이 사유를 검토해 허락합니다.
+  if (employee?.role !== "OWNER") {
+    throw new HttpError(
+      403,
+      "HJ403",
+      "상세 건강기록 열람 요청은 사장만 낼 수 있어요. 직원은 ARC 총괄에게 직접 문의해 주세요."
+    );
+  }
   const reason = requireText(purpose, "열람 사유", 500);
   const rawProof = String(evidence ?? "").trim().slice(0, 500);
   const proof = director ? rawProof : requireText(rawProof, "증빙 자료", 500);
@@ -580,8 +591,16 @@ export async function requestArcSensitiveAccess(
   }
 
   const targetRecordId = records[0]?.id ?? null;
-  const targetLabel = records[0]?.occurred_at
-    ? `AS-CARE ${String(records[0].occurred_at).slice(0, 10)}`
+  const occurredOn = records[0]?.occurred_at
+    ? new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Seoul",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date(records[0].occurred_at))
+    : "";
+  const targetLabel = occurredOn
+    ? `AS-CARE ${occurredOn}`
     : "AS-CARE 상세 기록";
 
   // 이미 유효한 승인이 있으면 재사용합니다(같은 사건을 반복 승인받지 않도록).

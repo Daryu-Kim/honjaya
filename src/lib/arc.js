@@ -204,6 +204,7 @@ const OTC_PATH = "/api/arc/otc";
 const INCIDENTS_PATH = "/api/arc/incidents";
 const USAGES_PATH = "/api/arc/usages";
 const EXPENSES_PATH = "/api/arc/expenses";
+const UNIT_PRICES_PATH = "/api/arc/unit-prices";
 const ROUTINE_PATH = "/api/arc/routine";
 const CARE_PATH = "/api/arc/care";
 
@@ -387,6 +388,7 @@ export async function fetchArcAccessRequests({
   return {
     requests: Array.isArray(data?.requests) ? data.requests : [],
     canApprove: Boolean(data?.canApprove),
+    canRequest: Boolean(data?.canRequest),
   };
 }
 
@@ -638,7 +640,9 @@ export async function fetchArcOtc({ period = "", scopeAll = false } = {}) {
   return {
     items: Array.isArray(data?.items) ? data.items : [],
     checks: Array.isArray(data?.checks) ? data.checks : [],
+    owners: Array.isArray(data?.owners) ? data.owners : [],
     canManageAll: Boolean(data?.canManageAll),
+    viewerIsDirector: Boolean(data?.viewerIsDirector),
     viewerId: data?.viewerId ?? null,
     viewerName: data?.viewerName ?? "",
   };
@@ -940,12 +944,38 @@ export async function fetchArcUsages({
     usages: Array.isArray(data?.usages) ? data.usages : [],
     priceMap:
       data?.priceMap && typeof data.priceMap === "object" ? data.priceMap : {},
+    prices: Array.isArray(data?.prices) ? data.prices : [],
+    pendingUsage: data?.pendingUsage ?? null,
     summary: data?.summary ?? null,
     canCreate: Boolean(data?.canCreate),
     canExpense: Boolean(data?.canExpense),
     canApprove: Boolean(data?.canApprove),
+    canManagePrices: Boolean(data?.canManagePrices),
     viewerName: data?.viewerName ?? "",
   };
+}
+
+export async function fetchArcUnitPrices() {
+  const data = await apiGet(UNIT_PRICES_PATH);
+
+  return {
+    prices: Array.isArray(data?.prices) ? data.prices : [],
+    priceMap:
+      data?.priceMap && typeof data.priceMap === "object" ? data.priceMap : {},
+    canManage: Boolean(data?.canManage),
+  };
+}
+
+export async function createArcUnitPrice(payload) {
+  const data = await apiPost(UNIT_PRICES_PATH, payload);
+
+  return data?.price ?? null;
+}
+
+export async function deleteArcUnitPrice(priceId) {
+  return apiRequest(`${UNIT_PRICES_PATH}/${encodeURIComponent(priceId)}`, {
+    method: "DELETE",
+  });
 }
 
 export async function createArcUsage(payload) {

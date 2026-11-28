@@ -832,6 +832,12 @@ function mapEvent(row, tasks = [], staff = []) {
     eapNote: row.eap_note ?? "",
     promoChecked: Boolean(row.promo_checked),
     notes: row.notes ?? "",
+    drinkProfile: row.drink_profile ?? "",
+    peakGuests: row.peak_guests ?? null,
+    lastOrderTime: timeLabel(row.last_order_time),
+    stationNote: row.station_note ?? "",
+    briefingNote: row.briefing_note ?? "",
+    reviewNote: row.review_note ?? "",
     status: row.status,
     statusLabel: status?.label ?? row.status,
     statusTone: status?.tone ?? "neutral",
@@ -1084,6 +1090,15 @@ function eventPayload(body = {}) {
     eapNote: longText(body.eapNote, 1000),
     promoChecked: bool(body.promoChecked),
     notes: longText(body.notes),
+    drinkProfile: longText(body.drinkProfile, 500),
+    peakGuests:
+      body.peakGuests === "" || body.peakGuests == null
+        ? null
+        : clampInt(body.peakGuests, 0, 100000, 0),
+    lastOrderTime: parseTime(body.lastOrderTime),
+    stationNote: longText(body.stationNote, 500),
+    briefingNote: longText(body.briefingNote, 1000),
+    reviewNote: longText(body.reviewNote, 1000),
   };
 }
 
@@ -1105,11 +1120,13 @@ export async function createArcEvent(body = {}, actor = {}) {
           organizer, host_name, host_contact, arc_level, medic_mode,
           risk_l, risk_s, scope_agreed, scope_note, billing,
           aed_location, assembly_point, nearest_er, eap_note,
-          promo_checked, notes, status, created_by, created_by_name)
+          promo_checked, notes, status, created_by, created_by_name,
+          drink_profile, peak_guests, last_order_time, station_note,
+          briefing_note, review_note)
        values ($1::uuid, $2, $3, $4, $5::date, $6::time, $7::date, $8::time,
                $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
                $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29,
-               'PLANNING', $30, $31)`,
+               'PLANNING', $30, $31, $32, $33, $34::time, $35, $36, $37)`,
       [
         id,
         eventNo,
@@ -1142,6 +1159,12 @@ export async function createArcEvent(body = {}, actor = {}) {
         data.notes,
         actor.id ?? null,
         text(actor.name, 60),
+        data.drinkProfile,
+        data.peakGuests,
+        data.lastOrderTime,
+        data.stationNote,
+        data.briefingNote,
+        data.reviewNote,
       ]
     );
 
@@ -1192,6 +1215,12 @@ export async function updateArcEvent(eventId, body = {}) {
     eapNote: current.eap_note ?? "",
     promoChecked: current.promo_checked,
     notes: current.notes ?? "",
+    drinkProfile: current.drink_profile ?? "",
+    peakGuests: current.peak_guests ?? "",
+    lastOrderTime: timeLabel(current.last_order_time),
+    stationNote: current.station_note ?? "",
+    briefingNote: current.briefing_note ?? "",
+    reviewNote: current.review_note ?? "",
   };
 
   const data = eventPayload({ ...base, ...body });
@@ -1257,7 +1286,9 @@ export async function updateArcEvent(eventId, body = {}) {
               scope_agreed = $20, scope_note = $21, billing = $22,
               aed_location = $23, assembly_point = $24, nearest_er = $25,
               eap_note = $26, promo_checked = $27, notes = $28,
-              status = $29, cancel_reason = $30, updated_at = now()
+              status = $29, cancel_reason = $30, updated_at = now(),
+              drink_profile = $31, peak_guests = $32, last_order_time = $33::time,
+              station_note = $34, briefing_note = $35, review_note = $36
         where id = $1::uuid`,
       [
         eventId,
@@ -1290,6 +1321,12 @@ export async function updateArcEvent(eventId, body = {}) {
         data.notes,
         status,
         status === "CANCELED" ? cancelReason : "",
+        data.drinkProfile,
+        data.peakGuests,
+        data.lastOrderTime,
+        data.stationNote,
+        data.briefingNote,
+        data.reviewNote,
       ]
     );
 

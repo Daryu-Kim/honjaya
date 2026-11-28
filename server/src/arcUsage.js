@@ -174,9 +174,12 @@ function mapUsage(row) {
     usedAt: row.used_at,
     targetKind: row.target_kind,
     targetLabel: TARGET_LABELS[row.target_kind] ?? row.target_kind,
+    targetName: row.target_name ?? "",
     purpose: row.purpose,
     incidentNo: row.incident_no,
     place: row.place,
+    howUsed: row.how_used ?? "",
+    witnessName: row.witness_name ?? "",
     note: row.note,
     totalAmount: toInt(row.total_amount),
     billable: Boolean(row.billable),
@@ -210,10 +213,41 @@ function mapUsageItem(row) {
 }
 // ── 단가 ────────────────────────────────────────────────────────────────────
 
-/** 품목별 최근 구매 단가. 사용대장 단가 기본값으로 씁니다. */
+function todayKstDate() {
+  const stamp = kstStamp();
+
+  return `${stamp.slice(0, 4)}-${stamp.slice(4, 6)}-${stamp.slice(6, 8)}`;
+}
+
+/** date 컬럼은 Date 로 넘어오므로 화면·입력에 맞는 YYYY-MM-DD 로 맞춥니다. */
+function dateInput(value) {
+  if (!value) {
+    return "";
+  }
+
+  if (value instanceof Date) {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Seoul",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(value);
+  }
+
+  return String(value).slice(0, 10);
+}
+
+/**
+ * 품목별 사용 단가. 우선순위:
+ *   1) ARC 총괄이 미리 등록한 기준단가(arc_item_prices) 중 적용일이 지난 최신 값
+ *   2) 등록된 기준단가가 없으면 최근 구매 단가(arc_purchases)
+ */
 export async function latestArcUnitPriceMap(client = pool, itemIds = []) {
   const ids = (itemIds ?? []).filter(Boolean);
-  const { rows } = await client.query(
+  const filter = ids.length > 0 ? ids : null;
+  const priceMap = {};
+
+  const { rows: purchaseRows } = await client.query(
     `select distinct on (item_id)
             item_id,
             unit_price
@@ -222,14 +256,119 @@ export async function latestArcUnitPriceMap(client = pool, itemIds = []) {
         and unit_price > 0
         and ($1::uuid[] is null or item_id = any($1::uuid[]))
       order by item_id, purchased_on desc, created_at desc`,
-    [ids.length > 0 ? ids : null]
+    [filter]
   );
 
-  return rows.reduce((acc, row) => {
-    acc[row.item_id] = toInt(row.unit_price);
+  purchaseRows.forEach((row) => {
+    priceMap[row.item_id] = toInt(row.unit_price);
+  });
 
-    return acc;
-  }, {});
+  const { rows: registeredRows } = await client.query(
+    `select distinct on (item_id)
+            item_id,
+            unit_price
+       from public.arc_item_prices
+      where ($1::uuid[] is null or item_id = any($1::uuid[]))
+        and effective_from <= $2::date
+      order by item_id, effective_from desc, created_at desc`,
+    [filter, todayKstDate()]
+  );
+
+  registeredRows.forEach((row) => {
+    priceMap[row.item_id] = toInt(row.unit_price);
+  });
+
+  return priceMap;
+}
+
+function mapItemPrice(row) {
+  return {
+    id: row.id,
+    itemId: row.item_id,
+    itemCode: row.item_code,
+    itemName: row.item_name,
+    unitPrice: toInt(row.unit_price),
+    effectiveFrom: dateInput(row.effective_from),
+    note: row.note,
+    employeeName: row.employee_name,
+    createdAt: row.created_at,
+  };
+}
+
+/** 등록된 기준단가 목록(품목별 최신순). */
+export async function listArcItemPrices() {
+  const { rows } = await pool.query(
+    `select p.*,
+            coalesce(i.code, p.item_code) as item_code,
+            coalesce(i.name, p.item_name) as item_name
+       from public.arc_item_prices p
+       left join public.arc_items i on i.id = p.item_id
+      order by p.effective_from desc, p.created_at desc
+      limit 300`
+  );
+
+  return rows.map(mapItemPrice);
+}
+
+/** 기준단가 등록(ARC 총괄 전용). 같은 품목에 새 적용일로 덮어쓰는 방식입니다. */
+export async function createArcItemPrice(input = {}, employee = null) {
+  const itemId = text(input.itemId, 40);
+
+  if (!itemId) {
+    throw badRequest("단가를 등록할 품목을 선택해 주세요.");
+  }
+
+  const unitPrice = Math.max(toInt(input.unitPrice, 0), 0);
+  const effectiveFrom = text(input.effectiveFrom, 20) || todayKstDate();
+  const note = text(input.note, 200);
+
+  const { rows: itemRows } = await pool.query(
+    `select id, code, name from public.arc_items where id = $1::uuid`,
+    [itemId]
+  );
+
+  if (!itemRows[0]) {
+    throw new HttpError(404, "HJ404", "품목을 찾을 수 없어요.");
+  }
+
+  const { rows } = await pool.query(
+    `insert into public.arc_item_prices
+       (item_id, item_code, item_name, unit_price, effective_from, note,
+        employee_id, employee_name)
+     values ($1::uuid, $2, $3, $4, $5::date, $6, $7, $8)
+     returning *`,
+    [
+      itemId,
+      text(itemRows[0].code, 40),
+      text(itemRows[0].name, 120),
+      unitPrice,
+      effectiveFrom,
+      note,
+      employee?.id ?? null,
+      text(employee?.name, 60),
+    ]
+  );
+
+  return mapItemPrice({ ...rows[0], item_code: itemRows[0].code, item_name: itemRows[0].name });
+}
+
+export async function deleteArcItemPrice(priceId) {
+  const targetId = text(priceId, 40);
+
+  if (!targetId) {
+    throw badRequest("삭제할 단가를 찾을 수 없어요.");
+  }
+
+  const { rows } = await pool.query(
+    `delete from public.arc_item_prices where id = $1::uuid returning id`,
+    [targetId]
+  );
+
+  if (!rows[0]) {
+    throw new HttpError(404, "HJ404", "등록된 단가를 찾을 수 없어요.");
+  }
+
+  return { deletedId: rows[0].id };
 }
 
 // ── 조회 ────────────────────────────────────────────────────────────────────
@@ -337,9 +476,12 @@ function normalizeLines(rawLines) {
 export async function createArcUsage(input = {}, employee = null) {
   const usedAt = parseKstDateTime(input.usedAt);
   const targetKind = oneOf(input.targetKind, ARC_USAGE_TARGETS, "GUEST");
+  const targetName = text(input.targetName, 80);
   const purpose = requireText(input.purpose, "사용 사유", 300);
   const incidentNo = text(input.incidentNo, 60);
   const place = text(input.place, 60);
+  const howUsed = text(input.howUsed, 300);
+  const witnessName = text(input.witnessName, 60);
   const note = text(input.note, 500);
   const lines = normalizeLines(input.items);
 
@@ -390,18 +532,22 @@ export async function createArcUsage(input = {}, employee = null) {
       try {
         const { rows } = await client.query(
           `insert into public.arc_usages
-             (id, usage_no, used_at, target_kind, purpose, incident_no, place, note,
+             (id, usage_no, used_at, target_kind, target_name, purpose, incident_no,
+              place, how_used, witness_name, note,
               total_amount, billable, employee_id, employee_name)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
            returning id, usage_no`,
           [
             randomUUID(),
             usageNo,
             usedAt,
             targetKind,
+            targetName,
             purpose,
             incidentNo,
             place,
+            howUsed,
+            witnessName,
             note,
             totalAmount,
             totalAmount > 0,

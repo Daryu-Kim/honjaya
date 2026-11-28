@@ -9,6 +9,11 @@
           수준 · 행사의료진 구성 · 위험평가 · 행사 전/당일/종료 후 체크리스트 ·
           배정 인력과 AS-NOT-001 고지서 교부까지 이 화면에서 마무리합니다.
         </p>
+        <p class="description subtle">
+          칵테일바 행사는 주류·혼잡도에 따라 위험이 크게 달라져요. 등록할 때
+          최대 동시 인원, 라스트오더, 주류 구성, 응급처치 스테이션 위치를 함께
+          적어 두면 당일 대응이 빨라져요.
+        </p>
       </div>
       <div class="header-links">
         <router-link to="/admin/arc" class="link-button"
@@ -411,6 +416,71 @@
           </span>
         </label>
 
+        <h3>칵테일바 현장 안전</h3>
+        <p class="helper-text">
+          혼자야는 칵테일바예요. 술이 들어오면 넘어짐·구토·저혈당·실신이
+          늘어나니 아래 항목을 미리 정해 두면 당일에 판단이 빨라져요.
+        </p>
+        <div class="field-grid">
+          <label class="field">
+            <span>최대 동시 인원</span>
+            <input
+              v-model.number="draft.peakGuests"
+              type="number"
+              min="0"
+              placeholder="가장 붐빌 때 인원"
+            />
+            <small>예상 인원보다 많으면 통로·대기줄 위험이 커져요.</small>
+          </label>
+          <label class="field">
+            <span>주류 판매 종료(라스트오더)</span>
+            <input v-model="draft.lastOrderTime" type="time" />
+            <small
+              >종료 시각을 정해 두면 만취·음주운전 위험을 줄일 수 있어요.</small
+            >
+          </label>
+          <label class="field wide">
+            <span>주류 구성 · 음주 강도</span>
+            <textarea
+              v-model.trim="draft.drinkProfile"
+              rows="2"
+              maxlength="500"
+              placeholder="예: 칵테일 5종 위주, 도수 높은 샷 2종 포함 / 무알콜 2종 운영"
+            ></textarea>
+          </label>
+          <label class="field wide">
+            <span>응급처치 스테이션 · 장비 배치</span>
+            <textarea
+              v-model.trim="draft.stationNote"
+              rows="2"
+              maxlength="500"
+              placeholder="예: 바 왼쪽 끝 구급상자 + AED, 담당 1명 상시 대기, 무전 3번"
+            ></textarea>
+          </label>
+        </div>
+
+        <h3>사전 브리핑 · 종료 후 리뷰</h3>
+        <div class="field-grid">
+          <label class="field wide">
+            <span>사전 브리핑 기록</span>
+            <textarea
+              v-model.trim="draft.briefingNote"
+              rows="2"
+              maxlength="1000"
+              placeholder="예: 12/20 18:00 진행 · 참석 4명 · 만취 손님 대응·119 신고 담당·이송 동선 교육"
+            ></textarea>
+          </label>
+          <label class="field wide">
+            <span>종료 후 리뷰</span>
+            <textarea
+              v-model.trim="draft.reviewNote"
+              rows="2"
+              maxlength="1000"
+              placeholder="예: 실제 78명 · 사건 2건(찰과상·구토) · 다음 행사엔 물 배치 늘리기"
+            ></textarea>
+          </label>
+        </div>
+
         <label class="field wide">
           <span>메모</span>
           <textarea
@@ -499,6 +569,14 @@
           <strong>{{ selected.expectedGuests || "-" }}명</strong>
         </div>
         <div>
+          <span>최대 동시 인원</span>
+          <strong>{{ selected.peakGuests || "-" }}명</strong>
+        </div>
+        <div>
+          <span>라스트오더</span>
+          <strong>{{ selected.lastOrderTime || "-" }}</strong>
+        </div>
+        <div>
           <span>주류·음식</span>
           <strong>
             {{ selected.servesAlcohol ? "주류" : "주류 없음" }} ·
@@ -557,6 +635,22 @@
         </div>
       </div>
 
+      <div v-if="selected.drinkProfile" class="note-box">
+        <strong>주류 구성 · 음주 강도</strong>
+        <p>{{ selected.drinkProfile }}</p>
+      </div>
+      <div v-if="selected.stationNote" class="note-box">
+        <strong>응급처치 스테이션 · 장비 배치</strong>
+        <p>{{ selected.stationNote }}</p>
+      </div>
+      <div v-if="selected.briefingNote" class="note-box">
+        <strong>사전 브리핑</strong>
+        <p>{{ selected.briefingNote }}</p>
+      </div>
+      <div v-if="selected.reviewNote" class="note-box">
+        <strong>종료 후 리뷰</strong>
+        <p>{{ selected.reviewNote }}</p>
+      </div>
       <div v-if="selected.eapNote" class="note-box">
         <strong>응급행동계획</strong>
         <p>{{ selected.eapNote }}</p>
@@ -1035,6 +1129,12 @@ function emptyDraft() {
     eapNote: "",
     promoChecked: false,
     notes: "",
+    drinkProfile: "",
+    peakGuests: "",
+    lastOrderTime: "",
+    stationNote: "",
+    briefingNote: "",
+    reviewNote: "",
   };
 }
 
@@ -1423,6 +1523,12 @@ onMounted(load);
   font-size: 14px;
   line-height: 1.7;
   color: rgba(255, 255, 255, 0.66);
+}
+
+.description.subtle {
+  margin-top: 6px;
+  font-size: 12px;
+  color: rgba(253, 230, 138, 0.82);
 }
 
 .header-links {

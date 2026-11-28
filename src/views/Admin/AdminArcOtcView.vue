@@ -25,7 +25,8 @@
     <section class="panel">
       <div class="panel-head">
         <h2>
-          내 상비약 <span class="dim">({{ viewerName || "본인" }})</span>
+          {{ panelTitle }}
+          <span class="dim">({{ viewerName || "본인" }})</span>
         </h2>
         <div class="panel-actions">
           <input
@@ -34,11 +35,15 @@
             type="month"
             @change="load"
           />
-          <label v-if="canManageAll" class="checkbox-field">
+          <label
+            v-if="canManageAll && !viewerIsDirector"
+            class="checkbox-field"
+          >
             <input v-model="scopeAll" type="checkbox" @change="load" />
             <span>전체 직원 보기</span>
           </label>
           <button
+            v-if="!viewerIsDirector"
             type="button"
             class="preset-button"
             :disabled="isSaving"
@@ -57,7 +62,12 @@
         </div>
       </div>
 
-      <p class="helper-text">
+      <p v-if="viewerIsDirector" class="helper-text restricted">
+        ARC 총괄은 개인 상비약 관리 대상이 아니에요. 이 화면에서 최윤희를 뺀
+        직원·사장의 상비약만 관리해요. 새로 등록할 때도 소유자를 직원 또는
+        사장으로 골라야 하고, 최윤희 본인은 소유자로 지정할 수 없어요.
+      </p>
+      <p v-else class="helper-text">
         소유자가 비어 있는 상비약은 '내 이름으로 지정'으로 한 번에 가져올 수
         있어요. 수량·유효기간을 고친 뒤 입력란에서 포커스를 옮기면 저장돼요.
       </p>
@@ -212,14 +222,25 @@
     <section v-if="canStock" class="panel">
       <h2>상비약 등록</h2>
       <p class="helper-text">
-        내가 보관하는 상비약을 새로 등록해요. 사업장 재고(<router-link
-          to="/admin/arc/stock"
-          >재고</router-link
-        >)와 섞이지 않게 별도 대장(OTC-###)으로 번호가 자동 부여돼요. 코드를
-        비우면 다음 번호가 붙어요.
+        {{
+          viewerIsDirector
+            ? "직원·사장이 보관하는 상비약을 대신 등록해요. 소유자를 반드시 골라 주세요. 사업장 재고("
+            : "내가 보관하는 상비약을 새로 등록해요. 사업장 재고("
+        }}<router-link to="/admin/arc/stock">재고</router-link>)와 섞이지 않게
+        별도 대장(OTC-###)으로 번호가 자동 부여돼요. 코드를 비우면 다음 번호가
+        붙어요.
       </p>
 
       <div class="field-grid">
+        <label v-if="canManageAll" class="field">
+          <span>소유자 (직원·사장)</span>
+          <select v-model="createForm.ownerEmployeeId">
+            <option value="">선택해 주세요</option>
+            <option v-for="owner in owners" :key="owner.id" :value="owner.id">
+              {{ owner.name }} ({{ roleLabel(owner.role) }})
+            </option>
+          </select>
+        </label>
         <label class="field">
           <span>품명</span>
           <input
@@ -349,9 +370,11 @@ import { hasPermission } from "@/lib/staffAuth";
 
 const items = ref([]);
 const checks = ref([]);
+const owners = ref([]);
 const viewerId = ref(null);
 const viewerName = ref("");
 const canManageAll = ref(false);
+const viewerIsDirector = ref(false);
 const scopeAll = ref(false);
 const period = ref(currentMonth());
 const isLoading = ref(false);
@@ -360,6 +383,7 @@ const errorMessage = ref("");
 const okMessage = ref("");
 
 const createForm = reactive({
+  ownerEmployeeId: "",
   name: "",
   category: "",
   qty: 0,
@@ -385,6 +409,19 @@ const checkForm = reactive({
 });
 
 const canStock = computed(() => hasPermission("arc.stock"));
+const panelTitle = computed(() =>
+  viewerIsDirector.value
+    ? "직원·사장 상비약 관리"
+    : canManageAll.value && scopeAll.value
+    ? "전체 직원 상비약"
+    : "내 상비약"
+);
+
+const ROLE_LABELS = { OWNER: "사장", MANAGER: "매니저", STAFF: "직원" };
+
+function roleLabel(role) {
+  return ROLE_LABELS[role] || role || "";
+}
 
 function currentMonth() {
   const now = new Date();
@@ -414,9 +451,15 @@ async function load() {
 
     items.value = data.items;
     checks.value = data.checks;
+    owners.value = data.owners;
     viewerId.value = data.viewerId;
     viewerName.value = data.viewerName;
     canManageAll.value = data.canManageAll;
+    viewerIsDirector.value = data.viewerIsDirector;
+
+    if (data.viewerIsDirector) {
+      scopeAll.value = true;
+    }
   } catch (error) {
     errorMessage.value = error?.message || "상비약 목록을 불러오지 못했어요.";
   } finally {
@@ -451,11 +494,17 @@ async function submitCreate() {
     return;
   }
 
+  if (canManageAll.value && !createForm.ownerEmployeeId) {
+    errorMessage.value = "상비약 소유자(직원·사장)를 골라 주세요.";
+    return;
+  }
+
   isSaving.value = true;
   errorMessage.value = "";
 
   try {
     const created = await createArcOtcItem({
+      ownerEmployeeId: canManageAll.value ? createForm.ownerEmployeeId : "",
       name: createForm.name,
       category: createForm.category,
       qty: createForm.qty,
@@ -467,6 +516,7 @@ async function submitCreate() {
 
     flash(`${created?.code ?? "상비약"} 등록했어요.`);
     Object.assign(createForm, {
+      ownerEmployeeId: "",
       name: "",
       category: "",
       qty: 0,

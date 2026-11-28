@@ -64,7 +64,7 @@
       </article>
     </section>
 
-    <section class="panel">
+    <section class="panel list-panel">
       <div class="panel-head">
         <h2>사건 목록</h2>
         <div class="panel-actions">
@@ -186,7 +186,7 @@
       </div>
     </section>
 
-    <section v-if="createOpen && canCare" class="panel">
+    <section v-if="createOpen && canCare" class="panel create-panel">
       <div class="panel-head">
         <h2>새 사건 접수</h2>
         <div class="panel-actions">
@@ -521,7 +521,14 @@ function openIncident(incidentId) {
   router.push(`/admin/arc/care/${incidentId}`);
 }
 
-onMounted(loadAll);
+// 사건 접수 화면은 열자마자 바로 입력할 수 있게 새 사건 폼을 먼저 띄웁니다.
+onMounted(async () => {
+  await loadAll();
+
+  if (canCare.value && !createOpen.value) {
+    openCreate();
+  }
+});
 </script>
 
 <style scoped lang="scss">
@@ -532,6 +539,19 @@ onMounted(loadAll);
   padding: 24px;
   min-height: 100%;
   color: #ffffff;
+}
+
+// 사건 접수 폼을 목록·요약보다 위에 두어 열자마자 바로 입력할 수 있게 합니다.
+.create-panel {
+  order: 1;
+}
+
+.summary-grid {
+  order: 2;
+}
+
+.list-panel {
+  order: 3;
 }
 
 .page-header {

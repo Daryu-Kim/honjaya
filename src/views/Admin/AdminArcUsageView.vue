@@ -5,9 +5,7 @@
         <p class="eyebrow">ARC SAFETY</p>
         <h1>사용대장 · 소모금액</h1>
         <p class="description">
-          구급상자를 쓴 품목·수량·대상자 구분·사유·시각을 남겨요. 저장하면
-          재고가 바로 차감되고, 단가는 최근 구매 단가로 계산돼요. 내구재는 정상
-          사용만으로 비용을 청구하지 않아 금액이 0원이에요.
+          육하원칙으로 남기면 재고 차감과 소모금액이 자동으로 계산돼요.
         </p>
       </div>
       <div class="header-actions">
@@ -49,17 +47,99 @@
       </article>
     </section>
 
-    <section v-if="canCreate" class="panel">
-      <h2>사용 기록 추가</h2>
+    <section v-if="canManagePrices" class="panel price-panel">
+      <div class="panel-head">
+        <h2>기준단가 미리 등록 (ARC 총괄)</h2>
+        <span class="dim">등록한 단가로 소모금액이 바로 계산돼요.</span>
+      </div>
 
       <div class="field-grid">
         <label class="field">
-          <span>사용 일시</span>
+          <span>품목</span>
+          <select v-model="priceForm.itemId">
+            <option value="">품목 선택</option>
+            <option v-for="item in itemOptions" :key="item.id" :value="item.id">
+              {{ item.code }} · {{ item.name }}
+            </option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>단가(원)</span>
+          <input
+            v-model.number="priceForm.unitPrice"
+            type="number"
+            min="0"
+            step="10"
+          />
+        </label>
+
+        <label class="field">
+          <span>적용 시작일</span>
+          <input v-model="priceForm.effectiveFrom" type="date" />
+        </label>
+
+        <label class="field wide">
+          <span>메모(선택)</span>
+          <input
+            v-model.trim="priceForm.note"
+            type="text"
+            placeholder="예: 2026년 약국 구매가 기준"
+          />
+        </label>
+      </div>
+
+      <div class="actions">
+        <button
+          type="button"
+          class="preset-button"
+          :disabled="isSavingPrice"
+          @click="submitUnitPrice"
+        >
+          단가 등록
+        </button>
+        <span class="dim">등록 {{ priceList.length }}건</span>
+      </div>
+
+      <p v-if="!priceList.length" class="empty-box">
+        아직 등록한 기준단가가 없어요. 등록 전에는 최근 구매 단가로 계산돼요.
+      </p>
+      <div v-else class="price-list">
+        <div v-for="price in priceList" :key="price.id" class="price-row">
+          <span class="mono">{{ price.itemCode }}</span>
+          <span>{{ price.itemName }}</span>
+          <strong>{{ formatArcMoney(price.unitPrice) }}</strong>
+          <span class="dim">{{ price.effectiveFrom }}부터</span>
+          <span class="dim">{{ price.note || "-" }}</span>
+          <button
+            type="button"
+            class="text-button"
+            :disabled="isSavingPrice"
+            @click="removeUnitPrice(price)"
+          >
+            삭제
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <section v-if="canCreate" class="panel">
+      <h2>사용 기록 추가 (육하원칙)</h2>
+      <p class="dim section-hint">
+        ①~⑥ 중 왜(사유)만 필수예요. 나머지는 비워 두어도 저장돼요.
+      </p>
+      <p class="dim section-hint">
+        상세 건강정보는 사건 접수·응급기록(AS-CARE)에만 적어 주세요.
+      </p>
+
+      <div class="field-grid">
+        <label class="field">
+          <span>① 언제 썼나요</span>
           <input v-model="form.usedAt" type="datetime-local" />
         </label>
 
         <label class="field">
-          <span>대상자 구분</span>
+          <span>② 누가 썼나요 · 대상 구분</span>
           <select v-model="form.targetKind">
             <option
               v-for="(label, value) in ARC_USAGE_TARGET_LABELS"
@@ -71,21 +151,48 @@
           </select>
         </label>
 
-        <label class="field wide">
-          <span>사용 사유</span>
+        <label class="field">
+          <span>② 대상 이름·좌석(선택)</span>
           <input
-            v-model.trim="form.purpose"
+            v-model.trim="form.targetName"
             type="text"
-            placeholder="예: 손님 손가락 열상 소독·반창고 처치"
+            placeholder="예: 3번 테이블 손님 / 박직원"
           />
         </label>
 
         <label class="field">
-          <span>사용 장소</span>
+          <span>③ 어디서 썼나요</span>
           <input
             v-model.trim="form.place"
             type="text"
             placeholder="예: 홀 카운터"
+          />
+        </label>
+
+        <label class="field wide">
+          <span>⑤ 어떻게 썼나요(조치 내용)</span>
+          <input
+            v-model.trim="form.howUsed"
+            type="text"
+            placeholder="예: 생리식염수로 세척 후 거즈·반창고로 덮음"
+          />
+        </label>
+
+        <label class="field wide">
+          <span>⑥ 왜 썼나요 (필수)</span>
+          <input
+            v-model.trim="form.purpose"
+            type="text"
+            placeholder="예: 손님 손가락 열상 소독·지혈"
+          />
+        </label>
+
+        <label class="field">
+          <span>확인자(같이 본 사람)</span>
+          <input
+            v-model.trim="form.witnessName"
+            type="text"
+            placeholder="예: 박직원"
           />
         </label>
 
@@ -99,16 +206,17 @@
         </label>
 
         <label class="field wide">
-          <span>메모(선택)</span>
+          <span>⑦ 기타 메모(선택)</span>
           <input
             v-model.trim="form.note"
             type="text"
-            placeholder="상세 건강정보는 사건 상세기록에만 입력해 주세요."
+            placeholder="예: 남은 수량이 2개뿐이라 보충 요청함"
           />
         </label>
       </div>
 
       <div class="usage-lines">
+        <p class="dim section-hint">④ 무엇을 얼마나 썼나요</p>
         <div
           v-for="(line, index) in form.items"
           :key="index"
@@ -184,9 +292,78 @@
           :disabled="isSaving"
           @click="submitUsage"
         >
-          사용 기록 저장
+          사용 기록 저장 ({{ formatArcMoney(formTotal) }})
         </button>
+        <span class="dim">저장하면 재고가 차감되고 금액이 확정돼요.</span>
       </div>
+    </section>
+
+    <section v-if="canExpense" class="panel settle-panel">
+      <div class="panel-head">
+        <h2>합본 · 비용·실비정산으로 넘기기</h2>
+        <span class="dim">
+          {{ periodLabel }}에 아직 묶지 않은 사용대장을 한 장으로 합칩니다.
+        </span>
+      </div>
+
+      <div class="summary-grid">
+        <article class="summary-card">
+          <span class="summary-label">합본 대상</span>
+          <strong>{{ pendingUsage?.usageCount ?? 0 }}건</strong>
+        </article>
+        <article class="summary-card">
+          <span class="summary-label">합본 금액</span>
+          <strong>{{ formatArcMoney(pendingUsage?.total) }}</strong>
+        </article>
+        <article class="summary-card">
+          <span class="summary-label">정산 담당</span>
+          <strong>최윤희</strong>
+        </article>
+      </div>
+
+      <div class="field-grid">
+        <label class="field">
+          <span>청구인(정산 받을 사람)</span>
+          <input
+            v-model.trim="settleForm.claimant"
+            type="text"
+            placeholder="예: 최윤희"
+          />
+        </label>
+        <label class="field wide">
+          <span>합본 메모(선택)</span>
+          <input
+            v-model.trim="settleForm.note"
+            type="text"
+            placeholder="예: 11월 소모품 일괄 청구"
+          />
+        </label>
+      </div>
+
+      <div class="actions">
+        <button
+          type="button"
+          class="primary-button"
+          :disabled="isSettling || !(pendingUsage?.usageCount ?? 0)"
+          @click="submitSettle"
+        >
+          이번 달 사용대장 합본 만들기
+        </button>
+        <router-link to="/admin/arc/expenses" class="link-button">
+          비용·실비정산 열기
+        </router-link>
+      </div>
+
+      <p v-if="!(pendingUsage?.usageCount ?? 0)" class="empty-box">
+        이 달에 합본할 사용대장이 없어요. 사용 기록을 먼저 저장해 주세요.
+      </p>
+      <ul v-else class="settle-list">
+        <li v-for="item in pendingUsage.usages" :key="item.id">
+          <span class="mono">{{ item.usageNo }}</span>
+          <span class="dim">{{ formatArcDateTime(item.usedAt) }}</span>
+          <strong>{{ formatArcMoney(item.totalAmount) }}</strong>
+        </li>
+      </ul>
     </section>
     <section class="panel">
       <div class="panel-head">
@@ -223,10 +400,12 @@
         <table class="data-table">
           <thead>
             <tr>
-              <th>사용 일시</th>
+              <th>① 언제</th>
               <th>번호</th>
-              <th>대상</th>
-              <th>품목</th>
+              <th>② 누가</th>
+              <th>③ 어디서</th>
+              <th>④ 무엇을</th>
+              <th>⑤ 어떻게 · ⑥ 왜</th>
               <th class="num">소모금액</th>
               <th>정산</th>
               <th>작업</th>
@@ -236,7 +415,7 @@
             <tr v-for="row in usages" :key="row.id">
               <td>
                 {{ formatArcDateTime(row.usedAt) }}
-                <div class="dim">{{ row.employeeName || "-" }}</div>
+                <div class="dim">{{ row.employeeName || "-" }} 기록</div>
               </td>
               <td>
                 <span class="mono">{{ row.usageNo }}</span>
@@ -244,9 +423,19 @@
                   {{ row.incidentNo }}
                 </div>
               </td>
-              <td class="dim">{{ row.targetLabel || "-" }}</td>
+              <td class="dim">
+                {{ row.targetLabel || "-" }}
+                <div v-if="row.targetName">{{ row.targetName }}</div>
+              </td>
+              <td class="dim">{{ row.place || "-" }}</td>
               <td>
                 {{ row.itemText || "-" }}
+                <div v-if="row.witnessName" class="dim">
+                  확인자 {{ row.witnessName }}
+                </div>
+              </td>
+              <td>
+                <div>{{ row.howUsed || "-" }}</div>
                 <div class="dim">{{ row.purpose }}</div>
               </td>
               <td class="num">
@@ -329,7 +518,10 @@ import { computed, onMounted, reactive, ref } from "vue";
 import {
   ARC_USAGE_STATUS_LABELS,
   ARC_USAGE_TARGET_LABELS,
+  createArcExpenseFromUsageMonth,
+  createArcUnitPrice,
   createArcUsage,
+  deleteArcUnitPrice,
   fetchArcStock,
   fetchArcUsages,
   formatArcDateTime,
@@ -359,17 +551,30 @@ function emptyLine() {
   return { itemId: "", qty: 1, unitPrice: 0, isDevice: false };
 }
 
+function todayInput() {
+  const now = new Date();
+
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(
+    now.getDate()
+  )}`;
+}
+
 const items = ref([]);
 const usages = ref([]);
 const summary = ref(null);
 const priceMap = ref({});
+const priceList = ref([]);
+const pendingUsage = ref(null);
 const period = ref(currentMonthInput());
 const statusFilter = ref("");
 const canCreate = ref(false);
 const canExpense = ref(false);
 const canApprove = ref(false);
+const canManagePrices = ref(false);
 const isLoading = ref(false);
 const isSaving = ref(false);
+const isSavingPrice = ref(false);
+const isSettling = ref(false);
 const errorMessage = ref("");
 const okMessage = ref("");
 const voidingId = ref("");
@@ -378,12 +583,29 @@ const voidReason = ref("");
 const form = reactive({
   usedAt: nowLocalInput(),
   targetKind: "GUEST",
+  targetName: "",
   purpose: "",
   place: "",
+  howUsed: "",
+  witnessName: "",
   incidentNo: "",
   note: "",
   items: [emptyLine()],
 });
+
+const priceForm = reactive({
+  itemId: "",
+  unitPrice: 0,
+  effectiveFrom: todayInput(),
+  note: "",
+});
+
+const settleForm = reactive({
+  claimant: "",
+  note: "",
+});
+
+const periodLabel = computed(() => period.value || currentMonthInput());
 
 const itemOptions = computed(() =>
   items.value.filter((item) => item.active !== false)
@@ -442,10 +664,17 @@ async function load() {
     usages.value = usageData.usages;
     summary.value = usageData.summary;
     priceMap.value = usageData.priceMap;
+    priceList.value = usageData.prices ?? [];
+    pendingUsage.value = usageData.pendingUsage ?? null;
     canCreate.value = usageData.canCreate;
     canExpense.value = usageData.canExpense;
     canApprove.value = usageData.canApprove;
+    canManagePrices.value = usageData.canManagePrices;
     items.value = stockData.items;
+
+    if (!settleForm.claimant) {
+      settleForm.claimant = usageData.viewerName || "";
+    }
   } catch (error) {
     errorMessage.value =
       error?.message ||
@@ -480,8 +709,11 @@ async function submitUsage() {
     const result = await createArcUsage({
       usedAt: form.usedAt,
       targetKind: form.targetKind,
+      targetName: form.targetName,
       purpose: form.purpose,
       place: form.place,
+      howUsed: form.howUsed,
+      witnessName: form.witnessName,
       incidentNo: form.incidentNo,
       note: form.note,
       items: lines.map((line) => ({
@@ -497,8 +729,11 @@ async function submitUsage() {
 
     form.usedAt = nowLocalInput();
     form.targetKind = "GUEST";
+    form.targetName = "";
     form.purpose = "";
     form.place = "";
+    form.howUsed = "";
+    form.witnessName = "";
     form.incidentNo = "";
     form.note = "";
     form.items = [emptyLine()];
@@ -510,6 +745,94 @@ async function submitUsage() {
       "사용 기록을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.";
   } finally {
     isSaving.value = false;
+  }
+}
+
+async function submitUnitPrice() {
+  if (isSavingPrice.value) return;
+
+  if (!priceForm.itemId) {
+    errorMessage.value = "단가를 등록할 품목을 선택해 주세요.";
+    return;
+  }
+
+  if (!(Number(priceForm.unitPrice) > 0)) {
+    errorMessage.value = "단가는 0원보다 커야 해요.";
+    return;
+  }
+
+  isSavingPrice.value = true;
+  errorMessage.value = "";
+  okMessage.value = "";
+
+  try {
+    const price = await createArcUnitPrice({
+      itemId: priceForm.itemId,
+      unitPrice: Number(priceForm.unitPrice),
+      effectiveFrom: priceForm.effectiveFrom,
+      note: priceForm.note,
+    });
+
+    okMessage.value = `${price?.itemName ?? "품목"} 기준단가를 ${
+      price?.effectiveFrom ?? ""
+    }부터 ${formatArcMoney(price?.unitPrice)}으로 등록했어요.`;
+
+    priceForm.itemId = "";
+    priceForm.unitPrice = 0;
+    priceForm.note = "";
+
+    await load();
+  } catch (error) {
+    errorMessage.value =
+      error?.message ||
+      "기준단가를 등록하지 못했어요. 품목과 단가를 확인해 주세요.";
+  } finally {
+    isSavingPrice.value = false;
+  }
+}
+
+async function removeUnitPrice(price) {
+  if (isSavingPrice.value) return;
+
+  isSavingPrice.value = true;
+  errorMessage.value = "";
+  okMessage.value = "";
+
+  try {
+    await deleteArcUnitPrice(price.id);
+    okMessage.value = `${price.itemName} 기준단가를 삭제했어요.`;
+    await load();
+  } catch (error) {
+    errorMessage.value = error?.message || "기준단가를 삭제하지 못했어요.";
+  } finally {
+    isSavingPrice.value = false;
+  }
+}
+
+async function submitSettle() {
+  if (isSettling.value) return;
+
+  isSettling.value = true;
+  errorMessage.value = "";
+  okMessage.value = "";
+
+  try {
+    const result = await createArcExpenseFromUsageMonth({
+      period: period.value,
+      claimant: settleForm.claimant,
+      note: settleForm.note,
+    });
+
+    okMessage.value = `${
+      result.expense?.expenseNo ?? "정산서"
+    }로 합본했어요. 비용·실비정산에서 이어서 처리해 주세요.`;
+    settleForm.note = "";
+
+    await load();
+  } catch (error) {
+    errorMessage.value = error?.message || "사용대장 합본을 만들지 못했어요.";
+  } finally {
+    isSettling.value = false;
   }
 }
 
@@ -897,6 +1220,61 @@ onMounted(load);
   background: rgba(255, 255, 255, 0.05);
   color: rgba(255, 255, 255, 0.6);
   font-size: 13px;
+}
+
+.section-hint {
+  margin: 0 0 4px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.6);
+
+  strong {
+    color: #fcd34d;
+  }
+}
+
+.price-panel {
+  border: 1px solid rgba(99, 102, 241, 0.32);
+}
+
+.price-list,
+.settle-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.price-row {
+  display: grid;
+  grid-template-columns:
+    minmax(70px, 0.6fr) minmax(140px, 1.6fr) minmax(90px, 0.7fr)
+    minmax(110px, 0.9fr) minmax(120px, 1.4fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 13px;
+}
+
+.settle-panel {
+  border: 1px solid rgba(52, 211, 153, 0.32);
+}
+
+.settle-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.05);
+    font-size: 13px;
+  }
 }
 
 @media (max-width: 900px) {
