@@ -334,12 +334,12 @@
           <span
             >대상자 <b>{{ pack.header.targetName || "____________" }}</b></span
           >
-          <span>
+          <span v-if="pack.audience === 'TEACHER'">
             시험 <b>{{ pack.kindLabel }}</b> · {{ pack.totals.minutes }}분 ·
             커트라인
             <b>{{ pack.totals.cutline }}%</b>
           </span>
-          <span>
+          <span v-if="pack.audience === 'TEACHER'">
             시험 문항 <b>{{ pack.totals.examCount }}개</b> /
             {{ pack.totals.examPoints }}점
           </span>
@@ -348,13 +348,13 @@
             <b>{{ pack.totals.bankCount }}개</b>
           </span>
           <span class="paper-seed"
-            >시험지 번호 <b>{{ pack.seed }}</b></span
+            >{{ pack.seedLabel || "자료 번호" }} <b>{{ pack.seed }}</b></span
           >
           <span class="audience-chip">{{ pack.audienceLabel }}</span>
         </div>
       </header>
 
-      <section class="study-block">
+      <section v-if="pack.exam.length" class="study-block">
         <h3 class="section-head">
           {{ pack.examSectionTitle }}
           <small>
@@ -374,6 +374,12 @@
             </div>
             <p class="teacher-answer">
               <b>모범답안</b> {{ row.answer || "—" }}
+            </p>
+            <p v-if="row.detail" class="teacher-detail">
+              <b>자세한 해설</b> {{ row.detail }}
+            </p>
+            <p v-if="row.scoreTip" class="teacher-score-tip">
+              <b>채점 포인트</b> {{ row.scoreTip }}
             </p>
             <table v-if="pack.audience === 'TEACHER'" class="criteria-table">
               <thead>
@@ -406,11 +412,15 @@
 
       <section class="study-block">
         <h3 class="section-head">
-          2. 8개 영역 전체 지식
-          <small>
+          {{ pack.chapterLabels.knowledge }}
+          <small v-if="pack.audience === 'TEACHER'">
             이번 시험에 나오지 않은 항목까지 모두 담았습니다.
             <span class="on-exam-tag">★이번 시험</span> 표시가 있는 항목은 이번
             시험지에 그대로 나온 문항입니다.
+          </small>
+          <small v-else>
+            8개 영역 전체를 순서대로 읽으며 스스로 답해 보세요. 이번 시험에 어떤
+            문항이 나오는지는 이 자료에 담겨 있지 않습니다.
           </small>
         </h3>
         <div
@@ -438,6 +448,15 @@
               <p class="teacher-answer">
                 <b>정답 요약</b> {{ item.answer || "—" }}
               </p>
+              <p v-if="item.detail" class="teacher-detail">
+                <b>자세히 알기</b> {{ item.detail }}
+              </p>
+              <p v-if="item.scene" class="teacher-scene">
+                <b>혼자야에서는 이렇게 생깁니다</b> {{ item.scene }}
+              </p>
+              <p v-if="item.remember" class="teacher-remember">
+                <b>한 줄 정리</b> {{ item.remember }}
+              </p>
               <table v-if="pack.audience === 'TEACHER'" class="criteria-table">
                 <thead>
                   <tr>
@@ -457,6 +476,9 @@
               <p v-if="item.basis" class="teacher-basis">
                 <b>이론 근거</b> {{ item.basis }}
               </p>
+              <p v-if="item.mistakes" class="teacher-wrong">
+                <b>자주 하는 실수</b> {{ item.mistakes }}
+              </p>
               <ul v-if="item.ask.length" class="ask-list">
                 <li v-for="(ask, index) in item.ask" :key="index">{{ ask }}</li>
               </ul>
@@ -469,7 +491,7 @@
       </section>
 
       <section class="study-block">
-        <h3 class="section-head">3. 질문 은행 (즉답 · 심화)</h3>
+        <h3 class="section-head">{{ pack.chapterLabels.bank }}</h3>
         <ul class="knowledge-list">
           <li v-for="item in pack.bank" :key="item.key" class="knowledge-item">
             <div class="knowledge-line">
@@ -478,6 +500,12 @@
               <span v-if="item.onExam" class="on-exam-tag">★이번 시험</span>
             </div>
             <p class="teacher-answer"><b>정답</b> {{ item.answer || "—" }}</p>
+            <p v-if="item.detail" class="teacher-detail">
+              <b>자세히 알기</b> {{ item.detail }}
+            </p>
+            <p v-if="item.remember" class="teacher-remember">
+              <b>한 줄 정리</b> {{ item.remember }}
+            </p>
             <p v-if="item.wrong" class="teacher-wrong">
               <b>위험한 답</b> {{ item.wrong }}
             </p>
@@ -487,8 +515,11 @@
 
       <section v-if="pack.glossary.length" class="study-block">
         <h3 class="section-head">
-          4. 어려운 말 풀이 (일반인 기준)
-          <small>시험에 나온 단어 위주로 쉬운 말로 풀었습니다.</small>
+          {{ pack.chapterLabels.glossary }}
+          <small v-if="pack.audience === 'TEACHER'"
+            >시험에 나온 단어 위주로 쉬운 말로 풀었습니다.</small
+          >
+          <small v-else>자료에 나온 어려운 말을 쉬운 말로 풀었습니다.</small>
         </h3>
         <dl class="glossary-grid">
           <div
@@ -552,12 +583,12 @@ const OUTPUTS = [
   {
     key: "STUDY_CANDIDATE",
     label: "족보 · 응시자 전용",
-    desc: "공부용 지식 교육자료 (채점표 없음)",
+    desc: "8개 영역 전체 지식 (시험 문항 없음)",
   },
   {
     key: "STUDY_TEACHER",
     label: "족보 · 교육자 전용",
-    desc: "채점기준·판정규칙 포함 족보",
+    desc: "이번 시험 정답 해설 · 채점표 · 판정규칙",
   },
 ];
 
@@ -637,6 +668,14 @@ async function load({ newSeed = false } = {}) {
           output.key === "STUDY_CANDIDATE" ||
           output.key === "STUDY_TEACHER"
         ) {
+          // 응시자 전용 족보는 시험 종류와 상관없이 같은 지식 자료라 한 부만 넣습니다.
+          if (
+            output.key === "STUDY_CANDIDATE" &&
+            built.some((doc) => doc.audience === "CANDIDATE")
+          ) {
+            continue;
+          }
+
           const pack = await fetchArcStudyPack({
             ...shared,
             kind: kind.key,
@@ -1122,7 +1161,11 @@ textarea {
 .teacher-answer,
 .teacher-basis,
 .teacher-tail,
-.teacher-wrong {
+.teacher-wrong,
+.teacher-detail,
+.teacher-scene,
+.teacher-remember,
+.teacher-score-tip {
   margin: 6px 0 0;
   font-size: 11.5px;
   line-height: 1.65;
@@ -1137,6 +1180,34 @@ textarea {
   padding: 6px 9px;
   border-radius: 6px;
   background: #f8fafc;
+}
+
+.teacher-detail {
+  padding: 6px 9px;
+  border-left: 3px solid #1d4ed8;
+  border-radius: 0 6px 6px 0;
+  background: #f5f8ff;
+}
+
+.teacher-scene {
+  padding: 6px 9px;
+  border-left: 3px solid #0f766e;
+  border-radius: 0 6px 6px 0;
+  background: #f0fdfa;
+  color: #134e4a;
+}
+
+.teacher-remember {
+  font-weight: 700;
+  color: #7c2d12;
+}
+
+.teacher-score-tip {
+  padding: 6px 9px;
+  border-left: 3px solid #b45309;
+  border-radius: 0 6px 6px 0;
+  background: #fffbeb;
+  color: #78350f;
 }
 
 .teacher-wrong {

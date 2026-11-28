@@ -1,33 +1,30 @@
 // P14S — 구두시험 「족보 교육자료」 (ARC 대표(RN) 전용).
 //
-// 최윤희 대표가 시험지를 뽑은 뒤, 그 시험에 나오는 문제 + 그 주변 지식을 한 부로 묶어
+// 최윤희 대표가 시험지를 뽑은 뒤, 시험 문항과 8개 영역 전체 지식을 한 부로 묶어
 // 교육자료로 인쇄할 수 있게 만듭니다.
-//   * 시험 문항(문제 + 모범답안 + 수행/부분수행/미수행 기준 + 이론 근거 + 자주 틀리는 답)
-//   * 8개 영역 전체 지식(이번 시험에 안 나온 문항까지) — "왜 그렇게 하는지"까지
-//   * 질문 은행(즉답·심화) 전체
-//   * 어려운 용어 풀이(일반인 기준)
-//   * 인쇄 전 확인 체크리스트
 //
 // 문제는 buildArcVerbalPaper 를 그대로 재사용하므로, 같은 seed 를 넣으면
 // 시험지와 족보의 문항이 정확히 일치합니다.
 
 import { collectArcTerms } from "./arcGlossary.js";
 import { ARC_VERBAL_QUESTIONS, ARC_VERBAL_SECTIONS } from "./arcVerbal.js";
+import { verbalDeep } from "./arcVerbalDeep.js";
 import { buildArcVerbalPaper } from "./arcVerbalPaper.js";
 
 // 응시자 전용(공부용)과 교육자 전용(채점용)을 나눕니다.
-//  * CANDIDATE : 수행/부분수행/미수행 채점 기준표 없이, 문제 · 정답 · 이론 근거만.
-//  * TEACHER   : 채점 기준표 · 판정 규칙까지 포함한 채점용 족보.
+//  * CANDIDATE : 이번 시험에 무엇이 나오는지 알 수 없게 시험 문항 장을 아예 넣지 않고,
+//                8개 영역 전체 지식을 자세히 풀어 쓴 공부용 자료만 만듭니다.
+//  * TEACHER   : 이번 시험 문항 + 자세한 정답 해설 + 채점 기준표 + 판정 규칙.
 export const ARC_STUDY_PACK_AUDIENCES = [
   {
     key: "CANDIDATE",
     label: "족보 · 응시자 전용",
-    desc: "공부용 지식 교육자료 (채점 기준표 없음)",
+    desc: "공부용 지식 교육자료 (시험 문항·채점표 없음)",
   },
   {
     key: "TEACHER",
     label: "족보 · 교육자 전용",
-    desc: "채점 기준표 · 판정 규칙 포함",
+    desc: "이번 시험 정답 해설 · 채점 기준표 · 판정 규칙",
   },
 ];
 
@@ -38,6 +35,7 @@ function normalizeAudience(audience) {
 }
 
 function rowToStudy(row, { includeCriteria = true } = {}) {
+  const deep = verbalDeep(row.key);
   const mapped = {
     no: row.no,
     key: row.key,
@@ -52,11 +50,22 @@ function rowToStudy(row, { includeCriteria = true } = {}) {
     basis: row.basis ?? "",
     wrong: row.wrong ?? "",
     tail: row.tail ?? "",
+    detail: deep.detail,
+    scene: deep.scene,
+    remember: deep.remember,
   };
 
   if (includeCriteria) {
     mapped.criteria = row.criteria ?? { perform: "", partial: "", none: "" };
+    // 채점할 때 귀에 들어와야 하는 한 줄(수행 기준 그대로).
+    mapped.scoreTip = row.criteria?.perform ?? "";
+    return mapped;
   }
+
+  // 응시자용은 채점표 대신 '자주 하는 실수'로 바꿔서 보여 줍니다.
+  mapped.mistakes = [row.criteria?.partial, row.criteria?.none]
+    .filter(Boolean)
+    .join(" / ");
 
   return mapped;
 }
@@ -89,9 +98,16 @@ export function buildArcStudyPack({
     aiVaried,
   });
 
-  const examRows = [...paper.sections.flatMap((section) => section.rows), ...paper.bankRows, ...paper.customRows]
-    .sort((a, b) => a.no - b.no)
-    .map((row) => rowToStudy(row, { includeCriteria }));
+  // 응시자 전용은 이번 시험 문항을 아예 담지 않습니다(무엇이 나오는지 알 수 없게).
+  const examRows = includeCriteria
+    ? [
+        ...paper.sections.flatMap((section) => section.rows),
+        ...paper.bankRows,
+        ...paper.customRows,
+      ]
+        .sort((a, b) => a.no - b.no)
+        .map((row) => rowToStudy(row, { includeCriteria }))
+    : [];
 
   const knowledgeSections = includeAllKnowledge
     ? ARC_VERBAL_SECTIONS.map((section) => ({
@@ -100,6 +116,7 @@ export function buildArcStudyPack({
         desc: section.desc,
         minutes: section.minutes,
         items: section.items.map((item) => {
+          const deep = verbalDeep(`${section.key}:${item.key}`);
           const mapped = {
             key: item.key,
             label: item.label,
@@ -108,6 +125,9 @@ export function buildArcStudyPack({
             basis: item.basis ?? "",
             answer: item.answer ?? "",
             wrong: item.wrong ?? "",
+            detail: deep.detail,
+            scene: deep.scene,
+            remember: deep.remember,
             ask: Array.isArray(item.ask) ? item.ask.filter(Boolean) : [],
           };
 
@@ -117,6 +137,11 @@ export function buildArcStudyPack({
               partial: "",
               none: "",
             };
+            mapped.scoreTip = item.criteria?.perform ?? "";
+          } else {
+            mapped.mistakes = [item.criteria?.partial, item.criteria?.none]
+              .filter(Boolean)
+              .join(" / ");
           }
 
           return mapped;
@@ -124,24 +149,31 @@ export function buildArcStudyPack({
       }))
     : [];
 
-  // 이번 시험에 실제로 나온 문항 표시(교육자료에서 "★이번 시험" 배지로 씁니다).
+  // "★이번 시험" 배지는 교육자 전용에서만 씁니다(응시자 전용은 시험 정보를 숨깁니다).
   const examKeys = new Set(examRows.map((row) => row.key));
 
   knowledgeSections.forEach((section) => {
     section.items.forEach((item) => {
-      item.onExam = examKeys.has(`${section.key}:${item.key}`);
+      item.onExam =
+        includeCriteria && examKeys.has(`${section.key}:${item.key}`);
     });
   });
 
-  const bank = ARC_VERBAL_QUESTIONS.map((question) => ({
-    key: question.key,
-    tag: question.tag,
-    level: question.level ?? "",
-    question: question.q,
-    answer: question.a ?? "",
-    wrong: question.wrong ?? "",
-    onExam: examKeys.has(question.key),
-  }));
+  const bank = ARC_VERBAL_QUESTIONS.map((question) => {
+    const deep = verbalDeep(question.key);
+
+    return {
+      key: question.key,
+      tag: question.tag,
+      level: question.level ?? "",
+      question: question.q,
+      answer: question.a ?? "",
+      wrong: question.wrong ?? "",
+      detail: deep.detail,
+      remember: deep.remember,
+      onExam: includeCriteria && examKeys.has(question.key),
+    };
+  });
 
   const glossaryTexts = [
     ...examRows.flatMap((row) => [
@@ -151,11 +183,18 @@ export function buildArcStudyPack({
       row.criteria?.perform ?? "",
     ]),
     ...knowledgeSections.flatMap((section) =>
-      section.items.flatMap((item) => [item.label, item.answer, item.basis])
+      section.items.flatMap((item) => [
+        item.label,
+        item.answer,
+        item.basis,
+        item.detail,
+      ])
     ),
-    ...bank.map((item) => `${item.question} ${item.answer}`),
+    ...bank.map((item) => `${item.question} ${item.answer} ${item.detail}`),
   ];
   const glossary = collectArcTerms(glossaryTexts);
+
+  const isTeacherPack = audienceKey === "TEACHER";
 
   const totals = {
     examCount: examRows.length,
@@ -164,11 +203,9 @@ export function buildArcStudyPack({
     knowledgeCount: knowledgeSections.reduce((sum, section) => sum + section.items.length, 0),
     bankCount: bank.length,
     glossaryCount: glossary.length,
-    minutes: paper.header.minutes,
-    cutline: paper.header.cutline,
+    minutes: isTeacherPack ? paper.header.minutes : 0,
+    cutline: isTeacherPack ? paper.header.cutline : 0,
   };
-
-  const isTeacherPack = audienceKey === "TEACHER";
 
   return {
     kind: paper.kind,
@@ -177,27 +214,37 @@ export function buildArcStudyPack({
     audience: audienceKey,
     audienceLabel: isTeacherPack ? "족보 · 교육자 전용" : "족보 · 응시자 전용",
     seed: paper.seed,
+    seedLabel: isTeacherPack ? "시험지 번호" : "자료 번호",
     generatedAt: paper.generatedAt,
     header: {
       title: isTeacherPack
         ? `${paper.kindLabel} 족보 · 교육자 전용`
-        : `${paper.kindLabel} 족보 · 응시자 전용`,
+        : "족보 · 응시자 전용 (지식 교육자료)",
       subtitle: isTeacherPack
-        ? "이번 시험 문제와 그 주변 지식을 함께 정리한 교육자용 자료입니다. 문제 → 모범답안 → 채점기준 → 이론 근거 순서로 읽으면 그대로 채점이 됩니다."
-        : "이번 시험에 나오는 문제와 그 주변 지식을 공부용으로 정리했습니다. 문제 → 정답 → 이론 근거 순서로 읽으면 그대로 공부가 됩니다. 채점 기준표는 들어 있지 않습니다.",
+        ? "이번 시험 문제와 그 주변 지식을 함께 정리한 교육자용 자료입니다. 문제 → 모범답안 → 자세한 해설 → 채점기준 순서로 읽으면 그대로 채점이 됩니다."
+        : "8개 영역 전체를 공부용으로 자세히 정리한 자료입니다. 이번 시험에 어떤 문항이 나오는지는 이 자료에 담겨 있지 않으니, 전체를 고르게 읽고 스스로 답해 보세요.",
       targetName: paper.header.targetName,
       reviewer: paper.header.reviewer,
-      minutes: paper.header.minutes,
-      cutline: paper.header.cutline,
-      emphasis: paper.header.emphasis,
+      minutes: isTeacherPack ? paper.header.minutes : 0,
+      cutline: isTeacherPack ? paper.header.cutline : 0,
+      emphasis: isTeacherPack ? paper.header.emphasis : "",
       seed: paper.seed,
     },
     examSectionTitle: isTeacherPack
-      ? "1. 이번 시험 문항 (문제 · 모범답안 · 채점기준 · 이론 근거)"
-      : "1. 이번 시험 문항 (문제 · 정답 · 이론 근거)",
-    examSectionHint: isTeacherPack
-      ? "시험지와 같은 번호입니다."
-      : "시험지와 같은 번호입니다. 먼저 스스로 답해 보고 정답을 확인해 보세요.",
+      ? "1. 이번 시험 문항 (문제 · 모범답안 · 자세한 해설 · 채점기준)"
+      : "",
+    examSectionHint: isTeacherPack ? "시험지와 같은 번호입니다." : "",
+    chapterLabels: isTeacherPack
+      ? {
+          knowledge: "2. 8개 영역 전체 지식",
+          bank: "3. 질문 은행 (즉답 · 심화)",
+          glossary: "4. 어려운 말 풀이 (일반인 기준)",
+        }
+      : {
+          knowledge: "1. 8개 영역 전체 지식 (자세히)",
+          bank: "2. 질문 은행 — 스스로 점검",
+          glossary: "3. 어려운 말 풀이 (일반인 기준)",
+        },
     totals,
     exam: examRows,
     sections: knowledgeSections,
@@ -212,14 +259,15 @@ export function buildArcStudyPack({
           "교육자료는 ARC 대표(RN)만 인쇄할 수 있습니다.",
         ]
       : [
-          "시험 전에 미리 읽어 두면 도움이 됩니다. 끝까지 읽고 예상 질문에 스스로 답해 보세요.",
-          "이 자료에는 채점 기준표가 없습니다. 내 답이 어느 정도인지는 구두시험에서 ARC 대표가 알려 줍니다.",
-          "모르는 말이 나오면 4번 '어려운 말 풀이'를 먼저 확인하세요.",
+          "이 자료에는 이번 시험에 나오는 문항이 없습니다. 8개 영역을 순서대로 읽으며 스스로 답해 보세요.",
+          "'자세히 알기'와 '혼자야에서는 이렇게 생깁니다'를 함께 읽으면 상황이 기억에 남습니다.",
+          "각 항목의 '한 줄 정리'만 모아서 시험 전날 다시 읽어도 좋습니다.",
+          "모르는 말이 나오면 3번 '어려운 말 풀이'를 먼저 확인하세요.",
           "출력·보관은 ARC 대표(RN)만 합니다. 받은 자료는 시험 전날까지 보고 필요 없어지면 돌려주세요.",
         ],
     footerNote: isTeacherPack
       ? "족보 교육자료에는 정답과 채점기준이 들어 있습니다. 시험 전 응시자에게 넘어가지 않게 보관하고, 필요 없어지면 파쇄해 주세요."
-      : "응시자 학습용 자료입니다. 이 자료에는 채점 기준표가 들어 있지 않습니다.",
+      : "응시자 학습용 자료입니다. 이 자료에는 이번 시험에 나오는 문항과 채점 기준표가 들어 있지 않습니다.",
     verdictRules: isTeacherPack ? paper.verdictRules : null,
   };
 }

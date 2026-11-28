@@ -2591,6 +2591,54 @@ User request: "족보교육자료는 응시자 전용과 교육자 자료 따로
 
 ---
 
+## 3-18. P14V — 족보: 응시자 전용은 시험 정보 0, 교육자 전용은 정답 해설 강화 (2026-11-29)
+
+User request: "족보응시자전용은 이번시험에 뭐 나올지 알려주면 안됨. 정말 말 그대로 응시자
+전용이기에. 그리고 지식교육은 더 자세하게 해주시오 / 그리고 족보 교육자 전용은 이번시험
+정답에 대해 오히려 자세하게 있어야 함".
+
+### Decisions
+- `CANDIDATE` pack now contains **no exam information at all**:
+  - `exam: []` (exam chapter is not built), `onExam` is always `false` on knowledge/bank items,
+    `totals.examCount/examPoints/criticalCount = 0`, `minutes/cutline = 0`.
+  - Title `족보 · 응시자 전용 (지식 교육자료)`, neutral subtitle, `seedLabel: "자료 번호"`,
+    `header.emphasis` blanked, `verdictRules: null`.
+  - Chapters renumbered for a pack without an exam chapter:
+    `chapterLabels = { knowledge: "1. …", bank: "2. …", glossary: "3. …" }`.
+  - Checklist/footer explicitly tell the reader the exam questions are not in this material.
+- `TEACHER` pack keeps the exam chapter and gains, per exam row:
+  `detail` (long 자세한 해설), `scoreTip` (= `criteria.perform`, what must reach the ear to score),
+  `scene`/`remember` from the deep content. Knowledge items also get `scoreTip`.
+- New authored deep-content module `server/src/arcVerbalDeep.js` (`ARC_VERBAL_DEEP` +
+  `verbalDeep(key)`) holds `detail` / `scene` / `remember` for:
+  - all 34 `SECTION:item` knowledge items (`"SAFE:hazard"` …), and
+  - all 10 question-bank items (`Q01`…`Q10`).
+  The same sentences serve both audiences: 공부 자료 for CANDIDATE, 정답 해설 for TEACHER, so
+  both packs get equal depth without the candidate pack leaking exam scope.
+- CANDIDATE knowledge items get `mistakes` (`criteria.partial` + `criteria.none` joined with " / ")
+  instead of a 수행/부분수행/미수행 table, so learners still know the common wrong answers.
+
+### Files
+- `server/src/arcVerbalDeep.js` (new): `ARC_VERBAL_DEEP`, `verbalDeep(key)`.
+- `server/src/arcStudyPack.js`: imports `verbalDeep`; `rowToStudy` adds `detail`/`scene`/`remember`
+  plus `scoreTip` (TEACHER) or `mistakes` (CANDIDATE); exam chapter skipped for CANDIDATE;
+  `chapterLabels` / `seedLabel` added to the payload; glossary now also scans `detail` text.
+- `src/components/arc/ArcExamPrintPanel.vue`: exam `<section v-if="pack.exam.length">`; 시험/커트라인
+  and 시험 문항 meta spans render only for `TEACHER`; `pack.seedLabel` and `pack.chapterLabels`
+  drive labels; renders `detail` / `scene` / `remember` / `scoreTip` / `mistakes`; styles
+  `.teacher-detail` / `.teacher-scene` / `.teacher-remember` / `.teacher-score-tip`; `load()`
+  skips a second `STUDY_CANDIDATE` fetch because that content is kind-independent.
+
+### Verification
+- `node --check` on both server modules: OK.
+- Runtime smoke test (`buildArcStudyPack` for REGULAR same seed, both audiences):
+  CANDIDATE `exam.length = 0`, `onExam` count 0, all 34 items + 10 bank questions have
+  `detail`/`scene`/`remember`; TEACHER `exam.length = 19`, 16 `onExam` items, every exam row has
+  `detail` + `scoreTip`; no missing deep fields.
+- `vue/compiler-sfc` parse + compileScript + compileTemplate: OK; `sass.compileString`: OK.
+
+---
+
 ## 4. Open questions
 
 1. ~~**₩30,000 point-redemption threshold**: before or after discount?~~ → **resolved in P5**: after discount, before point deduction.
