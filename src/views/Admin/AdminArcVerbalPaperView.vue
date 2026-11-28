@@ -446,79 +446,22 @@ export default {
 };
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
+@use "../../scss/_arc-ui" as *;
 .admin-arc-verbal-paper-view {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  color: #334155;
-}
-
-.page-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 20px 22px;
-  border-radius: 18px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-}
-
-.eyebrow {
-  margin: 0 0 4px;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  color: #1d4ed8;
-}
-
-.page-header h1 {
-  margin: 0 0 6px;
-  font-size: 21px;
-  font-weight: 800;
-  color: #0f172a;
-}
-
-.description {
-  margin: 0;
-  max-width: 780px;
-  font-size: 12.5px;
-  line-height: 1.7;
-  color: #475569;
-}
-
-.header-links {
-  display: flex;
-  gap: 8px;
-}
-
-.link-button {
-  padding: 8px 14px;
-  border: 1px solid #cbd5e1;
-  border-radius: 10px;
-  background: #fff;
-  color: #334155;
-  font-size: 12px;
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.error-box {
-  margin: 0;
-  padding: 10px 14px;
-  border-radius: 10px;
-  background: #fef2f2;
-  color: #b91c1c;
-  font-size: 13px;
+  gap: 18px;
+  padding: 24px;
+  min-height: 100%;
+  color: #ffffff;
 }
 
 .control-panel {
   padding: 18px 20px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 16px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .control-grid {
@@ -540,7 +483,7 @@ export default {
 .control-label {
   font-size: 12px;
   font-weight: 800;
-  color: #0f172a;
+  color: #ffffff;
 }
 
 .choice-row {
@@ -554,9 +497,9 @@ export default {
   flex-direction: column;
   gap: 3px;
   padding: 11px 13px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 12px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.08);
   text-align: left;
   cursor: pointer;
 }
@@ -564,46 +507,43 @@ export default {
 .choice-button strong {
   font-size: 13px;
   font-weight: 800;
-  color: #0f172a;
+  color: #ffffff;
 }
 
 .choice-button small {
   font-size: 11px;
   line-height: 1.5;
-  color: #64748b;
+  color: rgba(255, 255, 255, 0.64);
 }
 
 .choice-button.active {
-  border-color: #1d4ed8;
-  background: #eff6ff;
-  box-shadow: 0 0 0 2px rgba(29, 78, 216, 0.15);
+  border-color: rgba(96, 165, 250, 0.6);
+  background: rgba(96, 165, 250, 0.16);
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.25);
 }
 
 .control-block textarea,
 .field input {
   padding: 9px 11px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 10px;
   font-family: inherit;
   font-size: 13px;
-  color: #0f172a;
-  background: #fff;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
   resize: vertical;
 }
 
 .control-hint {
   font-size: 11px;
   line-height: 1.6;
-  color: #64748b;
+  color: rgba(255, 255, 255, 0.64);
 }
 
 .field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
   font-size: 12px;
   font-weight: 700;
-  color: #334155;
+  color: rgba(255, 255, 255, 0.86);
 }
 
 .switch-row {
@@ -612,7 +552,7 @@ export default {
   gap: 7px;
   font-size: 12px;
   font-weight: 700;
-  color: #334155;
+  color: rgba(255, 255, 255, 0.86);
 }
 
 .action-row {
@@ -621,28 +561,6 @@ export default {
   align-items: center;
   gap: 8px;
   margin-top: 14px;
-}
-
-.primary-button {
-  padding: 10px 18px;
-  border: none;
-  border-radius: 10px;
-  background: #1d4ed8;
-  color: #fff;
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.mini-button {
-  padding: 9px 14px;
-  border: 1px solid #cbd5e1;
-  border-radius: 10px;
-  background: #fff;
-  color: #334155;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
 }
 
 .primary-button:disabled,
@@ -657,20 +575,11 @@ export default {
   gap: 4px;
   margin: 14px 0 0;
   padding: 12px 14px;
-  border: 1px solid #bfdbfe;
+  border: 1px solid rgba(96, 165, 250, 0.36);
   border-radius: 12px;
-  background: #eff6ff;
+  background: rgba(96, 165, 250, 0.16);
   font-size: 11.5px;
-  color: #1e40af;
-}
-
-.empty-box {
-  margin: 0;
-  padding: 14px;
-  border-radius: 12px;
-  background: #f1f5f9;
-  font-size: 13px;
-  color: #475569;
+  color: #93c5fd;
 }
 
 .paper-sheet {
@@ -961,7 +870,7 @@ export default {
 
   body.arc-verbal-paper-open .admin-content {
     padding: 0;
-    background: #fff;
+    background: rgba(255, 255, 255, 0.08);
   }
 
   body.arc-verbal-paper-open .admin-arc-verbal-paper-view {

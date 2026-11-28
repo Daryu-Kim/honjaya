@@ -2691,6 +2691,73 @@ also index-deterministic for bank/custom rows, and bank questions were printed v
 
 ---
 
+## 3-20. P14X — 응급안전관리센터 UI를 운영 대시보드·매출 통계 기준으로 통일 (2026-11-29)
+
+User request: "응급안전관리센터 모든 ui는 운영대시보드, 매출 통계 를 참고삼아 그 기반으로 ui 해줘."
+
+### Problem
+28 ARC screens had each grown their own scoped style block: ~5,200 lines of near-duplicate
+card / button / input / table / chip CSS, three different root paddings, a mix of light-theme
+`#fff` / `#f8fafc` surfaces and dark surfaces, and no shared header or summary rhythm. The
+operating dashboard and the sales-statistics screen already share one coherent dark-glass
+design (22px card radius, `rgba(255,255,255,.08)` surfaces, 44px white pill buttons, 34px
+`h1`), so the ARC module was aligned to that and nothing else.
+
+### Decisions
+- **One shared partial**: new `src/scss/_arc-ui.scss` (~80 flat selectors + 2 media queries)
+  is the only place those primitives live. Every ARC `<style scoped>` starts with
+  `@use "../../scss/_arc-ui" as *;`.
+- **Deletion, not override**: `@use`d rules compile into the same scoped block, so they get
+  the same `[data-v-*]` attribute and the *same specificity* as the view's own rules — later
+  source wins. The shared rules therefore cannot win by specificity; the duplicated
+  declarations had to be removed from each view. A declaration-aware codemod deleted only the
+  properties covered by the shared spec, kept view-specific extras, dropped rules that became
+  empty, and left every `&` modifier block alone.
+- **Printable-sheet exemption**: `AdminArcTrainingGuideView`, `AdminArcVerbalPaperView` and
+  `ArcExamPrintPanel` hide chrome with `@media print` but do **not** re-declare text colours
+  for the paper body, so darkening the sheet would print white-on-white. `.paper-sheet` /
+  `.guide-sheet` content therefore stays light on both screen and paper (a white document
+  preview on the dark dashboard canvas) while every surrounding control becomes dark.
+- **Hub becomes a launchpad**: the flat 14-link `.header-links` row is replaced with a
+  dashboard-style "빠른 메뉴" panel — `.menu-grid` / `.menu-tile` tiles (title + one-line
+  Korean hint) covering all 19 ARC screens, filtered by `arc.assistant` / `arc.approve` /
+  `arc.admin` and `isArcDirector` so nobody sees a menu they would be bounced from.
+- `.page-header` follows the reference (transparent, eyebrow + 34px `h1` + description +
+  right-aligned actions) instead of being a card.
+
+### Files
+- `src/scss/_arc-ui.scss` (new): tokens `SURFACE rgba(255,255,255,.08)` / `SURFACE_SOFT .05` /
+  `SURFACE_MID .06` / `SURFACE_HI .12` / `BORDER .12` / `INPUT .1` / `T1 #fff` /
+  `T2 .72` / `T3 .66` / `T4 .55` / `ACCENT #c7d2fe`; primitives for `.page-header`, `.panel*`,
+  `.summary-grid/.summary-card`, `.empty-box/.error-box/.ok-box/.warn-box`, `.preset-button`,
+  `.ghost-button`, `.mini-button`, `.text-link`, form `.field`/`.inline-input` (14px radius,
+  `color-scheme: dark`), tables, chips, `.menu-grid`/`.menu-tile`; media queries at 900px and
+  640px.
+- 23 `src/views/Admin/AdminArc*.vue` + 5 `src/components/arc/*.vue`: `@use` prepended,
+  `lang="scss"` added where missing, shared declarations removed, all remaining light colours
+  mapped to the dark palette.
+- `AdminArcPeopleView.vue` / `AdminArcVerbalPaperView.vue`: root normalised to
+  `gap:18px; padding:24px; min-height:100%; color:#fff` and their carded `.page-header`
+  flattened, matching the other 26 views.
+- `AdminArcView.vue`: `ARC_MENUS` + `menus` computed and the `.menu-grid` launchpad.
+
+### Verification
+- Every one of the 28 scoped blocks compiles with the real compiler
+  (`sass.compileString(body, { url })`) — 28/28, 0 failures.
+- Declaration integrity scan: no merged/unterminated declarations (an earlier codemod pass
+  did silently drop `;` on rewritten declarations; the theme pass was fixed to re-emit the
+  terminator and the whole pipeline was re-run from a clean checkout).
+- Light-surface scan: 0 unintended light `background`/`border` tokens remain outside the
+  printable sheets; the single hit (`.teacher-score-tip`, `#fffbeb`) is sheet content.
+- No `AED` text, API or permission changes: styling only.
+
+### gotcha for later
+When adding an ARC screen, style it with the shared partial and keep **view-specific** rules
+short — do not re-declare `.panel`, `.summary-card`, `.preset-button`, `.field` or
+`.page-header` primitives in the view, or the duplicate (later in source order) wins.
+
+---
+
 ## 4. Open questions
 
 1. ~~**₩30,000 point-redemption threshold**: before or after discount?~~ → **resolved in P5**: after discount, before point deduction.

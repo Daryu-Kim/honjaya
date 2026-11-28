@@ -372,66 +372,18 @@ onMounted(load);
 </script>
 
 <style scoped lang="scss">
+@use "../../scss/_arc-ui" as *;
 .admin-arc-assistant-view {
   display: flex;
   flex-direction: column;
   gap: 18px;
   padding: 24px;
   min-height: 100%;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.page-header h1 {
-  margin: 0 0 6px;
-  font-size: 26px;
-  font-weight: 800;
-}
-
-.description {
-  margin: 0 0 4px;
-  max-width: 760px;
-  font-size: 14px;
-  line-height: 1.65;
+  color: #ffffff;
 }
 
 .header-actions {
-  display: flex;
-  gap: 8px;
   flex-shrink: 0;
-}
-
-.panel {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 18px;
-
-  h2 {
-    margin: 0;
-    font-size: 17px;
-    font-weight: 800;
-  }
-
-  h3 {
-    margin: 0 0 8px;
-    font-size: 13.5px;
-    font-weight: 800;
-  }
-}
-
-.panel-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-  flex-wrap: wrap;
 }
 
 .summary-value small {
@@ -442,11 +394,11 @@ onMounted(load);
 }
 
 .summary-value.danger {
-  color: var(--arc-danger, #b91c1c);
+  color: var(--arc-danger, #fca5a5);
 }
 
 .summary-value.warn {
-  color: var(--arc-warn, #b45309);
+  color: var(--arc-warn, #fcd34d);
 }
 
 .perm-groups {
@@ -460,9 +412,9 @@ onMounted(load);
   flex-direction: column;
   gap: 8px;
   padding: 12px 14px;
-  border: 1px solid var(--arc-line, #e2e8f0);
+  border: 1px solid var(--arc-line, rgba(255, 255, 255, 0.12));
   border-radius: var(--arc-radius, 14px);
-  background: var(--arc-surface-2, #f8fafc);
+  background: var(--arc-surface-2, rgba(255, 255, 255, 0.05));
 }
 
 .perm-group-title {
@@ -471,7 +423,7 @@ onMounted(load);
   gap: 8px;
   margin: 0;
   padding-bottom: 6px;
-  border-bottom: 1px solid var(--arc-line, #e2e8f0);
+  border-bottom: 1px solid var(--arc-line, rgba(255, 255, 255, 0.12));
   font-size: 13px;
   font-weight: 800;
 }
@@ -508,30 +460,30 @@ onMounted(load);
   font-size: 12px;
 
   &.on {
-    color: #7c2d12;
-    background: var(--arc-brand-soft, #fff7ed);
-    border: 1px solid var(--arc-brand-line, #fed7aa);
+    color: #fcd34d;
+    background: var(--arc-brand-soft, rgba(251, 191, 36, 0.14));
+    border: 1px solid var(--arc-brand-line, rgba(251, 191, 36, 0.36));
   }
 
   &.off {
-    color: var(--arc-ink-3, #5a6780);
-    background: #eef2f7;
-    border: 1px dashed var(--arc-line-2, #cbd5e1);
+    color: var(--arc-ink-3, rgba(255, 255, 255, 0.74));
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px dashed var(--arc-line-2, rgba(255, 255, 255, 0.16));
     text-decoration: line-through;
   }
 }
 
 .perm-action-chip {
   &.on {
-    color: var(--arc-ok, #047857);
-    background: var(--arc-ok-bg, #ecfdf5);
-    border: 1px solid var(--arc-ok-line, #a7f3d0);
+    color: var(--arc-ok, #6ee7b7);
+    background: var(--arc-ok-bg, rgba(52, 211, 153, 0.14));
+    border: 1px solid var(--arc-ok-line, rgba(52, 211, 153, 0.36));
   }
 
   &.off {
-    color: var(--arc-ink-3, #5a6780);
-    background: #fff;
-    border: 1px dashed var(--arc-line-2, #cbd5e1);
+    color: var(--arc-ink-3, rgba(255, 255, 255, 0.74));
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px dashed var(--arc-line-2, rgba(255, 255, 255, 0.16));
   }
 
   &.locked {
@@ -542,13 +494,13 @@ onMounted(load);
 .routine-percent {
   font-size: 24px;
   font-weight: 800;
-  color: var(--arc-ok, #047857);
+  color: var(--arc-ok, #6ee7b7);
 }
 
 .progress-track {
   height: 10px;
   border-radius: 999px;
-  background: #e2e8f0;
+  background: rgba(255, 255, 255, 0.14);
   overflow: hidden;
 }
 
@@ -578,9 +530,9 @@ onMounted(load);
     align-items: baseline;
     gap: 8px;
     padding: 11px 13px;
-    border: 1px solid var(--arc-line, #e2e8f0);
+    border: 1px solid var(--arc-line, rgba(255, 255, 255, 0.12));
     border-radius: 12px;
-    background: var(--arc-surface-2, #f8fafc);
+    background: var(--arc-surface-2, rgba(255, 255, 255, 0.05));
     color: inherit;
     text-decoration: none;
   }
@@ -597,19 +549,19 @@ onMounted(load);
 .routine-window {
   font-size: 12px;
   font-weight: 700;
-  color: var(--arc-info, #1d4ed8);
+  color: var(--arc-info, #93c5fd);
 }
 
 .routine-check {
   font-size: 12px;
-  color: var(--arc-ink-3, #5a6780);
+  color: var(--arc-ink-3, rgba(255, 255, 255, 0.74));
 }
 
 .inline-link {
   align-self: flex-start;
   font-size: 13px;
   font-weight: 700;
-  color: var(--arc-info, #1d4ed8);
+  color: var(--arc-info, #93c5fd);
   text-decoration: none;
 }
 
@@ -628,23 +580,23 @@ onMounted(load);
   align-items: flex-start;
   gap: 14px;
   padding: 14px 16px;
-  border: 1px solid var(--arc-line, #e2e8f0);
-  border-left: 4px solid var(--arc-line-2, #cbd5e1);
+  border: 1px solid var(--arc-line, rgba(255, 255, 255, 0.12));
+  border-left: 4px solid var(--arc-line-2, rgba(255, 255, 255, 0.16));
   border-radius: 14px;
-  background: var(--arc-surface-2, #f8fafc);
+  background: var(--arc-surface-2, rgba(255, 255, 255, 0.05));
 
   &.p0 {
     border-left-color: var(--arc-danger, #b91c1c);
-    background: var(--arc-danger-bg, #fef2f2);
+    background: var(--arc-danger-bg, rgba(248, 113, 113, 0.14));
   }
 
   &.p1 {
-    border-left-color: var(--arc-warn, #b45309);
-    background: var(--arc-warn-bg, #fffbeb);
+    border-left-color: var(--arc-warn, #f59e0b);
+    background: var(--arc-warn-bg, rgba(251, 191, 36, 0.14));
   }
 
   &.p2 {
-    border-left-color: var(--arc-info, #1d4ed8);
+    border-left-color: var(--arc-info, rgba(96, 165, 250, 0.6));
   }
 }
 
@@ -658,11 +610,11 @@ onMounted(load);
 .priority-badge {
   padding: 2px 8px;
   border-radius: 999px;
-  border: 1px solid var(--arc-line-2, #cbd5e1);
-  background: #fff;
+  border: 1px solid var(--arc-line-2, rgba(255, 255, 255, 0.16));
+  background: rgba(255, 255, 255, 0.08);
   font-size: 11px;
   font-weight: 800;
-  color: var(--arc-ink-2, #41506a);
+  color: var(--arc-ink-2, rgba(255, 255, 255, 0.86));
 }
 
 .task-title {
@@ -672,7 +624,7 @@ onMounted(load);
 .task-count {
   font-size: 12px;
   font-weight: 800;
-  color: var(--arc-warn, #b45309);
+  color: var(--arc-warn, #fcd34d);
 }
 
 .task-detail {
@@ -680,16 +632,16 @@ onMounted(load);
   margin: 4px 0 0;
   font-size: 13px;
   line-height: 1.6;
-  color: var(--arc-ink-2, #41506a);
+  color: var(--arc-ink-2, rgba(255, 255, 255, 0.86));
 }
 
 .task-action {
   flex-shrink: 0;
   padding: 8px 12px;
   border-radius: 10px;
-  border: 1px solid var(--arc-info-line, #bfdbfe);
-  background: var(--arc-info-bg, #eff6ff);
-  color: #1e40af;
+  border: 1px solid var(--arc-info-line, rgba(96, 165, 250, 0.36));
+  background: var(--arc-info-bg, rgba(96, 165, 250, 0.16));
+  color: #93c5fd;
   font-size: 12px;
   font-weight: 700;
   text-decoration: none;

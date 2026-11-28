@@ -688,37 +688,20 @@ export default {
 };
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
+@use "../../scss/_arc-ui" as *;
 .arc-shift-panel {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  color: #334155;
-}
-
-.error-box {
-  margin: 0;
-  padding: 10px 14px;
-  border-radius: 10px;
-  background: #fef2f2;
-  color: #b91c1c;
-  font-size: 13px;
-}
-
-.ok-box {
-  margin: 0;
-  padding: 10px 14px;
-  border-radius: 10px;
-  background: #ecfdf5;
-  color: #047857;
-  font-size: 13px;
+  color: rgba(255, 255, 255, 0.86);
 }
 
 .intro-card {
   padding: 16px 18px;
-  border: 1px solid #dbeafe;
+  border: 1px solid rgba(96, 165, 250, 0.36);
   border-radius: 16px;
-  background: #f8fbff;
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .intro-head {
@@ -733,14 +716,14 @@ export default {
   margin: 0;
   font-size: 15px;
   font-weight: 800;
-  color: #0f172a;
+  color: #ffffff;
 }
 
 .intro-badge {
   padding: 4px 10px;
   border-radius: 999px;
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: rgba(96, 165, 250, 0.2);
+  color: #93c5fd;
   font-size: 11px;
   font-weight: 700;
 }
@@ -749,7 +732,7 @@ export default {
   margin: 10px 0 0;
   font-size: 12.5px;
   line-height: 1.7;
-  color: #334155;
+  color: rgba(255, 255, 255, 0.86);
 }
 
 .tip-list {
@@ -757,50 +740,26 @@ export default {
   padding-left: 18px;
   font-size: 12px;
   line-height: 1.7;
-  color: #1e40af;
-}
-
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
+  color: #93c5fd;
 }
 
 .summary-card {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 14px 16px;
-  border: 1px solid #e2e8f0;
-  border-radius: 14px;
-  background: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .summary-card.ok {
-  border-color: #a7f3d0;
-  background: #f0fdf9;
+  border-color: rgba(52, 211, 153, 0.36);
+  background: rgba(52, 211, 153, 0.14);
 }
 
 .summary-card.danger {
-  border-color: #fecaca;
-  background: #fff5f5;
-}
-
-.summary-label {
-  font-size: 11px;
-  font-weight: 700;
-  color: #64748b;
-}
-
-.summary-card strong {
-  font-size: 19px;
-  font-weight: 800;
-  color: #0f172a;
+  border-color: rgba(248, 113, 113, 0.36);
+  background: rgba(248, 113, 113, 0.14);
 }
 
 .summary-sub {
   font-size: 11px;
-  color: #94a3b8;
+  color: rgba(255, 255, 255, 0.5);
 }
 
 .layout {
@@ -816,32 +775,13 @@ export default {
 }
 
 .panel {
-  padding: 16px 18px;
-  border: 1px solid #e2e8f0;
-  border-radius: 16px;
-  background: #fff;
-}
-
-.panel-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.panel-head h2 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 800;
-  color: #0f172a;
+  border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .panel-note {
   margin: 8px 0 0;
   font-size: 11.5px;
-  color: #64748b;
+  color: rgba(255, 255, 255, 0.64);
   line-height: 1.6;
 }
 
@@ -854,18 +794,7 @@ export default {
 .period-label {
   font-size: 14px;
   font-weight: 800;
-  color: #0f172a;
-}
-
-.mini-button {
-  padding: 7px 12px;
-  border: 1px solid #cbd5e1;
-  border-radius: 9px;
-  background: #fff;
-  color: #334155;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
+  color: #ffffff;
 }
 
 .mini-button:disabled {
@@ -884,15 +813,15 @@ export default {
   text-align: center;
   font-size: 11px;
   font-weight: 700;
-  color: #64748b;
+  color: rgba(255, 255, 255, 0.64);
 }
 
 .weekday.sunday {
-  color: #dc2626;
+  color: #fca5a5;
 }
 
 .weekday.saturday {
-  color: #2563eb;
+  color: #93c5fd;
 }
 
 .day-grid {
@@ -907,10 +836,10 @@ export default {
   gap: 2px;
   min-height: 62px;
   padding: 6px 5px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 10px;
-  background: #fff;
-  color: #334155;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.86);
   text-align: left;
   cursor: pointer;
 }
@@ -922,28 +851,28 @@ export default {
 }
 
 .day-cell.today {
-  border-color: #2563eb;
-  box-shadow: inset 0 0 0 1px #2563eb;
+  border-color: #60a5fa;
+  box-shadow: inset 0 0 0 1px #60a5fa;
 }
 
 .day-cell.callable {
-  background: #f0fdf9;
+  background: rgba(52, 211, 153, 0.14);
 }
 
 .day-cell.blocked {
-  background: #fff5f5;
+  background: rgba(248, 113, 113, 0.14);
 }
 
 .day-cell.selected {
   border-color: #f59e0b;
-  background: #fffbeb;
+  background: rgba(251, 191, 36, 0.14);
   box-shadow: inset 0 0 0 1px #f59e0b;
 }
 
 .day-number {
   font-size: 11.5px;
   font-weight: 800;
-  color: #0f172a;
+  color: #ffffff;
 }
 
 .entry-chip {
@@ -958,44 +887,35 @@ export default {
 }
 
 .entry-chip.kind-shift {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: rgba(96, 165, 250, 0.2);
+  color: #93c5fd;
 }
 
 .entry-chip.kind-available {
-  background: #d1fae5;
-  color: #047857;
+  background: rgba(52, 211, 153, 0.18);
+  color: #6ee7b7;
 }
 
 .entry-chip.kind-unavailable {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: rgba(248, 113, 113, 0.18);
+  color: #fca5a5;
 }
 
 .field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
   margin-bottom: 12px;
   font-size: 12px;
   font-weight: 700;
-  color: #334155;
+  color: rgba(255, 255, 255, 0.86);
 }
 
 .field input {
-  padding: 9px 11px;
-  border: 1px solid #cbd5e1;
-  border-radius: 10px;
-  font-size: 13px;
   font-weight: 400;
-  font-family: inherit;
-  color: #0f172a;
 }
 
 .field-hint {
   font-size: 11px;
   font-weight: 400;
-  color: #64748b;
+  color: rgba(255, 255, 255, 0.64);
   line-height: 1.6;
 }
 
@@ -1008,19 +928,19 @@ export default {
 
 .choice {
   padding: 8px 12px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 10px;
-  background: #fff;
-  color: #334155;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.86);
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
 }
 
 .choice.active {
-  border-color: #2563eb;
-  background: #eff6ff;
-  color: #1d4ed8;
+  border-color: #60a5fa;
+  background: rgba(96, 165, 250, 0.16);
+  color: #93c5fd;
 }
 
 .code-button {
@@ -1028,36 +948,36 @@ export default {
   flex-direction: column;
   gap: 2px;
   padding: 8px 12px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 10px;
-  background: #fff;
-  color: #334155;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.86);
   font-size: 10.5px;
   cursor: pointer;
 }
 
 .code-button strong {
   font-size: 14px;
-  color: #0f172a;
+  color: #ffffff;
 }
 
 .code-button.active {
-  border-color: #2563eb;
-  background: #eff6ff;
+  border-color: #60a5fa;
+  background: rgba(96, 165, 250, 0.16);
 }
 
 .code-button.active strong {
-  color: #1d4ed8;
+  color: #93c5fd;
 }
 
 .code-detail {
   margin: 0 0 12px;
   padding: 10px 12px;
   border-radius: 10px;
-  background: #f1f5f9;
+  background: rgba(255, 255, 255, 0.06);
   font-size: 11.5px;
   line-height: 1.7;
-  color: #334155;
+  color: rgba(255, 255, 255, 0.86);
 }
 
 .time-row {
@@ -1070,39 +990,16 @@ export default {
   margin: 0 0 12px;
   padding: 10px 12px;
   border-radius: 10px;
-  background: #fffbeb;
-  color: #92400e;
+  background: rgba(251, 191, 36, 0.14);
+  color: #fcd34d;
   font-size: 12px;
   font-weight: 700;
-}
-
-.form-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.primary-button {
-  padding: 10px 18px;
-  border: none;
-  border-radius: 10px;
-  background: #2563eb;
-  color: #fff;
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.primary-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .quick-month {
   margin-top: 14px;
   padding-top: 12px;
-  border-top: 1px dashed #e2e8f0;
+  border-top: 1px dashed rgba(255, 255, 255, 0.12);
 }
 
 .quick-row {
@@ -1121,8 +1018,8 @@ export default {
 .callable-chip {
   padding: 5px 10px;
   border-radius: 999px;
-  background: #d1fae5;
-  color: #047857;
+  background: rgba(52, 211, 153, 0.18);
+  color: #6ee7b7;
   font-size: 11.5px;
   font-weight: 700;
 }
@@ -1139,14 +1036,14 @@ export default {
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  border: 1px solid #eef2f7;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 10px;
   font-size: 12px;
 }
 
 .entry-date {
   font-weight: 700;
-  color: #0f172a;
+  color: #ffffff;
 }
 
 .entry-kind {
@@ -1158,26 +1055,26 @@ export default {
 }
 
 .entry-kind.kind-shift {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: rgba(96, 165, 250, 0.2);
+  color: #93c5fd;
 }
 
 .entry-kind.kind-available {
-  background: #d1fae5;
-  color: #047857;
+  background: rgba(52, 211, 153, 0.18);
+  color: #6ee7b7;
 }
 
 .entry-kind.kind-unavailable {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: rgba(248, 113, 113, 0.18);
+  color: #fca5a5;
 }
 
 .entry-time {
-  color: #334155;
+  color: rgba(255, 255, 255, 0.86);
 }
 
 .entry-note {
-  color: #64748b;
+  color: rgba(255, 255, 255, 0.64);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1185,10 +1082,10 @@ export default {
 
 .delete-button {
   padding: 5px 8px;
-  border: 1px solid #fecaca;
+  border: 1px solid rgba(248, 113, 113, 0.36);
   border-radius: 8px;
-  background: #fff;
-  color: #b91c1c;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fca5a5;
   font-size: 11px;
   font-weight: 700;
   cursor: pointer;

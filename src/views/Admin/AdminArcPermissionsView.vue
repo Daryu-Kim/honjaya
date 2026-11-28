@@ -487,61 +487,22 @@ onMounted(loadBoard);
 </script>
 
 <style scoped lang="scss">
+@use "../../scss/_arc-ui" as *;
 .admin-arc-permissions-view {
   display: flex;
   flex-direction: column;
   gap: 18px;
   padding: 24px;
   min-height: 100%;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-}
-
-.page-header h1 {
-  margin: 0 0 6px;
-  font-size: 26px;
-  font-weight: 800;
-}
-
-.description {
-  margin: 0;
-  max-width: 780px;
-  font-size: 14px;
-  line-height: 1.65;
+  color: #ffffff;
 }
 
 .link-button {
   flex-shrink: 0;
-  padding: 10px 16px;
-  border-radius: 12px;
-  font-size: 13px;
-  font-weight: 700;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.panel {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 18px;
 }
 
 .panel-head {
-  display: flex;
   flex-direction: column;
-  gap: 6px;
-
-  h2 {
-    margin: 0;
-    font-size: 17px;
-    font-weight: 800;
-  }
 }
 
 .person-head {
@@ -586,7 +547,7 @@ onMounted(loadBoard);
   gap: 10px;
   flex-wrap: wrap;
   padding-bottom: 6px;
-  border-bottom: 1px solid var(--arc-line, #e2e8f0);
+  border-bottom: 1px solid var(--arc-line, rgba(255, 255, 255, 0.12));
 }
 
 .group-name {
@@ -615,7 +576,7 @@ onMounted(loadBoard);
   gap: 8px;
   margin: 6px 0 0;
   padding-bottom: 6px;
-  border-bottom: 1px solid var(--arc-line, #e2e8f0);
+  border-bottom: 1px solid var(--arc-line, rgba(255, 255, 255, 0.12));
   font-size: 14px;
   font-weight: 800;
 }
@@ -631,13 +592,13 @@ onMounted(loadBoard);
   flex-direction: column;
   gap: 8px;
   padding: 14px;
-  border: 1px solid var(--arc-line, #e2e8f0);
+  border: 1px solid var(--arc-line, rgba(255, 255, 255, 0.12));
   border-radius: var(--arc-radius, 14px);
-  background: var(--arc-surface, #fff);
+  background: var(--arc-surface, rgba(255, 255, 255, 0.08));
 
   &.granted {
-    border-color: var(--arc-brand-line, #fed7aa);
-    background: var(--arc-brand-soft, #fff7ed);
+    border-color: var(--arc-brand-line, rgba(251, 191, 36, 0.36));
+    background: var(--arc-brand-soft, rgba(251, 191, 36, 0.14));
   }
 }
 
@@ -660,7 +621,7 @@ onMounted(loadBoard);
   input {
     width: 16px;
     height: 16px;
-    accent-color: var(--arc-brand, #b45309);
+    accent-color: var(--arc-brand, #fcd34d);
     cursor: pointer;
   }
 }
@@ -669,7 +630,7 @@ onMounted(loadBoard);
   margin: 0;
   font-size: 12.5px;
   line-height: 1.6;
-  color: var(--arc-ink-2, #41506a);
+  color: var(--arc-ink-2, rgba(255, 255, 255, 0.86));
 }
 
 .perm-caution {
@@ -677,7 +638,7 @@ onMounted(loadBoard);
   font-size: 12px;
   font-weight: 700;
   line-height: 1.55;
-  color: var(--arc-warn, #b45309);
+  color: var(--arc-warn, #fcd34d);
 }
 
 .perm-action-list {
@@ -686,7 +647,7 @@ onMounted(loadBoard);
   gap: 8px;
   margin: 0;
   padding: 10px 0 0;
-  border-top: 1px dashed var(--arc-line, #e2e8f0);
+  border-top: 1px dashed var(--arc-line, rgba(255, 255, 255, 0.12));
   list-style: none;
 }
 
@@ -694,7 +655,7 @@ onMounted(loadBoard);
   margin: 2px 0 0;
   font-size: 12px;
   line-height: 1.55;
-  color: var(--arc-ink-3, #5a6780);
+  color: var(--arc-ink-3, rgba(255, 255, 255, 0.74));
 }
 
 .perm-action-chips {
@@ -708,25 +669,25 @@ onMounted(loadBoard);
   align-items: center;
   gap: 5px;
   padding: 4px 9px;
-  border: 1px solid var(--arc-line, #e2e8f0);
+  border: 1px solid var(--arc-line, rgba(255, 255, 255, 0.12));
   border-radius: 999px;
-  background: var(--arc-surface-2, #f8fafc);
+  background: var(--arc-surface-2, rgba(255, 255, 255, 0.05));
   font-size: 11.5px;
   font-weight: 700;
-  color: var(--arc-ink-3, #5a6780);
+  color: var(--arc-ink-3, rgba(255, 255, 255, 0.74));
   cursor: pointer;
 
   input {
     width: 13px;
     height: 13px;
-    accent-color: var(--arc-brand, #b45309);
+    accent-color: var(--arc-brand, #fcd34d);
     cursor: pointer;
   }
 
   &.on {
-    border-color: var(--arc-brand-line, #fed7aa);
-    background: var(--arc-brand-soft, #fff7ed);
-    color: #7c2d12;
+    border-color: var(--arc-brand-line, rgba(251, 191, 36, 0.36));
+    background: var(--arc-brand-soft, rgba(251, 191, 36, 0.14));
+    color: #fcd34d;
   }
 
   &.locked {
@@ -741,7 +702,7 @@ onMounted(loadBoard);
   gap: 6px;
   margin: 0;
   padding: 10px 0 0;
-  border-top: 1px dashed var(--arc-line, #e2e8f0);
+  border-top: 1px dashed var(--arc-line, rgba(255, 255, 255, 0.12));
   list-style: none;
   font-size: 12.5px;
   line-height: 1.6;
@@ -755,7 +716,7 @@ onMounted(loadBoard);
   margin: 0;
   font-size: 12.5px;
   line-height: 1.6;
-  color: var(--arc-ink-2, #41506a);
+  color: var(--arc-ink-2, rgba(255, 255, 255, 0.86));
 }
 
 .footer-note {

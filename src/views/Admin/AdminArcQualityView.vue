@@ -1188,6 +1188,7 @@ onMounted(load);
 </script>
 
 <style scoped lang="scss">
+@use "../../scss/_arc-ui" as *;
 .admin-arc-quality-view {
   display: flex;
   flex-direction: column;
@@ -1197,88 +1198,15 @@ onMounted(load);
   color: #ffffff;
 }
 
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.page-header .eyebrow {
-  margin: 0 0 6px;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  color: rgba(255, 255, 255, 0.55);
-}
-
-.page-header h1 {
-  margin: 0 0 6px;
-  font-size: 26px;
-  font-weight: 800;
-}
-
-.description {
-  margin: 0;
-  max-width: 720px;
-  font-size: 14px;
-  line-height: 1.7;
-  color: rgba(255, 255, 255, 0.66);
-}
-
 .link-button {
   flex-shrink: 0;
-  padding: 10px 16px;
-  border-radius: 12px;
-  border: 1px solid rgba(99, 102, 241, 0.4);
-  background: rgba(99, 102, 241, 0.16);
-  color: #c7d2fe;
-  font-size: 13px;
-  font-weight: 700;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.panel {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 18px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.08);
-
-  h2 {
-    margin: 0;
-    font-size: 17px;
-    font-weight: 800;
-  }
-
-  h3 {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 800;
-  }
 }
 
 .warn-panel {
   background: rgba(251, 191, 36, 0.1);
 }
 
-.panel-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
 .panel-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-
   select,
   input {
     padding: 8px 10px;
@@ -1473,34 +1401,8 @@ onMounted(load);
 }
 
 .field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
   font-size: 13px;
   color: rgba(255, 255, 255, 0.72);
-
-  &.wide {
-    grid-column: 1 / -1;
-  }
-
-  input,
-  select,
-  textarea {
-    padding: 10px 12px;
-    border-radius: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    background: rgba(255, 255, 255, 0.08);
-    color: #ffffff;
-    font-size: 13px;
-    font-family: inherit;
-    line-height: 1.6;
-    resize: vertical;
-  }
-
-  small {
-    color: rgba(255, 255, 255, 0.45);
-    line-height: 1.6;
-  }
 
   .required {
     margin-left: 4px;
@@ -1518,14 +1420,6 @@ onMounted(load);
   display: flex;
   flex-wrap: wrap;
   gap: 8px 14px;
-}
-
-.checkbox-field {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.72);
 }
 
 .action-editor {
@@ -1553,55 +1447,11 @@ onMounted(load);
   justify-content: flex-end;
 }
 
-.actions {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-
-.primary-button {
-  padding: 11px 20px;
-  border-radius: 12px;
-  border: 1px solid rgba(99, 102, 241, 0.5);
-  background: rgba(99, 102, 241, 0.28);
-  color: #e0e7ff;
-  font-size: 14px;
-  font-weight: 800;
-  cursor: pointer;
-
-  &:disabled {
-    opacity: 0.55;
-    cursor: default;
-  }
-}
-
 .preset-button {
-  padding: 8px 14px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.08);
-  color: #ffffff;
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-
   &.danger {
     border-color: rgba(248, 113, 113, 0.4);
     color: #fca5a5;
   }
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-}
-
-.helper-text {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: rgba(255, 255, 255, 0.55);
 }
 
 .flow-panel {
@@ -1695,33 +1545,6 @@ onMounted(load);
   font-size: 11px;
   line-height: 1.7;
   color: rgba(148, 163, 184, 0.9);
-}
-
-.error-box {
-  margin: 0;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: rgba(248, 113, 113, 0.14);
-  color: #fca5a5;
-  font-size: 13px;
-}
-
-.ok-box {
-  margin: 0;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: rgba(52, 211, 153, 0.14);
-  color: #6ee7b7;
-  font-size: 13px;
-}
-
-.empty-box {
-  margin: 0;
-  padding: 14px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.05);
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.62);
 }
 
 .compact-list {
@@ -1833,13 +1656,6 @@ onMounted(load);
   }
 }
 
-.row-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
 .row-note {
   margin-left: auto;
   font-size: 12px;
@@ -1847,11 +1663,6 @@ onMounted(load);
 }
 
 .status-chip {
-  padding: 3px 9px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 800;
-
   &.ok {
     background: rgba(52, 211, 153, 0.18);
     color: #6ee7b7;

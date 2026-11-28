@@ -825,24 +825,11 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped lang="scss">
+@use "../../scss/_arc-ui" as *;
 .arc-exam-print-panel {
   display: flex;
   flex-direction: column;
   gap: 16px;
-}
-
-.panel-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-  flex-wrap: wrap;
-
-  h2 {
-    margin: 0 0 6px;
-    font-size: 17px;
-    font-weight: 800;
-  }
 }
 
 .panel-head-text {
@@ -853,9 +840,9 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   padding: 5px 10px;
   border-radius: 999px;
-  border: 1px solid var(--arc-brand-line, #fed7aa);
-  background: var(--arc-brand-soft, #fff7ed);
-  color: #9a3412;
+  border: 1px solid var(--arc-brand-line, rgba(251, 191, 36, 0.36));
+  background: var(--arc-brand-soft, rgba(251, 191, 36, 0.14));
+  color: #fcd34d;
   font-size: 11.5px;
   font-weight: 800;
 }
@@ -865,9 +852,9 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 14px;
   padding: 16px;
-  border: 1px solid var(--arc-line, #e2e8f0);
+  border: 1px solid var(--arc-line, rgba(255, 255, 255, 0.12));
   border-radius: var(--arc-radius, 14px);
-  background: var(--arc-surface, #fff);
+  background: var(--arc-surface, rgba(255, 255, 255, 0.08));
 }
 
 .control-grid,
@@ -880,7 +867,7 @@ onBeforeUnmount(() => {
 .control-label {
   font-size: 12.5px;
   font-weight: 800;
-  color: var(--arc-ink-2, #41506a);
+  color: var(--arc-ink-2, rgba(255, 255, 255, 0.86));
 }
 
 .choice-row {
@@ -898,10 +885,10 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 3px;
   padding: 10px 12px;
-  border: 1px solid var(--arc-line-2, #cbd5e1);
+  border: 1px solid var(--arc-line-2, rgba(255, 255, 255, 0.16));
   border-radius: 12px;
-  background: var(--arc-surface-2, #f8fafc);
-  color: var(--arc-ink, #111c2e);
+  background: var(--arc-surface-2, rgba(255, 255, 255, 0.05));
+  color: var(--arc-ink, #ffffff);
   text-align: left;
   cursor: pointer;
 
@@ -911,13 +898,13 @@ onBeforeUnmount(() => {
 
   small {
     font-size: 11.5px;
-    color: var(--arc-ink-3, #5a6780);
+    color: var(--arc-ink-3, rgba(255, 255, 255, 0.74));
   }
 
   &.active {
-    border-color: var(--arc-brand, #b45309);
-    background: var(--arc-brand-soft, #fff7ed);
-    box-shadow: inset 0 0 0 1px var(--arc-brand-line, #fed7aa);
+    border-color: var(--arc-brand, #f59e0b);
+    background: var(--arc-brand-soft, rgba(251, 191, 36, 0.14));
+    box-shadow: inset 0 0 0 1px var(--arc-brand-line, rgba(251, 191, 36, 0.36));
   }
 }
 
@@ -926,37 +913,28 @@ onBeforeUnmount(() => {
   min-width: 18px;
   padding: 0 5px;
   border-radius: 999px;
-  border: 1px solid var(--arc-line-2, #cbd5e1);
-  background: #fff;
+  border: 1px solid var(--arc-line-2, rgba(255, 255, 255, 0.16));
+  background: rgba(255, 255, 255, 0.08);
   font-size: 11px;
   font-weight: 800;
   line-height: 16px;
   text-align: center;
-  color: var(--arc-ink-3, #64748b);
+  color: var(--arc-ink-3, rgba(255, 255, 255, 0.64));
 }
 
 .choice-button.active .choice-check {
-  border-color: var(--arc-brand, #b45309);
-  background: var(--arc-brand, #b45309);
+  border-color: var(--arc-brand, #f59e0b);
+  background: var(--arc-brand, rgba(217, 119, 6, 0.85));
   color: #fff;
 }
 
 .field {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
   font-size: 12.5px;
   font-weight: 700;
-  color: var(--arc-ink-2, #41506a);
+  color: var(--arc-ink-2, rgba(255, 255, 255, 0.86));
 
   input {
-    padding: 9px 11px;
-    border: 1px solid var(--arc-line-2, #cbd5e1);
-    border-radius: 10px;
-    background: #fff;
-    font-size: 13px;
     font-weight: 500;
-    color: var(--arc-ink, #111c2e);
   }
 }
 
@@ -966,24 +944,24 @@ onBeforeUnmount(() => {
   gap: 7px;
   font-size: 12.5px;
   font-weight: 700;
-  color: var(--arc-ink-2, #41506a);
+  color: var(--arc-ink-2, rgba(255, 255, 255, 0.86));
 }
 
 textarea {
   padding: 10px 12px;
-  border: 1px solid var(--arc-line-2, #cbd5e1);
+  border: 1px solid var(--arc-line-2, rgba(255, 255, 255, 0.16));
   border-radius: 10px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.08);
   font-size: 13px;
   line-height: 1.6;
-  color: var(--arc-ink, #111c2e);
+  color: var(--arc-ink, #ffffff);
   resize: vertical;
 }
 
 .control-hint {
   font-size: 11.5px;
   line-height: 1.6;
-  color: var(--arc-ink-3, #5a6780);
+  color: var(--arc-ink-3, rgba(255, 255, 255, 0.74));
 }
 
 .action-row {
@@ -996,21 +974,21 @@ textarea {
 .seed-chip {
   padding: 5px 10px;
   border-radius: 999px;
-  border: 1px solid var(--arc-line-2, #cbd5e1);
-  background: var(--arc-surface-3, #f1f5f9);
+  border: 1px solid var(--arc-line-2, rgba(255, 255, 255, 0.16));
+  background: var(--arc-surface-3, rgba(255, 255, 255, 0.06));
   font-size: 11.5px;
   font-weight: 700;
-  color: var(--arc-ink-2, #41506a);
+  color: var(--arc-ink-2, rgba(255, 255, 255, 0.86));
 }
 
 .bundle-chip {
   padding: 5px 10px;
   border-radius: 999px;
-  border: 1px solid #bfdbfe;
-  background: #eff6ff;
+  border: 1px solid rgba(96, 165, 250, 0.36);
+  background: rgba(96, 165, 250, 0.16);
   font-size: 11.5px;
   font-weight: 700;
-  color: #1d4ed8;
+  color: #93c5fd;
 }
 
 .audience-chip {
@@ -1028,7 +1006,7 @@ textarea {
   padding-left: 18px;
   font-size: 12.5px;
   line-height: 1.7;
-  color: var(--arc-ink-2, #41506a);
+  color: var(--arc-ink-2, rgba(255, 255, 255, 0.86));
 }
 
 /* ── 출력물(종이) 모양 ────────────────────────────────── */
@@ -1504,7 +1482,7 @@ textarea {
 
   body.arc-study-open .admin-content {
     padding: 0;
-    background: #fff;
+    background: rgba(255, 255, 255, 0.08);
   }
 
   body.arc-study-open .arc-exam-print-panel {

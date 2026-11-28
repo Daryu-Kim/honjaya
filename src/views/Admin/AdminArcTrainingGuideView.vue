@@ -886,6 +886,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped lang="scss">
+@use "../../scss/_arc-ui" as *;
 .admin-arc-training-guide-view {
   display: flex;
   flex-direction: column;
@@ -895,56 +896,8 @@ onUnmounted(() => {
   color: #ffffff;
 }
 
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
 .header-left {
   max-width: 780px;
-}
-
-.eyebrow {
-  margin: 0 0 6px;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  color: rgba(255, 255, 255, 0.55);
-}
-
-.page-header h1 {
-  margin: 0 0 6px;
-  font-size: 26px;
-  font-weight: 800;
-}
-
-.description {
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.7;
-  color: rgba(255, 255, 255, 0.66);
-}
-
-.header-links {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.link-button {
-  padding: 10px 16px;
-  border-radius: 12px;
-  border: 1px solid rgba(99, 102, 241, 0.4);
-  background: rgba(99, 102, 241, 0.16);
-  color: #c7d2fe;
-  font-size: 13px;
-  font-weight: 700;
-  text-decoration: none;
-  white-space: nowrap;
 }
 
 .print-button {
@@ -968,33 +921,13 @@ onUnmounted(() => {
 }
 
 .filter-row {
-  display: flex;
-  align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
 
   h2 {
     margin: 0;
     font-size: 15px;
     font-weight: 800;
   }
-}
-
-.filter-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.ghost-button {
-  padding: 6px 12px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: transparent;
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
 }
 
 .chip-row {
@@ -1049,26 +982,6 @@ onUnmounted(() => {
   font-size: 12px;
   line-height: 1.6;
   color: rgba(255, 255, 255, 0.5);
-}
-
-.error-box {
-  margin: 0;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: rgba(239, 68, 68, 0.16);
-  border: 1px solid rgba(239, 68, 68, 0.4);
-  color: #fecaca;
-  font-size: 13px;
-}
-
-.empty-box {
-  margin: 0;
-  padding: 22px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 13px;
-  text-align: center;
 }
 
 /* 인쇄 결과와 최대한 같게 보이도록 종이 느낌으로 표시합니다. */
@@ -2011,13 +1924,13 @@ onUnmounted(() => {
   }
 
   body.arc-guide-open {
-    background: #ffffff !important;
+    background: rgba(255, 255, 255, 0.08) !important;
   }
 
   body.arc-guide-open .admin-layout {
     display: block !important;
-    background: #ffffff !important;
-    color: #111827 !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+    color: #ffffff !important;
     color-scheme: light !important;
     min-height: auto !important;
   }
@@ -2037,7 +1950,7 @@ onUnmounted(() => {
 
   body.arc-guide-open .admin-content {
     padding: 0 !important;
-    background: #ffffff !important;
+    background: rgba(255, 255, 255, 0.08) !important;
   }
 
   body.arc-guide-open .guide-sheet {

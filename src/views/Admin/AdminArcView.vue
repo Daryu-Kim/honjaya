@@ -9,61 +9,39 @@
           함부로 열리지 않게 잠가 두고, 열람할 때는 사건별 승인을 받아요.
         </p>
       </div>
-      <nav class="header-links">
-        <router-link to="/admin/arc/routine" class="link-button">
-          월간 루틴
-        </router-link>
-        <router-link to="/admin/arc/training" class="link-button">
-          교육·OT
-        </router-link>
-        <router-link to="/admin/arc/stock" class="link-button">
-          재고·유효기간
-        </router-link>
-        <router-link to="/admin/arc/stocktakes" class="link-button">
-          월 실사
-        </router-link>
-        <router-link to="/admin/arc/purchases" class="link-button">
-          보충·정산
-        </router-link>
-        <router-link to="/admin/arc/otc" class="link-button">
-          개인 상비약
-        </router-link>
-        <router-link to="/admin/arc/incidents" class="link-button">
-          사건·응급기록
-        </router-link>
-        <router-link to="/admin/arc/usages" class="link-button">
-          사용대장
-        </router-link>
-        <router-link to="/admin/arc/expenses" class="link-button">
-          실비정산
-        </router-link>
-        <router-link to="/admin/arc/quality" class="link-button">
-          사후검토·개선
-        </router-link>
-        <router-link to="/admin/arc/events" class="link-button">
-          행사·의료지원
-        </router-link>
-        <router-link to="/admin/arc/consents" class="link-button">
-          동의서 관리
-        </router-link>
-        <router-link
-          v-if="canApprove"
-          to="/admin/arc/access"
-          class="link-button"
+      <div class="panel-actions">
+        <button
+          type="button"
+          class="preset-button"
+          :disabled="isLoading"
+          @click="loadAll"
         >
-          열람 승인
-        </router-link>
-        <router-link
-          v-if="canAdmin"
-          to="/admin/arc/settings"
-          class="link-button"
-        >
-          설정
-        </router-link>
-      </nav>
+          새로고침
+        </button>
+      </div>
     </header>
 
     <p v-if="errorMessage" class="error-box">{{ errorMessage }}</p>
+
+    <section class="panel menu-panel">
+      <div class="panel-head">
+        <div>
+          <h2>빠른 메뉴</h2>
+          <p>응급안전관리센터에서 지금 하려는 일을 골라 주세요.</p>
+        </div>
+      </div>
+      <div class="menu-grid">
+        <router-link
+          v-for="menu in menus"
+          :key="menu.to"
+          :to="menu.to"
+          class="menu-tile"
+        >
+          {{ menu.label }}
+          <small>{{ menu.hint }}</small>
+        </router-link>
+      </div>
+    </section>
 
     <section class="summary-grid">
       <article class="summary-card">
@@ -350,7 +328,7 @@ import {
   formatArcMoney,
   markArcNotificationsRead,
 } from "@/lib/arc";
-import { hasPermission } from "@/lib/staffAuth";
+import { hasPermission, staffAuthState } from "@/lib/staffAuth";
 
 const summary = ref({});
 const routine = ref({});
@@ -365,8 +343,147 @@ const unreadOnly = ref(false);
 const isLoading = ref(false);
 const errorMessage = ref("");
 
-const canApprove = computed(() => hasPermission("arc.approve"));
-const canAdmin = computed(() => hasPermission("arc.admin"));
+const isDirector = computed(() =>
+  Boolean(staffAuthState.employee?.isArcDirector)
+);
+
+// 대시보드 '빠른 메뉴' 타일. 라우터의 meta.permission 과 같은 값을 적어 두어,
+// 권한이 없는 메뉴는 눌렀다가 되돌아오는 일 없이 아예 그리지 않습니다.
+const ARC_MENUS = [
+  {
+    to: "/admin/arc/routine",
+    label: "월간 루틴",
+    hint: "이번 달 해야 할 일과 기한",
+    permission: "arc.routine",
+  },
+  {
+    to: "/admin/arc/training",
+    label: "교육·OT",
+    hint: "월간 OT · 정기교육 · 구두시험",
+    permission: "arc.training",
+  },
+  {
+    to: "/admin/arc/stock",
+    label: "재고·유효기간",
+    hint: "구급상자 품목 · 등급 · 사용기한",
+    permission: "arc.stock",
+  },
+  {
+    to: "/admin/arc/stocktakes",
+    label: "월 실사",
+    hint: "월 1회 실사 등록과 차이 확인",
+    permission: "arc.stocktake",
+  },
+  {
+    to: "/admin/arc/purchases",
+    label: "보충·정산",
+    hint: "부족한 품목 보충 요청과 결제",
+    permission: "arc.purchase",
+  },
+  {
+    to: "/admin/arc/otc",
+    label: "개인 상비약",
+    hint: "직원·사장 상비약과 단가 관리",
+    permission: "arc.otc",
+  },
+  {
+    to: "/admin/arc/incidents",
+    label: "사건·응급기록",
+    hint: "사건 접수와 응급처치 기록",
+    permission: "arc.care",
+  },
+  {
+    to: "/admin/arc/care",
+    label: "상세 건강기록",
+    hint: "동의받은 기록지만 열어 보기",
+    permission: "arc.sensitive",
+  },
+  {
+    to: "/admin/arc/usages",
+    label: "사용대장",
+    hint: "언제 누가 무엇을 얼마나 썼는지",
+    permission: "arc.usage",
+  },
+  {
+    to: "/admin/arc/expenses",
+    label: "실비정산",
+    hint: "소모금액 합산과 사장 정산",
+    permission: "arc.expense",
+  },
+  {
+    to: "/admin/arc/quality",
+    label: "사후검토·개선",
+    hint: "F11 사후검토 · CAPA 개선조치",
+    permission: "arc.quality",
+  },
+  {
+    to: "/admin/arc/events",
+    label: "행사·의료지원",
+    hint: "혼자야 행사 의료지원 준비",
+    permission: "arc.event",
+  },
+  {
+    to: "/admin/arc/consents",
+    label: "동의서 관리",
+    hint: "동의서 종류 · 서명 · 효력",
+    permission: "arc.consent",
+  },
+  {
+    to: "/admin/arc/requests",
+    label: "요청게시판",
+    hint: "직원·사장 요청과 진행 상태",
+  },
+  {
+    to: "/admin/arc/assistant",
+    label: "ARC 비서",
+    hint: "오늘 할 일과 내 권한 안내",
+    permission: "arc.assistant",
+  },
+  {
+    to: "/admin/arc/training/guide",
+    label: "교육자료",
+    hint: "교육 모듈 · 상황연습 · 절대금지",
+    permission: "arc.guide",
+  },
+  {
+    to: "/admin/arc/verbal-paper",
+    label: "구두시험·시험지",
+    hint: "시험지 · 교육자용 · 족보 출력",
+    directorOnly: true,
+  },
+  {
+    to: "/admin/arc/people",
+    label: "직원·사장 관리",
+    hint: "기본정보 · 건강상태 기록",
+    directorOnly: true,
+  },
+  {
+    to: "/admin/arc/permissions",
+    label: "응급안전 권한 관리",
+    hint: "메뉴·기능별 권한 조정",
+    directorOnly: true,
+  },
+  {
+    to: "/admin/arc/access",
+    label: "열람 승인",
+    hint: "사장 요청 검토와 기록지 전달",
+    permission: "arc.sensitive",
+  },
+  {
+    to: "/admin/arc/settings",
+    label: "설정",
+    hint: "알림 채널 · 기본값",
+    permission: "arc.admin",
+  },
+];
+
+const menus = computed(() =>
+  ARC_MENUS.filter((menu) => {
+    if (menu.directorOnly && !isDirector.value) return false;
+
+    return !menu.permission || hasPermission(menu.permission);
+  })
+);
 
 async function loadSummary() {
   try {
@@ -425,6 +542,7 @@ onMounted(loadAll);
 </script>
 
 <style scoped lang="scss">
+@use "../../scss/_arc-ui" as *;
 .admin-arc-view {
   display: flex;
   flex-direction: column;
@@ -434,104 +552,12 @@ onMounted(loadAll);
   color: #ffffff;
 }
 
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-}
-
-.page-header .eyebrow {
-  margin: 0 0 6px;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  color: rgba(255, 255, 255, 0.55);
-}
-
-.page-header h1 {
-  margin: 0 0 6px;
-  font-size: 26px;
-  font-weight: 800;
-}
-
-.description {
-  margin: 0;
-  max-width: 660px;
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.66);
-}
-
-.header-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.link-button {
-  flex-shrink: 0;
-  padding: 10px 16px;
-  border-radius: 12px;
-  border: 1px solid rgba(99, 102, 241, 0.4);
-  background: rgba(99, 102, 241, 0.16);
-  color: #c7d2fe;
-  font-size: 13px;
-  font-weight: 700;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
-}
-
-.summary-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 16px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.08);
-
-  &.alert {
-    background: rgba(251, 191, 36, 0.16);
-  }
-
-  strong {
-    font-size: 20px;
-    font-weight: 800;
-  }
-}
-
-.summary-label {
-  font-size: 12px;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.66);
-}
-
 .summary-card .dim {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.55);
 }
 
-.error-box {
-  margin: 0;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: rgba(248, 113, 113, 0.14);
-  color: #fca5a5;
-  font-size: 13px;
-}
-
 .warn-box {
-  padding: 14px 16px;
-  border-radius: 14px;
-  background: rgba(251, 191, 36, 0.14);
-  color: #fcd34d;
-  font-size: 13px;
-
   strong {
     display: block;
     margin-bottom: 6px;
@@ -549,69 +575,6 @@ onMounted(loadAll);
     background: rgba(0, 0, 0, 0.3);
     font-size: 12px;
   }
-}
-
-.panel {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 18px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.panel-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-
-  h2 {
-    margin: 0;
-    font-size: 17px;
-    font-weight: 800;
-  }
-}
-
-.panel-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.checkbox-field {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.72);
-}
-
-.preset-button {
-  padding: 8px 14px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.08);
-  color: #ffffff;
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-}
-
-.empty-box {
-  margin: 0;
-  padding: 16px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.05);
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.62);
 }
 
 .notification-list {
@@ -662,13 +625,6 @@ onMounted(loadAll);
   line-height: 1.6;
   color: rgba(255, 255, 255, 0.72);
   white-space: pre-wrap;
-}
-
-.row-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 12px;
 }
 
 .incident-no {
