@@ -3,15 +3,15 @@
 // 규칙
 //   * 사건 헤더(arc_incidents)는 비식별 운영정보만 담습니다. 요약에는 주민등록번호·전화번호·
 //     이메일 같은 식별 정보를 넣을 수 없고, 서버가 6자리 이상 숫자와 @ 를 거부합니다.
-//   * 식별 가능한 건강정보는 arc_care_* 의 *_enc 컬럼에만 암호화해 넣고 뺍니다.
+//   * 식별 가능한 건강정보는 arc_care_* 의 *_enc 컬럼에만 넣고 뺍니다(별도 키 없이 저장).
 //   * 상세기록 저장은 동의/법적근거 확인이 끝나야 열립니다(F25=직원, F27=비응급 고객,
 //     응급·119 인계만 '해당없음'). 비식별(DEIDENTIFIED) 건은 상세기록을 저장하지 않습니다.
 //   * 저장 직후 작성자에게 그 사건의 열람 승인을 자동 발급합니다. 승인 없이는 작성자도
 //     다시 열 수 없고, 자기 요청 자기 승인이 막혀 기록이 잠기는 것을 피하기 위한 장치입니다.
-//   * 조회는 라우트에서 arc.sensitive + 사건별 승인 + 열람로그를 통과한 뒤에만 복호화합니다.
+//   * 조회는 라우트에서 arc.sensitive + 사건별 승인 + 열람로그를 통과한 뒤에만 내려갑니다.
 import { randomUUID } from "node:crypto";
 
-import { decryptField, encryptField } from "./arcCrypto.js";
+import { readField, storeField } from "./arcFields.js";
 import {
   createArcNotification,
   findActiveArcConsent,
@@ -20,7 +20,6 @@ import {
 } from "./arc.js";
 import { writeAuditLog } from "./auth/audit.js";
 import { isArcDirector } from "./auth/permissions.js";
-import { config } from "./config.js";
 import { pool } from "./db.js";
 import { badRequest, HttpError } from "./http/errors.js";
 
@@ -148,7 +147,7 @@ function parseKstDateTime(value) {
   return date;
 }
 
-/** 사건 요약은 비식별이어야 합니다(상세는 암호화 기록에만). */
+/** 사건 요약은 비식별이어야 합니다(상세는 별도 기록에만). */
 function safeSummary(value, label = "사건 요약", max = 500) {
   const body = text(value, max);
 
@@ -549,20 +548,18 @@ export async function updateArcIncident(incidentId, patch = {}, employee = null)
   return mapIncident({ ...rows[0], has_care: careCheck.rowCount > 0 });
 }
 
-// ── AS-CARE 상세기록(암호화) ────────────────────────────────────────────────
+// ── AS-CARE 상세기록(민감 컬럼) ─────────────────────────────────────────────
 
 function enc(value, max = 2000) {
-  return encryptField(config.arc.fieldKey, text(value, max));
+  return storeField(text(value, max));
 }
 
-function dec(envelope) {
-  if (!envelope) {
+function dec(stored) {
+  if (!stored) {
     return "";
   }
 
-  const plain = decryptField(config.arc.fieldKey, envelope);
-
-  return plain === null ? null : plain;
+  return readField(stored);
 }
 
 function hasAnyDecryptFailure(map) {
@@ -655,7 +652,7 @@ function mapCare(row) {
   };
 }
 
-/** 비식별 메타만. 상세기록이 있는지만 화면에 알려줍니다(복호화 없음). */
+/** 비식별 메타만. 상세기록이 있는지만 화면에 알려줍니다(본문 미포함). */
 export async function getArcCareStatus(incidentId) {
   const incident = await getArcIncident(incidentId);
   const { rows } = await pool.query(
@@ -678,7 +675,7 @@ export async function getArcCareStatus(incidentId) {
 }
 
 /**
- * AS-CARE 목록(민감정보 복호화 없음).
+ * AS-CARE 목록(민감정보 본문 미포함).
  * 사건 접수 목록과 분리해, 총괄이 작성한 서식과 첨부 파일 상태만 훑어볼 수 있게 합니다.
  */
 export async function listArcCareRecords({

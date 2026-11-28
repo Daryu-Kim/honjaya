@@ -322,7 +322,7 @@
               />
             </label>
             <label class="field">
-              <span>성명 (암호화 저장)</span>
+              <span>성명 (가려서 보관)</span>
               <input
                 v-model.trim="consentForm.subjectName"
                 type="text"
@@ -330,7 +330,7 @@
               />
             </label>
             <label class="field">
-              <span>연락처 (암호화 저장)</span>
+              <span>연락처 (가려서 보관)</span>
               <input
                 v-model.trim="consentForm.subjectPhone"
                 type="text"
@@ -506,8 +506,8 @@
           열람 승인을 받은 뒤 상세기록을 볼 수 있어요.
         </p>
         <p v-else-if="careData?.care?.decryptFailed" class="error-box">
-          암호문 일부를 복호화하지 못했어요. 서버의 ARC_FIELD_KEY 설정을 확인해
-          주세요.
+          저장된 기록 일부를 읽지 못했어요. 기록이 오래되었거나 형식이 바뀐
+          경우입니다. ARC 대표(최윤희)에게 화면을 캡처해 전달해 주세요.
         </p>
         <template v-else>
           <p v-if="!canCare" class="helper-text">
@@ -957,7 +957,7 @@
                   </span>
                 </div>
                 <p class="addenda-body">
-                  {{ row.decryptFailed ? "(복호화 실패)" : row.body }}
+                  {{ row.decryptFailed ? "(기록을 읽지 못함)" : row.body }}
                 </p>
               </li>
             </ul>

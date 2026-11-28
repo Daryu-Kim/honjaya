@@ -153,16 +153,16 @@
             placeholder="예: 3번 테이블 손님"
           />
           <small
-            >화면에 그대로 보이는 이름이에요. 실명은 아래 암호화 항목에
+            >화면에 그대로 보이는 이름이에요. 실명은 아래 “가려서 보관” 항목에
             적어요.</small
           >
         </label>
         <label class="field">
-          <span>성명 (암호화 저장)</span>
+          <span>성명 (가려서 보관)</span>
           <input v-model="form.subjectName" type="text" autocomplete="off" />
         </label>
         <label class="field">
-          <span>연락처 (암호화 저장)</span>
+          <span>연락처 (가려서 보관)</span>
           <input
             v-model="form.subjectPhone"
             type="text"

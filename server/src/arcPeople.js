@@ -3,7 +3,8 @@
 // 최윤희 대표가 혼자야 직원·사장을 한 표에서 관리합니다.
 //   * 이름·직위·전화·비상연락·주소·입사일·고용형태·메모는 평문 컬럼.
 //   * 주민등록번호와 건강 항목(혈액형·알레르기·지병·복용약·건강메모)은
-//     ARC_FIELD_KEY 로 암호화해서 *_enc 에만 저장합니다. 화면에는 마스킹만 보입니다.
+//     arc_fields 의 *_enc 컬럼에 넣고, 화면에는 마스킹만 보입니다.
+//     (원문 조회는 총괄이 '보기'를 눌렀을 때만 내려갑니다.)
 //   * 이 카드는 AS-CARE 상세 건강기록을 대신하지 않습니다. 진료·투약·사고 기록은
 //     기존 AS-CARE(동의·승인 절차)에 남기고, 여기에는 "알아 두면 현장에서 도움이 되는"
 //     최소 정보만 둡니다.
@@ -11,8 +12,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import { decryptField, encryptField, hasArcKey } from "./arcCrypto.js";
-import { config } from "./config.js";
+import { readField, storeField } from "./arcFields.js";
 import { pool } from "./db.js";
 import { badRequest, HttpError } from "./http/errors.js";
 
@@ -35,7 +35,7 @@ export const ARC_EMPLOYMENT_KINDS = [
 ];
 
 export const ARC_PEOPLE_TIPS = [
-  "주민등록번호는 암호화되어 저장되고, 화면에는 앞 6자리만 보입니다.",
+  "주민등록번호는 앞 6자리만 화면에 보이고, 원문은 총괄이 '보기'를 누를 때만 열립니다.",
   "건강 항목은 '현장에서 쓰러졌을 때 먼저 알아야 할 것'만 적습니다. 진단명·처방 내역은 AS-CARE에 남깁니다.",
   "이름·전화번호가 바뀌면 카드도 바로 고쳐 주세요. 사고 때 연락처가 틀리면 가장 위험합니다.",
   "입사일을 넣어 두면 신규직원 7일 교육·30일 실습 일정을 놓치지 않습니다.",
@@ -46,7 +46,6 @@ export function arcPeopleCatalog() {
     healthFields: ARC_HEALTH_FIELDS,
     employmentKinds: ARC_EMPLOYMENT_KINDS,
     tips: ARC_PEOPLE_TIPS,
-    encryptionReady: hasArcKey(config.arc.fieldKey),
   };
 }
 
@@ -105,8 +104,8 @@ function normalizeHealth(input) {
   return health;
 }
 
-function readHealth(envelope) {
-  const plain = decryptField(config.arc.fieldKey, envelope);
+function readHealth(stored) {
+  const plain = readField(stored);
 
   if (plain === null) {
     return { failed: true, bloodType: "", allergies: "", conditions: "", medications: "", note: "" };
@@ -224,7 +223,7 @@ export async function getArcPerson(personId, { revealResidentNo = false } = {}) 
     return { card };
   }
 
-  const plain = decryptField(config.arc.fieldKey, rows[0].resident_no_enc);
+  const plain = readField(rows[0].resident_no_enc);
 
   return {
     card: {
@@ -265,14 +264,14 @@ export async function saveArcPerson(input, actor) {
   const residentRaw = text(input.residentNo, 20);
   const mask = maskResidentNo(residentRaw);
   const health = normalizeHealth(input.health);
-  const healthEnc = encryptField(config.arc.fieldKey, JSON.stringify(health));
+  const healthEnc = storeField(JSON.stringify(health));
 
   const values = [
     employeeId,
     loginId,
     name,
     text(input.roleLabel, 40),
-    mask ? encryptField(config.arc.fieldKey, residentRaw) : "",
+    mask ? storeField(residentRaw) : "",
     mask,
     dateOnly(input.birthOn),
     text(input.phone, 40),

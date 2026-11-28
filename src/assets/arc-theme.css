@@ -1,0 +1,1299 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   ARC SAFETY — operations dashboard skin
+   -----------------------------------------------------------------------
+   Applied only inside <main class="admin-content arc-mode"> (see AdminLayout).
+   The dark app shell (sidebar · topbar) stays as it is; the ARC workspace
+   becomes a light "operations desk" so dense tables and long forms stay
+   readable all day.
+
+   Every rule is prefixed with
+       .admin-content.arc-mode:not(#arc)
+   :not(#arc) always matches but adds an id to the specificity, so the skin
+   wins over each view's scoped rules (.class[data-v-x] = 0,2,0) without a
+   single !important and without depending on stylesheet order.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.admin-content.arc-mode {
+  --arc-page: #eef2f8;
+  --arc-surface: #ffffff;
+  --arc-surface-2: #f8fafc;
+  --arc-surface-3: #f1f5f9;
+  --arc-line: #e2e8f0;
+  --arc-line-2: #cbd5e1;
+  --arc-ink: #111c2e;
+  --arc-ink-2: #41506a;
+  --arc-ink-3: #5a6780;
+  --arc-brand: #b45309;
+  --arc-brand-2: #f59e0b;
+  --arc-brand-soft: #fff7ed;
+  --arc-brand-line: #fed7aa;
+  --arc-ok: #047857;
+  --arc-ok-bg: #ecfdf5;
+  --arc-ok-line: #a7f3d0;
+  --arc-warn: #b45309;
+  --arc-warn-bg: #fffbeb;
+  --arc-warn-line: #fde68a;
+  --arc-danger: #b91c1c;
+  --arc-danger-bg: #fef2f2;
+  --arc-danger-line: #fecaca;
+  --arc-info: #1d4ed8;
+  --arc-info-bg: #eff6ff;
+  --arc-info-line: #bfdbfe;
+  --arc-violet: #6d28d9;
+  --arc-violet-bg: #f5f3ff;
+  --arc-violet-line: #ddd6fe;
+  --arc-radius: 14px;
+  --arc-shadow: 0 1px 2px rgba(16, 32, 56, 0.05), 0 10px 26px rgba(16, 32, 56, 0.06);
+
+  min-height: 100%;
+  background: linear-gradient(180deg, #f7f9fd 0%, var(--arc-page) 100%);
+  color: var(--arc-ink);
+  color-scheme: light;
+}
+
+/* Base ink: every element inside the workspace starts from dark ink. Declared
+   before the component rules below so their (higher) specificity refines it. */
+.admin-content.arc-mode:not(#arc) * {
+  color: var(--arc-ink);
+}
+
+/* ── 1. Page shell & header band ─────────────────────────────────────── */
+
+.admin-content.arc-mode:not(#arc) > *[class$="-view"] {
+  padding: 22px clamp(14px, 2vw, 28px) 44px;
+  gap: 16px;
+}
+
+.admin-content.arc-mode:not(#arc) .page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px 20px;
+  margin: 0;
+  padding: 18px 20px;
+  border: 1px solid var(--arc-line);
+  border-left: 4px solid var(--arc-brand-2);
+  border-radius: var(--arc-radius);
+  background: var(--arc-surface);
+  box-shadow: var(--arc-shadow);
+}
+
+.admin-content.arc-mode:not(#arc) .page-header h1 {
+  margin: 2px 0 6px;
+  font-size: clamp(19px, 1.6vw, 24px);
+  font-weight: 700;
+  letter-spacing: -0.4px;
+  line-height: 1.3;
+  color: var(--arc-ink);
+}
+
+.admin-content.arc-mode:not(#arc) .eyebrow,
+.admin-content.arc-mode:not(#arc) .paper-eyebrow {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: var(--arc-brand);
+}
+
+.admin-content.arc-mode:not(#arc) .description {
+  margin: 0;
+  max-width: 78ch;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--arc-ink-2);
+}
+
+.admin-content.arc-mode:not(#arc) .description.subtle,
+.admin-content.arc-mode:not(#arc) .sub-text,
+.admin-content.arc-mode:not(#arc) .dim {
+  color: var(--arc-ink-3);
+}
+
+.admin-content.arc-mode:not(#arc) .header-actions,
+.admin-content.arc-mode:not(#arc) .header-links,
+.admin-content.arc-mode:not(#arc) .row-actions,
+.admin-content.arc-mode:not(#arc) .panel-actions,
+.admin-content.arc-mode:not(#arc) .actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── 2. Surfaces (panels · cards · boxes holding data) ──────────────── */
+
+.admin-content.arc-mode:not(#arc) .panel,
+.admin-content.arc-mode:not(#arc) .panel-card,
+.admin-content.arc-mode:not(#arc) .form-panel,
+.admin-content.arc-mode:not(#arc) .form-card,
+.admin-content.arc-mode:not(#arc) .editor-panel,
+.admin-content.arc-mode:not(#arc) .verbal-panel,
+.admin-content.arc-mode:not(#arc) .filter-card,
+.admin-content.arc-mode:not(#arc) .period-bar,
+.admin-content.arc-mode:not(#arc) .quick-bar,
+.admin-content.arc-mode:not(#arc) .library-tools {
+  margin: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--arc-line);
+  border-radius: var(--arc-radius);
+  background: var(--arc-surface);
+  box-shadow: var(--arc-shadow);
+}
+
+.admin-content.arc-mode:not(#arc) .panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin: 0 0 14px;
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--arc-line);
+}
+
+.admin-content.arc-mode:not(#arc) .panel-head h2,
+.admin-content.arc-mode:not(#arc) .section-title,
+.admin-content.arc-mode:not(#arc) .sub-title,
+.admin-content.arc-mode:not(#arc) .section-head h2,
+.admin-content.arc-mode:not(#arc) .list-section h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  color: var(--arc-ink);
+}
+
+.admin-content.arc-mode:not(#arc) .section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 14px;
+  margin: 0 0 10px;
+}
+
+.admin-content.arc-mode:not(#arc) .panel-note,
+.admin-content.arc-mode:not(#arc) .helper-text,
+.admin-content.arc-mode:not(#arc) .helper-note,
+.admin-content.arc-mode:not(#arc) .helper-desc,
+.admin-content.arc-mode:not(#arc) .form-hint,
+.admin-content.arc-mode:not(#arc) .field-hint,
+.admin-content.arc-mode:not(#arc) .hint,
+.admin-content.arc-mode:not(#arc) .tool-hint,
+.admin-content.arc-mode:not(#arc) .flow-note,
+.admin-content.arc-mode:not(#arc) .row-note,
+.admin-content.arc-mode:not(#arc) .empty-line {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--arc-ink-3);
+}
+
+.admin-content.arc-mode:not(#arc) .mono {
+  font-family: "SFMono-Regular", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  letter-spacing: -0.1px;
+  color: var(--arc-ink-2);
+}
+
+/* ── 3. KPI tiles ───────────────────────────────────────────────────── */
+
+.admin-content.arc-mode:not(#arc) .summary-grid,
+.admin-content.arc-mode:not(#arc) .stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+  gap: 12px;
+}
+
+.admin-content.arc-mode:not(#arc) .summary-card,
+.admin-content.arc-mode:not(#arc) .stat-card,
+.admin-content.arc-mode:not(#arc) .summary-cell,
+.admin-content.arc-mode:not(#arc) .mini-card,
+.admin-content.arc-mode:not(#arc) .stat-pill {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 14px 16px 14px 18px;
+  overflow: hidden;
+  border: 1px solid var(--arc-line);
+  border-radius: 12px;
+  background: var(--arc-surface);
+  box-shadow: 0 1px 2px rgba(16, 32, 56, 0.04);
+}
+
+.admin-content.arc-mode:not(#arc) .summary-card::before,
+.admin-content.arc-mode:not(#arc) .stat-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--arc-brand-2);
+}
+
+.admin-content.arc-mode:not(#arc) .summary-label,
+.admin-content.arc-mode:not(#arc) .kpi-label,
+.admin-content.arc-mode:not(#arc) .stat-label,
+.admin-content.arc-mode:not(#arc) .stat-hint,
+.admin-content.arc-mode:not(#arc) .summary-sub,
+.admin-content.arc-mode:not(#arc) .period-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.5;
+  letter-spacing: 0.1px;
+  color: var(--arc-ink-3);
+}
+
+.admin-content.arc-mode:not(#arc) .summary-card strong,
+.admin-content.arc-mode:not(#arc) .stat-card strong,
+.admin-content.arc-mode:not(#arc) .summary-cell strong {
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.6px;
+  line-height: 1.25;
+  color: var(--arc-ink);
+}
+
+.admin-content.arc-mode:not(#arc) .summary-card.warn::before,
+.admin-content.arc-mode:not(#arc) .stat-card.warning::before {
+  background: var(--arc-warn);
+}
+
+.admin-content.arc-mode:not(#arc) .summary-card.warn strong,
+.admin-content.arc-mode:not(#arc) .stat-card.warning strong {
+  color: var(--arc-warn);
+}
+
+.admin-content.arc-mode:not(#arc) .summary-card.ok::before {
+  background: var(--arc-ok);
+}
+
+.admin-content.arc-mode:not(#arc) .summary-card.ok strong {
+  color: var(--arc-ok);
+}
+
+.admin-content.arc-mode:not(#arc) .summary-card.danger::before,
+.admin-content.arc-mode:not(#arc) .summary-card.alert::before {
+  background: var(--arc-danger);
+}
+
+.admin-content.arc-mode:not(#arc) .summary-card.danger strong,
+.admin-content.arc-mode:not(#arc) .summary-card.alert strong {
+  color: var(--arc-danger);
+}
+
+/* ── 4. Tables ──────────────────────────────────────────────────────── */
+
+.admin-content.arc-mode:not(#arc) .table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--arc-line);
+  border-radius: 12px;
+  background: var(--arc-surface);
+}
+
+.admin-content.arc-mode:not(#arc) .data-table,
+.admin-content.arc-mode:not(#arc) .admin-table,
+.admin-content.arc-mode:not(#arc) .attendance-table,
+.admin-content.arc-mode:not(#arc) .criteria-table,
+.admin-content.arc-mode:not(#arc) .kit-table,
+.admin-content.arc-mode:not(#arc) .sign-table,
+.admin-content.arc-mode:not(#arc) .oral-table,
+.admin-content.arc-mode:not(#arc) .payment-table,
+.admin-content.arc-mode:not(#arc) .library-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  color: var(--arc-ink-2);
+}
+
+.admin-content.arc-mode:not(#arc) .data-table th,
+.admin-content.arc-mode:not(#arc) .admin-table th,
+.admin-content.arc-mode:not(#arc) .attendance-table th,
+.admin-content.arc-mode:not(#arc) .criteria-table th,
+.admin-content.arc-mode:not(#arc) .kit-table th,
+.admin-content.arc-mode:not(#arc) .sign-table th,
+.admin-content.arc-mode:not(#arc) .oral-table th,
+.admin-content.arc-mode:not(#arc) .payment-table th {
+  padding: 9px 12px;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.45;
+  text-align: left;
+  letter-spacing: 0.2px;
+  color: var(--arc-ink-3);
+  background: var(--arc-surface-2);
+  border-bottom: 1px solid var(--arc-line);
+  white-space: nowrap;
+}
+
+.admin-content.arc-mode:not(#arc) .data-table td,
+.admin-content.arc-mode:not(#arc) .admin-table td,
+.admin-content.arc-mode:not(#arc) .attendance-table td,
+.admin-content.arc-mode:not(#arc) .criteria-table td,
+.admin-content.arc-mode:not(#arc) .kit-table td,
+.admin-content.arc-mode:not(#arc) .sign-table td,
+.admin-content.arc-mode:not(#arc) .oral-table td,
+.admin-content.arc-mode:not(#arc) .payment-table td {
+  padding: 10px 12px;
+  line-height: 1.6;
+  vertical-align: top;
+  color: var(--arc-ink-2);
+  border-bottom: 1px solid #eef2f7;
+}
+
+.admin-content.arc-mode:not(#arc) .data-table tbody tr:last-child td,
+.admin-content.arc-mode:not(#arc) .admin-table tbody tr:last-child td,
+.admin-content.arc-mode:not(#arc) .attendance-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.admin-content.arc-mode:not(#arc) .data-table tbody tr:nth-child(even),
+.admin-content.arc-mode:not(#arc) .admin-table tbody tr:nth-child(even) {
+  background: #fbfcfe;
+}
+
+.admin-content.arc-mode:not(#arc) .data-table tbody tr:hover,
+.admin-content.arc-mode:not(#arc) .admin-table tbody tr:hover,
+.admin-content.arc-mode:not(#arc) .attendance-table tbody tr:hover,
+.admin-content.arc-mode:not(#arc) .clickable-row:hover {
+  background: var(--arc-brand-soft);
+}
+
+.admin-content.arc-mode:not(#arc) .data-table td strong,
+.admin-content.arc-mode:not(#arc) .data-table th strong {
+  color: var(--arc-ink);
+  font-weight: 700;
+}
+
+/* ── 5. Forms ───────────────────────────────────────────────────────── */
+
+.admin-content.arc-mode:not(#arc) .field,
+.admin-content.arc-mode:not(#arc) .inline-field,
+.admin-content.arc-mode:not(#arc) .form-group,
+.admin-content.arc-mode:not(#arc) .note-field,
+.admin-content.arc-mode:not(#arc) .control-block {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+}
+
+.admin-content.arc-mode:not(#arc) .field > span,
+.admin-content.arc-mode:not(#arc) .inline-field > span,
+.admin-content.arc-mode:not(#arc) .form-group > label,
+.admin-content.arc-mode:not(#arc) .field > label,
+.admin-content.arc-mode:not(#arc) .field-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.1px;
+  color: var(--arc-ink-3);
+}
+
+.admin-content.arc-mode:not(#arc) .field small,
+.admin-content.arc-mode:not(#arc) .field .helper,
+.admin-content.arc-mode:not(#arc) .field-hint {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--arc-ink-3);
+}
+
+.admin-content.arc-mode:not(#arc) input:not([type="checkbox"]):not([type="radio"]),
+.admin-content.arc-mode:not(#arc) select,
+.admin-content.arc-mode:not(#arc) textarea {
+  width: 100%;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--arc-ink);
+  background: var(--arc-surface);
+  border: 1px solid var(--arc-line-2);
+  border-radius: 9px;
+  box-shadow: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.admin-content.arc-mode:not(#arc) input:not([type="checkbox"]):not([type="radio"]):focus,
+.admin-content.arc-mode:not(#arc) select:focus,
+.admin-content.arc-mode:not(#arc) textarea:focus {
+  outline: none;
+  border-color: var(--arc-brand-2);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.22);
+}
+
+.admin-content.arc-mode:not(#arc) select option {
+  color: #111c2e;
+  background: #ffffff;
+}
+
+.admin-content.arc-mode:not(#arc) ::placeholder {
+  color: #94a3b8;
+}
+
+.admin-content.arc-mode:not(#arc) .inline-input,
+.admin-content.arc-mode:not(#arc) .search-input,
+.admin-content.arc-mode:not(#arc) .qty-input {
+  padding: 7px 10px;
+  font-size: 12.5px;
+  color: var(--arc-ink);
+  background: var(--arc-surface);
+  border: 1px solid var(--arc-line-2);
+  border-radius: 9px;
+}
+
+.admin-content.arc-mode:not(#arc) .checkbox-field,
+.admin-content.arc-mode:not(#arc) .check-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--arc-ink-2);
+}
+
+.admin-content.arc-mode:not(#arc) .checkbox-field input,
+.admin-content.arc-mode:not(#arc) .check-item input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--arc-brand-2);
+}
+
+.admin-content.arc-mode:not(#arc) .field-row,
+.admin-content.arc-mode:not(#arc) .field-grid,
+.admin-content.arc-mode:not(#arc) .form-grid,
+.admin-content.arc-mode:not(#arc) .inline-form {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-content.arc-mode:not(#arc) .choice,
+.admin-content.arc-mode:not(#arc) .code-button,
+.admin-content.arc-mode:not(#arc) .scope-button,
+.admin-content.arc-mode:not(#arc) .item-button {
+  padding: 8px 11px;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+  color: var(--arc-ink-2);
+  background: var(--arc-surface-2);
+  border: 1px solid var(--arc-line);
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.admin-content.arc-mode:not(#arc) .choice:hover,
+.admin-content.arc-mode:not(#arc) .code-button:hover,
+.admin-content.arc-mode:not(#arc) .scope-button:hover,
+.admin-content.arc-mode:not(#arc) .item-button:hover {
+  border-color: var(--arc-brand-line);
+  background: var(--arc-brand-soft);
+  color: var(--arc-brand);
+}
+
+.admin-content.arc-mode:not(#arc) .choice.active,
+.admin-content.arc-mode:not(#arc) .code-button.active,
+.admin-content.arc-mode:not(#arc) .scope-button.active,
+.admin-content.arc-mode:not(#arc) .item-button.active {
+  color: #7c2d12;
+  background: #ffedd5;
+  border-color: var(--arc-brand-2);
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.35);
+}
+
+.admin-content.arc-mode:not(#arc) .choice.active *,
+.admin-content.arc-mode:not(#arc) .code-button.active *,
+.admin-content.arc-mode:not(#arc) .scope-button.active *,
+.admin-content.arc-mode:not(#arc) .item-button.active * {
+  color: inherit;
+}
+
+/* ── 6. Buttons ─────────────────────────────────────────────────────── */
+
+.admin-content.arc-mode:not(#arc) button,
+.admin-content.arc-mode:not(#arc) .primary-button,
+.admin-content.arc-mode:not(#arc) .create-button,
+.admin-content.arc-mode:not(#arc) .edit-button,
+.admin-content.arc-mode:not(#arc) .secondary-button,
+.admin-content.arc-mode:not(#arc) .ghost-button,
+.admin-content.arc-mode:not(#arc) .mini-button,
+.admin-content.arc-mode:not(#arc) .preset-button,
+.admin-content.arc-mode:not(#arc) .reset-button,
+.admin-content.arc-mode:not(#arc) .refresh,
+.admin-content.arc-mode:not(#arc) .icon-button,
+.admin-content.arc-mode:not(#arc) .text-button,
+.admin-content.arc-mode:not(#arc) .tab-button,
+.admin-content.arc-mode:not(#arc) .view-tab,
+.admin-content.arc-mode:not(#arc) .filter-chip {
+  padding: 8px 13px;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--arc-ink-2);
+  background: var(--arc-surface);
+  border: 1px solid var(--arc-line-2);
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.admin-content.arc-mode:not(#arc) button:hover,
+.admin-content.arc-mode:not(#arc) .secondary-button:hover,
+.admin-content.arc-mode:not(#arc) .ghost-button:hover,
+.admin-content.arc-mode:not(#arc) .mini-button:hover,
+.admin-content.arc-mode:not(#arc) .preset-button:hover,
+.admin-content.arc-mode:not(#arc) .reset-button:hover,
+.admin-content.arc-mode:not(#arc) .refresh:hover,
+.admin-content.arc-mode:not(#arc) .icon-button:hover,
+.admin-content.arc-mode:not(#arc) .tab-button:hover,
+.admin-content.arc-mode:not(#arc) .view-tab:hover {
+  color: var(--arc-brand);
+  background: var(--arc-brand-soft);
+  border-color: var(--arc-brand-line);
+}
+
+.admin-content.arc-mode:not(#arc) .primary-button,
+.admin-content.arc-mode:not(#arc) .create-button,
+.admin-content.arc-mode:not(#arc) .edit-button {
+  color: #ffffff;
+  background: linear-gradient(180deg, #d97706, #b45309);
+  border-color: #b45309;
+  box-shadow: 0 6px 14px rgba(180, 83, 9, 0.22);
+}
+
+.admin-content.arc-mode:not(#arc) .primary-button *,
+.admin-content.arc-mode:not(#arc) .create-button *,
+.admin-content.arc-mode:not(#arc) .edit-button * {
+  color: inherit;
+}
+
+.admin-content.arc-mode:not(#arc) .primary-button:hover,
+.admin-content.arc-mode:not(#arc) .create-button:hover,
+.admin-content.arc-mode:not(#arc) .edit-button:hover {
+  color: #ffffff;
+  background: linear-gradient(180deg, #b45309, #92400e);
+  border-color: #92400e;
+}
+
+.admin-content.arc-mode:not(#arc) .danger-button,
+.admin-content.arc-mode:not(#arc) .delete-button,
+.admin-content.arc-mode:not(#arc) .mini-button.danger,
+.admin-content.arc-mode:not(#arc) .preset-button.danger,
+.admin-content.arc-mode:not(#arc) .link-button.danger,
+.admin-content.arc-mode:not(#arc) .delete-group-button,
+.admin-content.arc-mode:not(#arc) .delete-option-button,
+.admin-content.arc-mode:not(#arc) .delete-product-button,
+.admin-content.arc-mode:not(#arc) .remove-button {
+  color: var(--arc-danger);
+  background: var(--arc-danger-bg);
+  border-color: var(--arc-danger-line);
+}
+
+.admin-content.arc-mode:not(#arc) .danger-button:hover,
+.admin-content.arc-mode:not(#arc) .delete-button:hover,
+.admin-content.arc-mode:not(#arc) .mini-button.danger:hover,
+.admin-content.arc-mode:not(#arc) .preset-button.danger:hover,
+.admin-content.arc-mode:not(#arc) .remove-button:hover {
+  color: #ffffff;
+  background: var(--arc-danger);
+  border-color: var(--arc-danger);
+}
+
+.admin-content.arc-mode:not(#arc) .text-button,
+.admin-content.arc-mode:not(#arc) .text-link,
+.admin-content.arc-mode:not(#arc) .inline-link,
+.admin-content.arc-mode:not(#arc) .inline-button,
+.admin-content.arc-mode:not(#arc) .link-button {
+  padding: 7px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--arc-brand);
+  background: var(--arc-brand-soft);
+  border: 1px solid var(--arc-brand-line);
+  border-radius: 999px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.admin-content.arc-mode:not(#arc) .text-button,
+.admin-content.arc-mode:not(#arc) .inline-link,
+.admin-content.arc-mode:not(#arc) .inline-button {
+  padding: 0;
+  background: none;
+  border: none;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.admin-content.arc-mode:not(#arc) .link-button:hover,
+.admin-content.arc-mode:not(#arc) .text-button:hover,
+.admin-content.arc-mode:not(#arc) .inline-button:hover {
+  color: #92400e;
+  background: #ffedd5;
+  border-color: var(--arc-brand-2);
+}
+
+.admin-content.arc-mode:not(#arc) .link-button.danger,
+.admin-content.arc-mode:not(#arc) .text-button.danger,
+.admin-content.arc-mode:not(#arc) .inline-button.danger {
+  color: var(--arc-danger);
+  background: var(--arc-danger-bg);
+  border-color: var(--arc-danger-line);
+}
+
+.admin-content.arc-mode:not(#arc) .link-button.warn,
+.admin-content.arc-mode:not(#arc) .text-button.warn {
+  color: var(--arc-warn);
+  background: var(--arc-warn-bg);
+  border-color: var(--arc-warn-line);
+}
+
+.admin-content.arc-mode:not(#arc) button:disabled,
+.admin-content.arc-mode:not(#arc) .primary-button:disabled,
+.admin-content.arc-mode:not(#arc) .mini-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  box-shadow: none;
+}
+
+.admin-content.arc-mode:not(#arc) .tab-button.active,
+.admin-content.arc-mode:not(#arc) .view-tab.active,
+.admin-content.arc-mode:not(#arc) .filter-chip.active,
+.admin-content.arc-mode:not(#arc) .filter-chip.on,
+.admin-content.arc-mode:not(#arc) .data-tab.active {
+  color: #7c2d12;
+  background: #ffedd5;
+  border-color: var(--arc-brand-2);
+}
+
+/* ── 7. Chips · badges · status ─────────────────────────────────────── */
+
+.admin-content.arc-mode:not(#arc) .status-badge,
+.admin-content.arc-mode:not(#arc) .status-chip,
+.admin-content.arc-mode:not(#arc) .tag,
+.admin-content.arc-mode:not(#arc) .chip,
+.admin-content.arc-mode:not(#arc) .kind-chip,
+.admin-content.arc-mode:not(#arc) .entry-chip,
+.admin-content.arc-mode:not(#arc) .entry-kind,
+.admin-content.arc-mode:not(#arc) .settle-chip,
+.admin-content.arc-mode:not(#arc) .role-tag,
+.admin-content.arc-mode:not(#arc) .cat-chip,
+.admin-content.arc-mode:not(#arc) .urgent-chip,
+.admin-content.arc-mode:not(#arc) .method-chip,
+.admin-content.arc-mode:not(#arc) .missing-chip,
+.admin-content.arc-mode:not(#arc) .director-chip,
+.admin-content.arc-mode:not(#arc) .bank-tag,
+.admin-content.arc-mode:not(#arc) .critical-tag,
+.admin-content.arc-mode:not(#arc) .title-chip,
+.admin-content.arc-mode:not(#arc) .tag-chip,
+.admin-content.arc-mode:not(#arc) .option-chip,
+.admin-content.arc-mode:not(#arc) .callable-chip,
+.admin-content.arc-mode:not(#arc) .days-chip,
+.admin-content.arc-mode:not(#arc) .badge-on,
+.admin-content.arc-mode:not(#arc) .badge-off,
+.admin-content.arc-mode:not(#arc) .badge-muted,
+.admin-content.arc-mode:not(#arc) .sign-badge,
+.admin-content.arc-mode:not(#arc) .intro-badge,
+.admin-content.arc-mode:not(#arc) .group-count,
+.admin-content.arc-mode:not(#arc) .perm-count,
+.admin-content.arc-mode:not(#arc) .reservation-no,
+.admin-content.arc-mode:not(#arc) .level-A,
+.admin-content.arc-mode:not(#arc) .level-B,
+.admin-content.arc-mode:not(#arc) .level-C {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.5;
+  letter-spacing: 0.1px;
+  white-space: nowrap;
+  color: var(--arc-ink-2);
+  background: var(--arc-surface-3);
+  border: 1px solid var(--arc-line);
+  border-radius: 999px;
+}
+
+.admin-content.arc-mode:not(#arc) .status-badge *,
+.admin-content.arc-mode:not(#arc) .status-chip *,
+.admin-content.arc-mode:not(#arc) .tag *,
+.admin-content.arc-mode:not(#arc) .chip *,
+.admin-content.arc-mode:not(#arc) .kind-chip *,
+.admin-content.arc-mode:not(#arc) .entry-chip *,
+.admin-content.arc-mode:not(#arc) .entry-kind *,
+.admin-content.arc-mode:not(#arc) .settle-chip *,
+.admin-content.arc-mode:not(#arc) .role-tag *,
+.admin-content.arc-mode:not(#arc) .cat-chip *,
+.admin-content.arc-mode:not(#arc) .urgent-chip *,
+.admin-content.arc-mode:not(#arc) .method-chip *,
+.admin-content.arc-mode:not(#arc) .missing-chip *,
+.admin-content.arc-mode:not(#arc) .director-chip *,
+.admin-content.arc-mode:not(#arc) .bank-tag *,
+.admin-content.arc-mode:not(#arc) .critical-tag *,
+.admin-content.arc-mode:not(#arc) .title-chip *,
+.admin-content.arc-mode:not(#arc) .tag-chip *,
+.admin-content.arc-mode:not(#arc) .option-chip *,
+.admin-content.arc-mode:not(#arc) .callable-chip *,
+.admin-content.arc-mode:not(#arc) .days-chip *,
+.admin-content.arc-mode:not(#arc) .badge-on *,
+.admin-content.arc-mode:not(#arc) .badge-off *,
+.admin-content.arc-mode:not(#arc) .badge-muted *,
+.admin-content.arc-mode:not(#arc) .intro-badge *,
+.admin-content.arc-mode:not(#arc) .group-count *,
+.admin-content.arc-mode:not(#arc) .perm-count *,
+.admin-content.arc-mode:not(#arc) .reservation-no *,
+.admin-content.arc-mode:not(#arc) .level-A *,
+.admin-content.arc-mode:not(#arc) .level-B *,
+.admin-content.arc-mode:not(#arc) .level-C *,
+.admin-content.arc-mode:not(#arc) .tab-button.active *,
+.admin-content.arc-mode:not(#arc) .view-tab.active *,
+.admin-content.arc-mode:not(#arc) .filter-chip.active *,
+.admin-content.arc-mode:not(#arc) .filter-chip.on *,
+.admin-content.arc-mode:not(#arc) .data-tab.active *,
+.admin-content.arc-mode:not(#arc) .pagination button.active *,
+.admin-content.arc-mode:not(#arc) .danger-button *,
+.admin-content.arc-mode:not(#arc) .delete-button * {
+  color: inherit;
+}
+
+.admin-content.arc-mode:not(#arc) .status-badge.ok,
+.admin-content.arc-mode:not(#arc) .status-badge.done,
+.admin-content.arc-mode:not(#arc) .status-badge.paid,
+.admin-content.arc-mode:not(#arc) .status-badge.approved,
+.admin-content.arc-mode:not(#arc) .status-chip.ok,
+.admin-content.arc-mode:not(#arc) .status-chip.done,
+.admin-content.arc-mode:not(#arc) .status-chip.sent,
+.admin-content.arc-mode:not(#arc) .tag.ok,
+.admin-content.arc-mode:not(#arc) .ok-tag,
+.admin-content.arc-mode:not(#arc) .badge-on,
+.admin-content.arc-mode:not(#arc) .settle-chip.paid,
+.admin-content.arc-mode:not(#arc) .settle-paid,
+.admin-content.arc-mode:not(#arc) .tone-ok,
+.admin-content.arc-mode:not(#arc) .text-ok,
+.admin-content.arc-mode:not(#arc) .task-done,
+.admin-content.arc-mode:not(#arc) .level-A,
+.admin-content.arc-mode:not(#arc) .entry-chip.kind-available,
+.admin-content.arc-mode:not(#arc) .entry-kind.kind-available {
+  color: var(--arc-ok);
+  background: var(--arc-ok-bg);
+  border-color: var(--arc-ok-line);
+}
+
+.admin-content.arc-mode:not(#arc) .status-badge.warn,
+.admin-content.arc-mode:not(#arc) .status-badge.pending,
+.admin-content.arc-mode:not(#arc) .status-badge.review,
+.admin-content.arc-mode:not(#arc) .status-badge.requested,
+.admin-content.arc-mode:not(#arc) .status-badge.draft,
+.admin-content.arc-mode:not(#arc) .status-chip.warn,
+.admin-content.arc-mode:not(#arc) .status-chip.planned,
+.admin-content.arc-mode:not(#arc) .status-chip.draft,
+.admin-content.arc-mode:not(#arc) .tag.warn,
+.admin-content.arc-mode:not(#arc) .warn-tag,
+.admin-content.arc-mode:not(#arc) .settle-chip.requested,
+.admin-content.arc-mode:not(#arc) .tone-warn,
+.admin-content.arc-mode:not(#arc) .warn-text,
+.admin-content.arc-mode:not(#arc) .level-B,
+.admin-content.arc-mode:not(#arc) .perm-hint-warn {
+  color: var(--arc-warn);
+  background: var(--arc-warn-bg);
+  border-color: var(--arc-warn-line);
+}
+
+.admin-content.arc-mode:not(#arc) .status-badge.danger,
+.admin-content.arc-mode:not(#arc) .status-badge.rejected,
+.admin-content.arc-mode:not(#arc) .status-chip.inactive,
+.admin-content.arc-mode:not(#arc) .tag.danger,
+.admin-content.arc-mode:not(#arc) .tone-critical,
+.admin-content.arc-mode:not(#arc) .tone-danger,
+.admin-content.arc-mode:not(#arc) .critical,
+.admin-content.arc-mode:not(#arc) .critical-tag,
+.admin-content.arc-mode:not(#arc) .text-bad,
+.admin-content.arc-mode:not(#arc) .error-text,
+.admin-content.arc-mode:not(#arc) .urgent-chip,
+.admin-content.arc-mode:not(#arc) .level-C,
+.admin-content.arc-mode:not(#arc) .routine-overdue,
+.admin-content.arc-mode:not(#arc) .entry-chip.kind-unavailable,
+.admin-content.arc-mode:not(#arc) .entry-kind.kind-unavailable {
+  color: var(--arc-danger);
+  background: var(--arc-danger-bg);
+  border-color: var(--arc-danger-line);
+}
+
+.admin-content.arc-mode:not(#arc) .status-badge.info,
+.admin-content.arc-mode:not(#arc) .status-badge.active,
+.admin-content.arc-mode:not(#arc) .status-chip.info,
+.admin-content.arc-mode:not(#arc) .status-chip.active,
+.admin-content.arc-mode:not(#arc) .tag.info,
+.admin-content.arc-mode:not(#arc) .tone-info,
+.admin-content.arc-mode:not(#arc) .cat-chip,
+.admin-content.arc-mode:not(#arc) .method-chip,
+.admin-content.arc-mode:not(#arc) .entry-chip.kind-shift,
+.admin-content.arc-mode:not(#arc) .entry-kind.kind-shift {
+  color: var(--arc-info);
+  background: var(--arc-info-bg);
+  border-color: var(--arc-info-line);
+}
+
+.admin-content.arc-mode:not(#arc) .status-badge.muted,
+.admin-content.arc-mode:not(#arc) .status-badge.neutral,
+.admin-content.arc-mode:not(#arc) .status-badge.canceled,
+.admin-content.arc-mode:not(#arc) .status-chip.canceled,
+.admin-content.arc-mode:not(#arc) .settle-chip.canceled,
+.admin-content.arc-mode:not(#arc) .tag.muted,
+.admin-content.arc-mode:not(#arc) .tone-muted,
+.admin-content.arc-mode:not(#arc) .badge-off,
+.admin-content.arc-mode:not(#arc) .badge-muted {
+  color: var(--arc-ink-3);
+  background: var(--arc-surface-3);
+  border-color: var(--arc-line);
+}
+
+.admin-content.arc-mode:not(#arc) .director-chip,
+.admin-content.arc-mode:not(#arc) .role-tag,
+.admin-content.arc-mode:not(#arc) .bank-tag {
+  color: var(--arc-violet);
+  background: var(--arc-violet-bg);
+  border-color: var(--arc-violet-line);
+}
+
+.admin-content.arc-mode:not(#arc) .chip.session.ot,
+.admin-content.arc-mode:not(#arc) .kind-chip.ot,
+.admin-content.arc-mode:not(#arc) .filter-chip.ot {
+  color: var(--arc-brand);
+  background: var(--arc-brand-soft);
+  border-color: var(--arc-brand-line);
+}
+
+.admin-content.arc-mode:not(#arc) .chip.session.regular,
+.admin-content.arc-mode:not(#arc) .kind-chip.regular,
+.admin-content.arc-mode:not(#arc) .filter-chip.regular {
+  color: var(--arc-ok);
+  background: var(--arc-ok-bg);
+  border-color: var(--arc-ok-line);
+}
+
+.admin-content.arc-mode:not(#arc) .chip.session.newbie,
+.admin-content.arc-mode:not(#arc) .kind-chip.newbie,
+.admin-content.arc-mode:not(#arc) .filter-chip.newbie {
+  color: var(--arc-warn);
+  background: var(--arc-warn-bg);
+  border-color: var(--arc-warn-line);
+}
+
+.admin-content.arc-mode:not(#arc) .chip.session.drill,
+.admin-content.arc-mode:not(#arc) .kind-chip.drill,
+.admin-content.arc-mode:not(#arc) .filter-chip.drill {
+  color: var(--arc-info);
+  background: var(--arc-info-bg);
+  border-color: var(--arc-info-line);
+}
+
+.admin-content.arc-mode:not(#arc) .chip.session.personal,
+.admin-content.arc-mode:not(#arc) .kind-chip.personal,
+.admin-content.arc-mode:not(#arc) .filter-chip.personal {
+  color: var(--arc-violet);
+  background: var(--arc-violet-bg);
+  border-color: var(--arc-violet-line);
+}
+
+.admin-content.arc-mode:not(#arc) .chip.session.refresh,
+.admin-content.arc-mode:not(#arc) .kind-chip.refresh,
+.admin-content.arc-mode:not(#arc) .filter-chip.refresh {
+  color: var(--arc-info);
+  background: var(--arc-info-bg);
+  border-color: var(--arc-info-line);
+}
+
+.admin-content.arc-mode:not(#arc) .chip.session.canceled,
+.admin-content.arc-mode:not(#arc) .chip.canceled {
+  color: var(--arc-ink-3);
+  background: var(--arc-surface-3);
+  border-color: var(--arc-line-2);
+  text-decoration: line-through;
+}
+
+.admin-content.arc-mode:not(#arc) .score-button {
+  min-width: 78px;
+  text-align: center;
+}
+
+.admin-content.arc-mode:not(#arc) .score-button.perform.active {
+  color: var(--arc-ok);
+  background: var(--arc-ok-bg);
+  border-color: var(--arc-ok);
+  box-shadow: inset 0 0 0 1px var(--arc-ok);
+}
+
+.admin-content.arc-mode:not(#arc) .score-button.partial.active {
+  color: var(--arc-warn);
+  background: var(--arc-warn-bg);
+  border-color: var(--arc-warn);
+  box-shadow: inset 0 0 0 1px var(--arc-warn);
+}
+
+.admin-content.arc-mode:not(#arc) .score-button.none.active {
+  color: var(--arc-danger);
+  background: var(--arc-danger-bg);
+  border-color: var(--arc-danger);
+  box-shadow: inset 0 0 0 1px var(--arc-danger);
+}
+
+.admin-content.arc-mode:not(#arc) .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+/* ── 8. Message boxes ───────────────────────────────────────────────── */
+
+.admin-content.arc-mode:not(#arc) .empty-box,
+.admin-content.arc-mode:not(#arc) .detail-empty,
+.admin-content.arc-mode:not(#arc) .empty-state {
+  margin: 0;
+  padding: 18px 16px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  text-align: center;
+  color: var(--arc-ink-3);
+  background: var(--arc-surface-2);
+  border: 1px dashed var(--arc-line-2);
+  border-radius: 12px;
+}
+
+.admin-content.arc-mode:not(#arc) .error-box,
+.admin-content.arc-mode:not(#arc) .ledger-error,
+.admin-content.arc-mode:not(#arc) .notice-box.error,
+.admin-content.arc-mode:not(#arc) .notice.error {
+  margin: 0;
+  padding: 11px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.65;
+  color: var(--arc-danger);
+  background: var(--arc-danger-bg);
+  border: 1px solid var(--arc-danger-line);
+  border-left: 3px solid var(--arc-danger);
+  border-radius: 10px;
+}
+
+.admin-content.arc-mode:not(#arc) .ok-box,
+.admin-content.arc-mode:not(#arc) .success-box,
+.admin-content.arc-mode:not(#arc) .done-box,
+.admin-content.arc-mode:not(#arc) .notice-box.ok,
+.admin-content.arc-mode:not(#arc) .notice.success {
+  margin: 0;
+  padding: 11px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.65;
+  color: var(--arc-ok);
+  background: var(--arc-ok-bg);
+  border: 1px solid var(--arc-ok-line);
+  border-left: 3px solid var(--arc-ok);
+  border-radius: 10px;
+}
+
+.admin-content.arc-mode:not(#arc) .warn-box,
+.admin-content.arc-mode:not(#arc) .missing-box,
+.admin-content.arc-mode:not(#arc) .lock-note {
+  margin: 0;
+  padding: 11px 14px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--arc-warn);
+  background: var(--arc-warn-bg);
+  border: 1px solid var(--arc-warn-line);
+  border-left: 3px solid var(--arc-warn);
+  border-radius: 10px;
+}
+
+.admin-content.arc-mode:not(#arc) .warn-box strong,
+.admin-content.arc-mode:not(#arc) .missing-box strong,
+.admin-content.arc-mode:not(#arc) .error-box strong,
+.admin-content.arc-mode:not(#arc) .ok-box strong {
+  color: inherit;
+}
+
+.admin-content.arc-mode:not(#arc) .warn-box p,
+.admin-content.arc-mode:not(#arc) .missing-box p,
+.admin-content.arc-mode:not(#arc) .error-box p,
+.admin-content.arc-mode:not(#arc) .ok-box p {
+  margin: 4px 0 0;
+  font-weight: 400;
+  color: inherit;
+  opacity: 0.92;
+}
+
+.admin-content.arc-mode:not(#arc) .warn-box code,
+.admin-content.arc-mode:not(#arc) .error-box code,
+.admin-content.arc-mode:not(#arc) .ok-box code {
+  padding: 1px 5px;
+  font-size: 11.5px;
+  color: inherit;
+  background: rgba(17, 28, 46, 0.07);
+  border-radius: 5px;
+}
+
+.admin-content.arc-mode:not(#arc) .guide-box,
+.admin-content.arc-mode:not(#arc) .tips,
+.admin-content.arc-mode:not(#arc) .tip-box,
+.admin-content.arc-mode:not(#arc) .term-box,
+.admin-content.arc-mode:not(#arc) .notice-box,
+.admin-content.arc-mode:not(#arc) .followup-panel,
+.admin-content.arc-mode:not(#arc) .deep-block,
+.admin-content.arc-mode:not(#arc) .complete-block {
+  margin: 0;
+  padding: 13px 15px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--arc-ink-2);
+  background: var(--arc-brand-soft);
+  border: 1px solid var(--arc-brand-line);
+  border-left: 3px solid var(--arc-brand-2);
+  border-radius: 10px;
+}
+
+.admin-content.arc-mode:not(#arc) .guide-box strong,
+.admin-content.arc-mode:not(#arc) .tips strong,
+.admin-content.arc-mode:not(#arc) .tip-box strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--arc-brand);
+}
+
+.admin-content.arc-mode:not(#arc) .notice-text,
+.admin-content.arc-mode:not(#arc) .partner-note,
+.admin-content.arc-mode:not(#arc) .gate-text {
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--arc-ink-2);
+}
+
+/* ── 9. Selectable list cards (people · requests · library) ─────────── */
+
+.admin-content.arc-mode:not(#arc) .person-card,
+.admin-content.arc-mode:not(#arc) .request-card,
+.admin-content.arc-mode:not(#arc) .library-card,
+.admin-content.arc-mode:not(#arc) .scenario-card,
+.admin-content.arc-mode:not(#arc) .settle-card,
+.admin-content.arc-mode:not(#arc) .intro-card,
+.admin-content.arc-mode:not(#arc) .session-card,
+.admin-content.arc-mode:not(#arc) .picker-card,
+.admin-content.arc-mode:not(#arc) .reply-item,
+.admin-content.arc-mode:not(#arc) .product-list-item {
+  margin: 0;
+  padding: 13px 15px;
+  text-align: left;
+  color: var(--arc-ink-2);
+  background: var(--arc-surface);
+  border: 1px solid var(--arc-line);
+  border-radius: 12px;
+}
+
+.admin-content.arc-mode:not(#arc) .person-card:hover,
+.admin-content.arc-mode:not(#arc) .request-card:hover,
+.admin-content.arc-mode:not(#arc) .library-card:hover,
+.admin-content.arc-mode:not(#arc) .scenario-card:hover,
+.admin-content.arc-mode:not(#arc) .product-list-item:hover {
+  border-color: var(--arc-brand-line);
+  background: var(--arc-brand-soft);
+}
+
+.admin-content.arc-mode:not(#arc) .person-card.active,
+.admin-content.arc-mode:not(#arc) .request-card.active,
+.admin-content.arc-mode:not(#arc) .reply-item.director,
+.admin-content.arc-mode:not(#arc) .picker-card.selected,
+.admin-content.arc-mode:not(#arc) .product-list-item.selected {
+  border-color: var(--arc-brand-2);
+  background: var(--arc-brand-soft);
+  box-shadow: inset 4px 0 0 var(--arc-brand-2);
+}
+
+.admin-content.arc-mode:not(#arc) .person-name,
+.admin-content.arc-mode:not(#arc) .person-title,
+.admin-content.arc-mode:not(#arc) .group-name,
+.admin-content.arc-mode:not(#arc) .term-title,
+.admin-content.arc-mode:not(#arc) .bullet-title,
+.admin-content.arc-mode:not(#arc) .done-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--arc-ink);
+}
+
+.admin-content.arc-mode:not(#arc) .person-meta,
+.admin-content.arc-mode:not(#arc) .done-meta,
+.admin-content.arc-mode:not(#arc) .done-note,
+.admin-content.arc-mode:not(#arc) .row-time,
+.admin-content.arc-mode:not(#arc) .row-body {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--arc-ink-3);
+}
+
+/* ── 10. Calendar (training · shift · routine) ──────────────────────── */
+
+.admin-content.arc-mode:not(#arc) .calendar-cell,
+.admin-content.arc-mode:not(#arc) .day-cell {
+  position: relative;
+  min-height: 74px;
+  padding: 7px;
+  font-size: 11.5px;
+  color: var(--arc-ink-2);
+  background: var(--arc-surface);
+  border: 1px solid var(--arc-line);
+  border-radius: 10px;
+}
+
+.admin-content.arc-mode:not(#arc) .calendar-cell.muted,
+.admin-content.arc-mode:not(#arc) .day-cell.muted,
+.admin-content.arc-mode:not(#arc) .calendar-cell.disabled {
+  color: #a3b0c2;
+  background: var(--arc-surface-2);
+}
+
+.admin-content.arc-mode:not(#arc) .day-cell.selected,
+.admin-content.arc-mode:not(#arc) .calendar-cell.selected,
+.admin-content.arc-mode:not(#arc) .calendar-cell.today,
+.admin-content.arc-mode:not(#arc) .day-cell.today {
+  border-color: var(--arc-brand-2);
+  background: var(--arc-brand-soft);
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.3);
+}
+
+.admin-content.arc-mode:not(#arc) .day-cell.callable {
+  border-color: var(--arc-ok-line);
+  background: var(--arc-ok-bg);
+}
+
+.admin-content.arc-mode:not(#arc) .day-cell.blocked {
+  border-color: var(--arc-line);
+  background: var(--arc-surface-3);
+}
+
+.admin-content.arc-mode:not(#arc) .day-number,
+.admin-content.arc-mode:not(#arc) .weekday {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--arc-ink-3);
+}
+
+.admin-content.arc-mode:not(#arc) .weekday.sunday {
+  color: var(--arc-danger);
+}
+
+.admin-content.arc-mode:not(#arc) .weekday.saturday {
+  color: var(--arc-info);
+}
+
+.admin-content.arc-mode:not(#arc) .day-detail {
+  margin: 0;
+  padding: 13px 15px;
+  color: var(--arc-ink-2);
+  background: var(--arc-surface-2);
+  border: 1px solid var(--arc-line);
+  border-radius: 12px;
+}
+
+/* ── 11. Misc chrome ────────────────────────────────────────────────── */
+
+.admin-content.arc-mode:not(#arc) .progress-track,
+.admin-content.arc-mode:not(#arc) .routine-progress {
+  height: 7px;
+  overflow: hidden;
+  background: var(--arc-surface-3);
+  border-radius: 999px;
+}
+
+.admin-content.arc-mode:not(#arc) .progress-track > *,
+.admin-content.arc-mode:not(#arc) .routine-progress > * {
+  height: 100%;
+  background: linear-gradient(90deg, var(--arc-brand-2), var(--arc-brand));
+  border-radius: 999px;
+}
+
+.admin-content.arc-mode:not(#arc) .pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--arc-ink-3);
+}
+
+.admin-content.arc-mode:not(#arc) .pagination button.active {
+  color: #ffffff;
+  background: var(--arc-brand);
+  border-color: var(--arc-brand);
+}
+
+.admin-content.arc-mode:not(#arc) .filter-group,
+.admin-content.arc-mode:not(#arc) .filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-content.arc-mode:not(#arc) .divider {
+  height: 1px;
+  margin: 12px 0;
+  border: none;
+  background: var(--arc-line);
+}
+
+.admin-content.arc-mode:not(#arc) a,
+.admin-content.arc-mode:not(#arc) .text-link {
+  color: var(--arc-brand);
+}
+
+.admin-content.arc-mode:not(#arc) mark {
+  padding: 0 3px;
+  color: #7c2d12;
+  background: #fde68a;
+  border-radius: 4px;
+}
+
+.admin-content.arc-mode:not(#arc) ::selection {
+  color: #111c2e;
+  background: #fcd34d;
+}
+
+.admin-content.arc-mode:not(#arc) ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.admin-content.arc-mode:not(#arc) ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+}
+
+/* ── 12. Print: keep the workspace paper-white ──────────────────────── */
+
+@media print {
+  body:not(.arc-guide-open):not(.arc-verbal-paper-open) .admin-content.arc-mode {
+    background: #ffffff;
+    color: #111827;
+  }
+}
+
+@media (max-width: 760px) {
+  .admin-content.arc-mode:not(#arc) .page-header {
+    align-items: flex-start;
+    padding: 15px 16px;
+  }
+
+  .admin-content.arc-mode:not(#arc) .panel,
+  .admin-content.arc-mode:not(#arc) .form-panel,
+  .admin-content.arc-mode:not(#arc) .form-card {
+    padding: 13px 14px;
+  }
+}

@@ -110,7 +110,7 @@
         </div>
       </header>
 
-      <main class="admin-content">
+      <main class="admin-content" :class="{ 'arc-mode': isArcWorkspace }">
         <router-view />
       </main>
     </div>
@@ -486,6 +486,9 @@ const arcGroupHint = computed(() =>
 
 // ARC 대표(RN)는 응급안전관리센터를 사이드바 맨 위에 두고 봅니다.
 const arcFirst = computed(() => Boolean(currentEmployee.value?.isArcDirector));
+
+// 응급안전관리센터 화면은 공통 스킨(arc-theme.css)을 입습니다.
+const isArcWorkspace = computed(() => route.path.startsWith("/admin/arc"));
 
 function toggleArcMenu() {
   isArcMenuOpen.value = !isArcMenuOpen.value;

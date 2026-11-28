@@ -4,12 +4,12 @@
 // 개인정보를 저장하는 단계(P14C)보다 이 장치들이 먼저 있어야 하므로 여기서 시작합니다.
 //
 // 규칙
-//   * 민감 컬럼은 반드시 encryptField/decryptField 를 통해서만 넣고 뺍니다.
+//   * 민감 컬럼은 반드시 storeField/readField 를 통해서만 넣고 뺍니다.
 //   * 원문은 로그·에러 메시지에 남기지 않습니다.
 //   * 알림 전송 실패(봇 꺼짐)는 업무 기록을 막지 않습니다.
 import { randomUUID } from "node:crypto";
 
-import { decryptField, encryptField, hasArcKey } from "./arcCrypto.js";
+import { readField, storeField } from "./arcFields.js";
 import { writeAuditLog } from "./auth/audit.js";
 import { isArcDirector } from "./auth/permissions.js";
 import { config } from "./config.js";
@@ -34,22 +34,8 @@ export const ARC_NOTIFICATION_LEVELS = ["INFO", "WARN", "CRITICAL"];
 
 export const ARC_CONSENT_KINDS = ["PAPER", "ELECTRONIC"];
 
-function fail(message) {
-  return new HttpError(503, "HJ503", message);
-}
-
-/** 민감정보를 다루는 경로는 키가 없으면 아예 열리지 않습니다. */
-export function requireArcFieldKey() {
-  if (!hasArcKey(config.arc.fieldKey)) {
-    throw fail(
-      "민감정보 암호화 키(ARC_FIELD_KEY)가 설정되지 않아 응급안전 기록 기능을 사용할 수 없어요."
-    );
-  }
-}
-
 export function arcHealth() {
   return {
-    fieldKeyConfigured: hasArcKey(config.arc.fieldKey),
     filesDir: config.arc.filesDir,
   };
 }
@@ -304,8 +290,8 @@ function mapConsent(row, { revealSensitive }) {
     incidentNo: row.incident_no,
     subjectLabel: row.subject_label,
     // 민감 상세(성명·연락처)는 arc.sensitive 권한 + 접근승인이 있을 때만 내려줍니다.
-    subjectName: revealSensitive ? decryptField(config.arc.fieldKey, row.subject_name_enc) : null,
-    subjectPhone: revealSensitive ? decryptField(config.arc.fieldKey, row.subject_phone_enc) : null,
+    subjectName: revealSensitive ? readField(row.subject_name_enc) : null,
+    subjectPhone: revealSensitive ? readField(row.subject_phone_enc) : null,
     kind: row.kind,
     formCode: row.form_code,
     purpose: row.purpose,
@@ -341,8 +327,6 @@ export async function listArcConsents({
 }
 
 export async function createArcConsent(input = {}, employee = null) {
-  requireArcFieldKey();
-
   const kind = ARC_CONSENT_KINDS.includes(input.kind) ? input.kind : "PAPER";
   const subjectLabel = requireText(input.subjectLabel ?? input.subjectName, "동의 대상 표시명", 80);
   const retentionUntil = String(input.retentionUntil ?? "").trim() || null;
@@ -361,8 +345,8 @@ export async function createArcConsent(input = {}, employee = null) {
       randomUUID(),
       String(input.incidentNo ?? "").trim().slice(0, 60),
       subjectLabel,
-      encryptField(config.arc.fieldKey, input.subjectName),
-      encryptField(config.arc.fieldKey, input.subjectPhone),
+      storeField(input.subjectName),
+      storeField(input.subjectPhone),
       kind,
       String(input.purpose ?? "").trim().slice(0, 300),
       String(input.scope ?? "").trim().slice(0, 300),
@@ -907,7 +891,6 @@ export async function arcDashboardSummary(employeeId = null) {
     activeConsents: rows[0]?.active_consents ?? 0,
     pendingAccess: rows[0]?.pending_access ?? 0,
     readsLast30Days: rows[0]?.reads_30d ?? 0,
-    fieldKeyConfigured: hasArcKey(config.arc.fieldKey),
     alertChannelConfigured: Boolean(settings.alertChannelId),
   };
 }

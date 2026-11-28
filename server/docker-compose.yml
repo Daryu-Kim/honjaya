@@ -50,8 +50,6 @@ services:
       BOT_TIMEOUT_MS: ${BOT_TIMEOUT_MS:-15000}
       # P14 — ARC SAFETY 증빙 파일 저장 경로(컨테이너 안). 호스트의 ./arc-files 와 연결됩니다.
       ARC_FILES_DIR: ${ARC_FILES_DIR:-/app/arc-files}
-      # 민감 건강정보 암호화 키. DB 덤프·백업에는 포함되지 않으므로 오프라인 사본을 보관하세요.
-      ARC_FIELD_KEY: ${ARC_FIELD_KEY:-}
       # 기동할 때 스키마를 한 번 확인·적용합니다(멱등). 끄려면 AUTO_SCHEMA=0 으로 실행하세요.
       AUTO_SCHEMA: ${AUTO_SCHEMA:-1}
     volumes:

@@ -6,8 +6,8 @@
         <h1>인사카드 — 직원·사장 관리</h1>
         <p class="description">
           혼자야에서 일하는 사람의 기본정보와 “현장에서 쓰러졌을 때 먼저 알아야
-          할 것”을 한 장에 모읍니다. 주민등록번호와 건강 항목은 암호화되어
-          저장되고, 화면에는 마스킹만 보여요.
+          할 것”을 한 장에 모읍니다. 주민등록번호·건강 항목은 기본적으로 가려서
+          보이고, 원문은 ARC 대표(최윤희)가 확인 버튼을 눌렀을 때만 열립니다.
         </p>
       </div>
       <nav class="header-links">
@@ -41,10 +41,12 @@
         <strong>{{ stats.healthFilled ?? 0 }}명</strong>
         <span class="summary-sub">알레르기·지병이 적힌 카드</span>
       </article>
-      <article class="summary-card" :class="{ danger: !encryptionReady }">
-        <span class="summary-label">암호화 키</span>
-        <strong>{{ encryptionReady ? "정상" : "미설정" }}</strong>
-        <span class="summary-sub">ARC_FIELD_KEY</span>
+      <article class="summary-card" :class="{ warn: joinedMissing > 0 }">
+        <span class="summary-label">입사일 미등록</span>
+        <strong>{{ joinedMissing }}명</strong>
+        <span class="summary-sub"
+          >입사일을 넣으면 근속·교육 이력이 맞아떨어져요</span
+        >
       </article>
     </section>
 
@@ -119,7 +121,7 @@
                 >복용약</span
               >
               <span v-if="!card.healthReady" class="tag danger"
-                >복호화 실패</span
+                >기록 읽기 실패</span
               >
             </span>
           </button>
@@ -183,7 +185,7 @@
             </select>
           </label>
           <label class="field">
-            <span>주민등록번호 (암호화 저장)</span>
+            <span>주민등록번호 (가려서 보관)</span>
             <input
               v-model="form.residentNo"
               type="text"
@@ -349,8 +351,8 @@ export default {
     const healthFields = computed(() => catalog.value.healthFields ?? []);
     const employmentKinds = computed(() => catalog.value.employmentKinds ?? []);
     const tips = computed(() => catalog.value.tips ?? []);
-    const encryptionReady = computed(
-      () => catalog.value.encryptionReady !== false
+    const joinedMissing = computed(
+      () => cards.value.filter((card) => !card.joinedOn).length
     );
 
     // 저장된 주민등록번호 마스킹 값 — 수정 화면에서 "바꿀 때만 입력" 안내에 씁니다.
@@ -530,7 +532,7 @@ export default {
       healthFields,
       employmentKinds,
       tips,
-      encryptionReady,
+      joinedMissing,
       residentPlaceholder,
       residentHint,
       startNew,

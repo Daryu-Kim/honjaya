@@ -2402,6 +2402,56 @@ permissions, ⑤ a director-only 인사카드 (employee/owner) menu.
 
 ---
 
+### P14R — ARC 평문 저장 전환 + 운영 대시보드 스킨 (2026-11-29)
+
+**Why:** two complaints in one turn — (1) every ARC screen mixes its own dark/translucent palette,
+so dense tables and long forms drift apart and read badly; (2) every ARC sensitive screen returned
+`503` because it required `ARC_FIELD_KEY`, and the operator has no place to set that env var.
+
+**Encryption removed (no key, no 503):**
+- New `server/src/arcFields.js` — `storeField(plain)` / `readField(value)`. Plain text in, plain text out.
+- Deleted `server/src/arcCrypto.js`. Dropped `arc.fieldKey` from `config.js`, `ARC_FIELD_KEY` from
+  `server/.env.example` and `docker-compose.yml`, `fieldKeyConfigured` from the dashboard summary, and
+  `encryptionReady` from the people catalog.
+- `arc.js` / `arcIncidents.js` / `arcPeople.js` now call `storeField` / `readField`.
+- Client: removed the key warn-box + `loadHealth()` from `AdminArcView`; the people KPI "암호화 키"
+  became "입사일 미등록" (`joinedMissing`, computed client-side from the card list); every user-facing
+  "암호화/복호화" string became "가려서 보관" / "기록을 읽지 못함".
+- `GET /api/arc/health` still exists and returns `{ status: { filesDir } }` (diagnostic only).
+- Protection is now **access control only**: `arc.sensitive` gate + director approval flow + audit log.
+  Legacy `v1:…` ciphertext rows are unreadable by design — `readField()` returns `null` so the UI shows
+  "기록을 읽지 못함" instead of crashing.
+
+**ARC skin (`src/assets/arc-theme.css`, new, ~1,290 lines):**
+- Light "operations desk" workspace **inside** the unchanged dark app shell. Imported once from
+  `src/main.js`; activated by `<main class="admin-content" :class="{ 'arc-mode': isArcWorkspace }">`
+  in `AdminLayout.vue` where `isArcWorkspace = route.path.startsWith("/admin/arc")`.
+- Tokens on `.admin-content.arc-mode` (`--arc-ink`, `--arc-surface`, `--arc-brand #b45309`,
+  ok/warn/danger/info/violet triplets, `--arc-radius`, `--arc-shadow`) + `color-scheme: light`
+  so native selects/date pickers stop rendering dark-on-dark.
+- 12 sections: page shell & header band (white card, amber left rule), surfaces, KPI tiles, tables
+  (sticky-ish header, zebra, hover), forms (focus ring `0 0 0 3px rgba(245,158,11,.22)`), buttons
+  (amber gradient primary, danger family, pill links, active tabs), chips/badges/status + tone
+  families, message boxes, selectable list cards, calendar cells, misc chrome, print guard.
+- **No `!important` anywhere.** Every selector is prefixed `.admin-content.arc-mode:not(#arc)`
+  (≈1,2,0) so it beats each view's scoped `.class[data-v-x]` (0,2,0) regardless of stylesheet order,
+  while the two `@media print` blocks that *do* use `!important` (`body.arc-guide-open`,
+  `body.arc-verbal-paper-open`) still win — the skin's own print block is wrapped in
+  `body:not(.arc-guide-open):not(.arc-verbal-paper-open)` for that reason.
+- A `:not(#arc) *` base-ink rule normalizes the ~15 dark views' hard-coded light text colors; components
+  that must keep a colored foreground re-assert + `* { color: inherit }`.
+- Direction was chosen from data, not taste: 212 light-background rules vs 22 dark-background rules
+  across the 23 ARC views, so a light skin is ~3× less invasive than a dark one.
+- Contrast verified programmatically: ink 17.1, ink-2 8.1, ink-3 5.1–5.7, brand 5.0, tone colors
+  4.7–6.5, white-on-primary 5.0 — AA everywhere.
+
+**Verification (static only, no build run):** `sass.compile()` parses the theme clean (braces 120/120,
+30/30 vars declared and used, 0 undefined); cross-check of all 261 theme class tokens against the 27
+ARC `.vue` files found a matching hook in every view; `node --check` clean on the 7 edited server files;
+grep confirms zero remaining `arcCrypto` / `ARC_FIELD_KEY` / `fieldKey` / `encryptionReady` references.
+
+---
+
 ## 4. Open questions
 
 1. ~~**₩30,000 point-redemption threshold**: before or after discount?~~ → **resolved in P5**: after discount, before point deduction.

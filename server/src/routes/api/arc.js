@@ -2,7 +2,7 @@
 //
 // 모든 경로는 직원 쿠키 세션 + arc.* 권한이 필요합니다.
 // 민감 상세(성명·연락처 등)는 arc.sensitive 권한이 있어도 사건별 접근 승인을
-// 통과해야만 복호화되어 나갑니다.
+// 통과해야만 화면으로 나갑니다.
 import {
   arcDashboardSummary,
   arcHealth,
@@ -566,7 +566,7 @@ export function registerArcRoutes(app) {
     const employee = currentEmployee(request);
     const incidentNo = query.incidentNo || null;
     const canRevealSensitive = hasPermission(request, PERMISSIONS.ARC_SENSITIVE);
-    // 성명·연락처는 arc.sensitive + 사건별 접근승인이 모두 있어야 복호화합니다.
+    // 성명·연락처는 arc.sensitive + 사건별 접근승인이 모두 있어야 내려갑니다.
     let revealSensitive = false;
 
     if (canRevealSensitive && incidentNo && isTruthyFlag(query.revealSensitive)) {

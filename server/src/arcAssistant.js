@@ -408,13 +408,13 @@ export async function arcAssistantBriefing({ employee = null } = {}) {
   }
 
   // ── 14) 필수 설정 누락 ──────────────────────────────────────────────
-  if (!dashboard.fieldKeyConfigured) {
+  if (!dashboard.alertChannelConfigured) {
     cards.push(
       card({
-        key: "settings-key",
+        key: "settings-alert-channel",
         priority: "P2",
-        title: "암호화 키 미설정",
-        detail: "상세 건강기록·동의서 암호화에 필요한 키가 아직 없습니다. 서버 환경변수를 확인하세요.",
+        title: "디스코드 알림 채널 미지정",
+        detail: "설정에서 #응급안전 채널 ID를 넣으면 유효기간·재고·사건 알림이 디스코드로도 함께 나갑니다.",
         link: "/admin/arc/settings",
         action: "설정 확인",
       })

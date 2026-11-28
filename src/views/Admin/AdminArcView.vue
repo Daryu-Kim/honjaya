@@ -6,7 +6,7 @@
         <h1>응급안전관리센터</h1>
         <p class="description">
           구급상자·응급처치·사건 기록을 한 곳에서 관리해요. 민감한 건강정보는
-          암호화해서 저장하고, 열람할 때는 사건별 승인을 받아요.
+          함부로 열리지 않게 잠가 두고, 열람할 때는 사건별 승인을 받아요.
         </p>
       </div>
       <nav class="header-links">
@@ -265,17 +265,7 @@
       </p>
     </section>
 
-    <section v-if="!isKeyReady" class="warn-box">
-      <strong>민감정보 암호화 키(ARC_FIELD_KEY)가 설정되지 않았어요.</strong>
-      <p>
-        동의서·상세 건강기록 기능은 키가 없으면 열리지 않아요. 서버
-        <code>server/.env</code>에 32바이트 키를 넣고
-        <code>docker compose up -d</code>로 다시 올려 주세요. 키를 잃으면 기존
-        기록을 복구할 수 없으니 오프라인 사본을 꼭 보관해 주세요.
-      </p>
-    </section>
-
-    <section v-else-if="!summary.alertChannelConfigured" class="warn-box">
+    <section v-if="!summary.alertChannelConfigured" class="warn-box">
       <strong>디스코드 알림 채널이 아직 지정되지 않았어요.</strong>
       <p>
         설정에서 <code>#응급안전</code> 채널 ID를 넣으면 유효기간·재고·사건
@@ -355,7 +345,6 @@ import {
   ARC_LEVEL_LABELS,
   ARC_LEVEL_TONES,
   fetchArcDashboard,
-  fetchArcHealth,
   fetchArcNotifications,
   formatArcDateTime,
   formatArcMoney,
@@ -372,7 +361,6 @@ const expense = ref({});
 const quality = ref({});
 const events = ref({});
 const notifications = ref([]);
-const isKeyReady = ref(true);
 const unreadOnly = ref(false);
 const isLoading = ref(false);
 const errorMessage = ref("");
@@ -397,16 +385,6 @@ async function loadSummary() {
   }
 }
 
-async function loadHealth() {
-  try {
-    const health = await fetchArcHealth();
-
-    isKeyReady.value = Boolean(health?.fieldKeyConfigured);
-  } catch {
-    // 상태 확인 실패는 화면을 막지 않습니다.
-  }
-}
-
 async function loadNotifications() {
   notifications.value = await fetchArcNotifications({
     unreadOnly: unreadOnly.value,
@@ -419,7 +397,7 @@ async function loadAll() {
   errorMessage.value = "";
 
   try {
-    await Promise.all([loadSummary(), loadHealth(), loadNotifications()]);
+    await Promise.all([loadSummary(), loadNotifications()]);
   } catch (error) {
     errorMessage.value = error?.message || "알림을 불러오지 못했어요.";
   } finally {
